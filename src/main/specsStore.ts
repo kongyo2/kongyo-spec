@@ -32,12 +32,30 @@ async function ensureDir(): Promise<void> {
   await fs.mkdir(getSpecsDir(), { recursive: true });
 }
 
+const locks = new Map<string, Promise<unknown>>();
+
+function withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const previous = locks.get(id) ?? Promise.resolve();
+  const run = previous.then(fn, fn);
+  locks.set(
+    id,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return run;
+}
+
 async function writeSpec(meta: SpecMeta, content: string): Promise<void> {
   const serialized = stringifyFile(
     { id: meta.id, title: meta.title, createdAt: meta.createdAt, updatedAt: meta.updatedAt },
     content,
   );
-  await fs.writeFile(fileFor(meta.id), serialized, "utf8");
+  const destination = fileFor(meta.id);
+  const temporary = `${destination}.${randomUUID()}.tmp`;
+  await fs.writeFile(temporary, serialized, "utf8");
+  await fs.rename(temporary, destination);
 }
 
 async function seedIfEmpty(): Promise<void> {
@@ -87,21 +105,27 @@ export async function createSpec(title: string): Promise<SpecMeta> {
 
 export async function saveSpec(id: string, content: string): Promise<SpecMeta> {
   if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
-  const existing = await readSpec(id);
-  const meta: SpecMeta = { ...existing.meta, updatedAt: nowIso() };
-  await writeSpec(meta, content);
-  return meta;
+  return withLock(id, async () => {
+    const existing = await readSpec(id);
+    const meta: SpecMeta = { ...existing.meta, updatedAt: nowIso() };
+    await writeSpec(meta, content);
+    return meta;
+  });
 }
 
 export async function renameSpec(id: string, title: string): Promise<SpecMeta> {
   if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
-  const existing = await readSpec(id);
-  const meta: SpecMeta = { ...existing.meta, title, updatedAt: nowIso() };
-  await writeSpec(meta, existing.content);
-  return meta;
+  return withLock(id, async () => {
+    const existing = await readSpec(id);
+    const meta: SpecMeta = { ...existing.meta, title, updatedAt: nowIso() };
+    await writeSpec(meta, existing.content);
+    return meta;
+  });
 }
 
 export async function deleteSpec(id: string): Promise<void> {
   if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
-  await fs.rm(fileFor(id), { force: true });
+  await withLock(id, async () => {
+    await fs.rm(fileFor(id), { force: true });
+  });
 }

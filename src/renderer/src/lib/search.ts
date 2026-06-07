@@ -3,9 +3,17 @@ export interface GlobalMatch {
   indexInPage: number;
 }
 
+const EXCLUDED_FROM_SEARCH = ".mermaid-block, .copy-button, .code-lang";
+
 function eachTextNode(root: Node, visit: (node: Text) => void): void {
   const doc = root.ownerDocument ?? document;
-  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (parent && parent.closest(EXCLUDED_FROM_SEARCH)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
   let node = walker.nextNode();
   while (node) {
     if (node.nodeValue && node.nodeValue.length > 0) visit(node as Text);

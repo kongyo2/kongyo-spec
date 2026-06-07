@@ -12,6 +12,7 @@ export interface HeadingInfo {
 
 interface PreviewProps {
   pageContent: string;
+  headingIds: string[];
   theme: ResolvedTheme;
   searchQuery: string;
   searchCurrentInPage: number;
@@ -75,6 +76,7 @@ function decorateCodeBlocks(container: HTMLElement): void {
 export function Preview(props: PreviewProps): React.ReactElement {
   const {
     pageContent,
+    headingIds,
     theme,
     searchQuery,
     searchCurrentInPage,
@@ -99,13 +101,13 @@ export function Preview(props: PreviewProps): React.ReactElement {
 
   useEffect(() => {
     let active = true;
-    void renderCached(pageContent).then((result) => {
+    void renderCached(pageContent, headingIds).then((result) => {
       if (active) setHtml(result);
     });
     return () => {
       active = false;
     };
-  }, [pageContent]);
+  }, [pageContent, headingIds]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -170,8 +172,10 @@ export function Preview(props: PreviewProps): React.ReactElement {
     const container = containerRef.current;
     if (!container || pendingAnchor === null) return;
     const target = container.querySelector(`[id="${CSS.escape(pendingAnchor)}"]`);
-    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-    anchorHandledRef.current();
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      anchorHandledRef.current();
+    }
   }, [html, pendingAnchor]);
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>): void => {

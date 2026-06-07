@@ -1,3 +1,8 @@
+import { toString } from "mdast-util-to-string";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import type { Root as MdastRoot } from "mdast";
+
 export interface VirtualPage {
   id: string;
   title: string;
@@ -24,59 +29,24 @@ export function slugify(input: string): string {
   return base.length > 0 ? base : "section";
 }
 
-function findBoundaries(lines: string[]): Boundary[] {
+const parser = unified().use(remarkParse);
+
+function findBoundaries(markdown: string): Boundary[] {
+  const tree = parser.parse(markdown) as MdastRoot;
   const boundaries: Boundary[] = [];
-  let inFence = false;
-  let fenceChar = "";
-  let fenceLen = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? "";
-    const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence) {
-      const marker = fence[1] ?? "";
-      const char = marker[0] ?? "`";
-      const length = marker.length;
-      const info = (fence[2] ?? "").trim();
-      if (!inFence) {
-        inFence = true;
-        fenceChar = char;
-        fenceLen = length;
-      } else if (char === fenceChar && length >= fenceLen && info.length === 0) {
-        inFence = false;
-        fenceChar = "";
-        fenceLen = 0;
-      }
-      continue;
-    }
-    if (inFence) continue;
-
-    const atx = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/.exec(line);
-    if (atx) {
-      const level = (atx[1] ?? "").length;
-      if (level === 1 || level === 2) {
-        boundaries.push({ line: i, level, title: (atx[2] ?? "").trim() });
-      }
-      continue;
-    }
-
-    const text = line.trim();
-    const next = lines[i + 1] ?? "";
-    const isIndented = /^\s/.test(line);
-    const looksLikeBlock = /^([-*+>|#]|\d+[.)])/.test(text);
-    if (text.length > 0 && !isIndented && !looksLikeBlock) {
-      if (/^=+\s*$/.test(next)) {
-        boundaries.push({ line: i, level: 1, title: text });
-      } else if (/^-+\s*$/.test(next)) {
-        boundaries.push({ line: i, level: 2, title: text });
-      }
-    }
+  for (const node of tree.children) {
+    if (node.type !== "heading") continue;
+    if (node.depth !== 1 && node.depth !== 2) continue;
+    const line = node.position?.start.line;
+    if (line === undefined) continue;
+    boundaries.push({ line: line - 1, level: node.depth, title: toString(node).trim() });
   }
   return boundaries;
 }
 
 export function splitPages(markdown: string): VirtualPage[] {
   const lines = markdown.split(/\r?\n/);
-  const boundaries = findBoundaries(lines);
+  const boundaries = findBoundaries(markdown);
   const pages: VirtualPage[] = [];
   const used = new Map<string, number>();
 

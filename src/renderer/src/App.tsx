@@ -8,6 +8,7 @@ import { Preview, type HeadingInfo } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
 import { SpecsSidebar } from "./components/SpecsSidebar";
 import { Toolbar, type EditorMode } from "./components/Toolbar";
+import { computePageHeadingIds } from "./lib/headings";
 import { renderCached } from "./lib/markdown";
 import { splitPages } from "./lib/pages";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
@@ -61,9 +62,13 @@ export function App(): React.ReactElement {
   const loadedContentRef = useRef("");
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
   const openRequestRef = useRef(0);
+  const savingRef = useRef(false);
+  const docRef = useRef<SpecDocument | null>(null);
+  docRef.current = doc;
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const pages = useMemo(() => splitPages(doc?.content ?? ""), [doc?.content]);
+  const pageHeadingIds = useMemo(() => computePageHeadingIds(pages.map((page) => page.content)), [pages]);
   const activePage = pages[pageIndex] ?? pages[0];
 
   useEffect(() => {
@@ -95,17 +100,26 @@ export function App(): React.ReactElement {
   }, []);
 
   const flushSave = useCallback(async (): Promise<void> => {
-    const pending = pendingSaveRef.current;
-    if (!pending) return;
-    pendingSaveRef.current = null;
+    if (savingRef.current) return;
+    savingRef.current = true;
     try {
-      const meta = await window.api.saveSpec(pending.id, pending.content);
-      loadedContentRef.current = pending.content;
-      setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
-      setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
-    } catch (err) {
-      setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+      while (pendingSaveRef.current) {
+        const pending = pendingSaveRef.current;
+        try {
+          const meta = await window.api.saveSpec(pending.id, pending.content);
+          if (pendingSaveRef.current === pending) pendingSaveRef.current = null;
+          if (docRef.current && docRef.current.meta.id === pending.id) {
+            loadedContentRef.current = pending.content;
+          }
+          setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
+          setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
+        } catch (err) {
+          setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+          break;
+        }
+      }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, []);
@@ -169,7 +183,9 @@ export function App(): React.ReactElement {
     let cancelled = false;
     const handle = window.setTimeout(() => {
       void (async () => {
-        const htmls = await Promise.all(pages.map((page) => renderCached(page.content)));
+        const htmls = await Promise.all(
+          pages.map((page, index) => renderCached(page.content, pageHeadingIds[index] ?? [])),
+        );
         if (cancelled) return;
         const found = buildGlobalMatches(htmls, search.query);
         setMatches(found);
@@ -182,14 +198,14 @@ export function App(): React.ReactElement {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [search.open, search.query, pages]);
+  }, [search.open, search.query, pages, pageHeadingIds]);
 
   useEffect(() => {
     if (!pendingAnchor || !doc || doc.meta.id !== pendingAnchor.docId) return;
     let cancelled = false;
     void (async () => {
       for (let i = 0; i < pages.length; i++) {
-        const html = await renderCached(pages[i]?.content ?? "");
+        const html = await renderCached(pages[i]?.content ?? "", pageHeadingIds[i] ?? []);
         if (cancelled) return;
         if (html.includes(`id="${pendingAnchor.id}"`)) {
           setPageIndex(i);
@@ -201,7 +217,7 @@ export function App(): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [pendingAnchor, pages, doc]);
+  }, [pendingAnchor, pages, doc, pageHeadingIds]);
 
   const openSearch = useCallback(() => {
     setMode("preview");
@@ -388,6 +404,7 @@ export function App(): React.ReactElement {
           ) : mode === "preview" ? (
             <Preview
               pageContent={activePage?.content ?? ""}
+              headingIds={pageHeadingIds[pageIndex] ?? []}
               theme={resolvedTheme}
               searchQuery={search.open ? search.query : ""}
               searchCurrentInPage={searchCurrentInPage}

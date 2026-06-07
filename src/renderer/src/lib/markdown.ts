@@ -3,7 +3,7 @@ import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeShikiFromHighlighter, { type RehypeShikiCoreOptions } from "@shikijs/rehype/core";
-import rehypeSlug from "rehype-slug";
+import GithubSlugger from "github-slugger";
 import rehypeStringify from "rehype-stringify";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -37,7 +37,7 @@ function rehypeMermaid() {
   };
 }
 
-const DANGEROUS_TAGS = new Set(["script", "iframe", "object", "embed", "base"]);
+const DANGEROUS_TAGS = new Set(["script", "style", "link", "iframe", "object", "embed", "base"]);
 
 function rehypeSanitizeScripts() {
   return (tree: Root): void => {
@@ -72,17 +72,32 @@ function rehypeSpecAssets() {
       if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("//") || src.startsWith("/") || src.startsWith("#")) {
         return;
       }
-      const encoded = src
-        .replace(/^\.\//, "")
-        .split("/")
-        .map((segment) => encodeURIComponent(segment))
-        .join("/");
-      props["src"] = `specfile://spec/${encoded}`;
+      try {
+        props["src"] = new URL(src, "specfile://spec/").href;
+      } catch {
+        // Leave an unresolvable relative reference as-authored.
+      }
     });
   };
 }
 
-export async function renderMarkdownToHtml(markdown: string): Promise<string> {
+function rehypeAssignIds(ids: string[]) {
+  return (tree: Root): void => {
+    const slugger = new GithubSlugger();
+    for (const id of ids) slugger.slug(id);
+    let index = 0;
+    visit(tree, "element", (node: Element) => {
+      if (!/^h[1-6]$/.test(node.tagName)) return;
+      const provided = ids[index];
+      index += 1;
+      const props = node.properties ?? {};
+      node.properties = props;
+      props["id"] = provided ?? slugger.slug(toText(node));
+    });
+  };
+}
+
+export async function renderMarkdownToHtml(markdown: string, headingIds: string[]): Promise<string> {
   const highlighter = await getShikiHighlighter();
   const shikiOptions: RehypeShikiCoreOptions = {
     themes: SHIKI_THEMES,
@@ -98,7 +113,7 @@ export async function renderMarkdownToHtml(markdown: string): Promise<string> {
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeSpecAssets)
-    .use(rehypeSlug)
+    .use(rehypeAssignIds, headingIds)
     .use(rehypeAutolinkHeadings, {
       behavior: "append",
       properties: { className: ["heading-anchor"], ariaHidden: true, tabIndex: -1 },
@@ -116,11 +131,12 @@ export async function renderMarkdownToHtml(markdown: string): Promise<string> {
 const htmlCache = new Map<string, string>();
 const MAX_CACHE = 200;
 
-export async function renderCached(content: string): Promise<string> {
-  const cached = htmlCache.get(content);
+export async function renderCached(content: string, headingIds: string[]): Promise<string> {
+  const key = `${headingIds.length}:${headingIds.join(",")}:${content}`;
+  const cached = htmlCache.get(key);
   if (cached !== undefined) return cached;
-  const html = await renderMarkdownToHtml(content);
-  htmlCache.set(content, html);
+  const html = await renderMarkdownToHtml(content, headingIds);
+  htmlCache.set(key, html);
   if (htmlCache.size > MAX_CACHE) {
     const oldest = htmlCache.keys().next().value;
     if (oldest !== undefined) htmlCache.delete(oldest);
