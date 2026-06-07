@@ -111,6 +111,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     const container = containerRef.current;
     if (!container) return;
 
+    container.scrollTop = 0;
     decorateCodeBlocks(container);
 
     const headings = Array.from(container.querySelectorAll<HTMLElement>("h3, h4, h5, h6"));

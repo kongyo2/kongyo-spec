@@ -28,17 +28,23 @@ function findBoundaries(lines: string[]): Boundary[] {
   const boundaries: Boundary[] = [];
   let inFence = false;
   let fenceChar = "";
+  let fenceLen = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
-    const fence = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
     if (fence) {
-      const marker = (fence[1] ?? "")[0] ?? "`";
+      const marker = fence[1] ?? "";
+      const char = marker[0] ?? "`";
+      const length = marker.length;
+      const info = (fence[2] ?? "").trim();
       if (!inFence) {
         inFence = true;
-        fenceChar = marker;
-      } else if (marker === fenceChar) {
+        fenceChar = char;
+        fenceLen = length;
+      } else if (char === fenceChar && length >= fenceLen && info.length === 0) {
         inFence = false;
         fenceChar = "";
+        fenceLen = 0;
       }
       continue;
     }

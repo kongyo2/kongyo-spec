@@ -59,6 +59,8 @@ export function App(): React.ReactElement {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(loadThemePreference()));
 
   const loadedContentRef = useRef("");
+  const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
+  const openRequestRef = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const pages = useMemo(() => splitPages(doc?.content ?? ""), [doc?.content]);
@@ -81,7 +83,9 @@ export function App(): React.ReactElement {
   }, [themePreference]);
 
   const openSpec = useCallback(async (id: string): Promise<void> => {
+    const token = (openRequestRef.current += 1);
     const document = await window.api.readSpec(id);
+    if (token !== openRequestRef.current) return;
     loadedContentRef.current = document.content;
     setActiveId(id);
     setDoc(document);
@@ -89,6 +93,30 @@ export function App(): React.ReactElement {
     setMode("preview");
     setActiveHeadingId(null);
   }, []);
+
+  const flushSave = useCallback(async (): Promise<void> => {
+    const pending = pendingSaveRef.current;
+    if (!pending) return;
+    pendingSaveRef.current = null;
+    try {
+      const meta = await window.api.saveSpec(pending.id, pending.content);
+      loadedContentRef.current = pending.content;
+      setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
+      setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
+    } catch (err) {
+      setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const selectSpec = useCallback(
+    async (id: string): Promise<void> => {
+      await flushSave();
+      await openSpec(id);
+    },
+    [flushSave, openSpec],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -116,25 +144,21 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (!doc) return;
     if (doc.content === loadedContentRef.current) return;
-    const targetId = doc.meta.id;
-    const targetContent = doc.content;
+    pendingSaveRef.current = { id: doc.meta.id, content: doc.content };
     setSaving(true);
     const handle = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const meta = await window.api.saveSpec(targetId, targetContent);
-          loadedContentRef.current = targetContent;
-          setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
-          setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
-        } catch (err) {
-          setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
-        } finally {
-          setSaving(false);
-        }
-      })();
+      void flushSave();
     }, 600);
     return () => window.clearTimeout(handle);
-  }, [doc]);
+  }, [doc, flushSave]);
+
+  useEffect(() => {
+    const handler = (): void => {
+      void flushSave();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [flushSave]);
 
   useEffect(() => {
     if (!search.open || search.query.length === 0) {
@@ -238,11 +262,11 @@ export function App(): React.ReactElement {
         setToast(`リンク先が見つかりません: ${href}`);
         return;
       }
-      void openSpec(target.id).then(() => {
+      void selectSpec(target.id).then(() => {
         if (fragment) setPendingAnchor({ docId: target.id, id: fragment });
       });
     },
-    [doc, specs, openSpec],
+    [doc, specs, selectSpec],
   );
 
   const handleCreate = (title: string): void => {
@@ -251,6 +275,7 @@ export function App(): React.ReactElement {
         const meta = await window.api.createSpec(title);
         setSpecs((prev) => [meta, ...prev]);
         setDialog(null);
+        await flushSave();
         await openSpec(meta.id);
         setMode("source");
       } catch (err) {
@@ -280,6 +305,7 @@ export function App(): React.ReactElement {
         const next = specs.filter((spec) => spec.id !== id);
         setSpecs(next);
         if (activeId === id) {
+          pendingSaveRef.current = null;
           const fallback = next[0];
           if (fallback) {
             await openSpec(fallback.id);
@@ -306,7 +332,7 @@ export function App(): React.ReactElement {
         <SpecsSidebar
           specs={specs}
           activeId={activeId}
-          onSelect={(id) => void openSpec(id)}
+          onSelect={(id) => void selectSpec(id)}
           onNew={() => setDialog({ kind: "new" })}
           onRename={(id) => {
             const spec = specs.find((item) => item.id === id);

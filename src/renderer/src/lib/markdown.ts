@@ -61,6 +61,27 @@ function rehypeSanitizeScripts() {
   };
 }
 
+function rehypeSpecAssets() {
+  return (tree: Root): void => {
+    visit(tree, "element", (node: Element) => {
+      if (node.tagName !== "img") return;
+      const props = node.properties;
+      if (!props) return;
+      const src = props["src"];
+      if (typeof src !== "string" || src.length === 0) return;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("//") || src.startsWith("/") || src.startsWith("#")) {
+        return;
+      }
+      const encoded = src
+        .replace(/^\.\//, "")
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+      props["src"] = `specfile://spec/${encoded}`;
+    });
+  };
+}
+
 export async function renderMarkdownToHtml(markdown: string): Promise<string> {
   const highlighter = await getShikiHighlighter();
   const shikiOptions: RehypeShikiCoreOptions = {
@@ -76,6 +97,7 @@ export async function renderMarkdownToHtml(markdown: string): Promise<string> {
     .use(remarkMath)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
+    .use(rehypeSpecAssets)
     .use(rehypeSlug)
     .use(rehypeAutolinkHeadings, {
       behavior: "append",

@@ -30,7 +30,17 @@ function findLiveBlock(container: HTMLElement, source: string): HTMLElement | nu
 }
 
 export async function renderMermaidIn(container: HTMLElement, theme: ResolvedTheme): Promise<void> {
+  const themeChanged = initializedTheme !== null && initializedTheme !== theme;
   ensureInit(theme);
+  if (themeChanged) {
+    container.querySelectorAll<HTMLElement>("pre.mermaid-block.mermaid-rendered").forEach((block) => {
+      const source = block.getAttribute("data-source");
+      if (source !== null) {
+        block.classList.remove("mermaid-rendered");
+        block.textContent = source;
+      }
+    });
+  }
   const pending = Array.from(container.querySelectorAll<HTMLElement>("pre.mermaid-block")).filter(
     (block) => !block.querySelector("svg") && !block.classList.contains("mermaid-error"),
   );

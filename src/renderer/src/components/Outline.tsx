@@ -7,7 +7,8 @@ interface OutlineProps {
 
 export function Outline({ headings, activeId }: OutlineProps): React.ReactElement {
   const handleClick = (id: string): void => {
-    const element = document.getElementById(id);
+    const root = document.querySelector(".preview") ?? document;
+    const element = root.querySelector(`[id="${CSS.escape(id)}"]`);
     if (element) element.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
