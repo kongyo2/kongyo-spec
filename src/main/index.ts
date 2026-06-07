@@ -1,6 +1,6 @@
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, net, protocol, shell } from "electron";
+import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron";
 import { registerIpc } from "./ipc";
 import { registerSmokeTest } from "./smoke";
 import { getSpecsDir, initStore } from "./specsStore";
@@ -60,6 +60,25 @@ function createWindow(): void {
   };
   window.webContents.on("will-navigate", handleNavigation);
   window.webContents.on("will-redirect", handleNavigation);
+
+  let closeFlushed = false;
+  let closePending = false;
+  window.on("close", (event) => {
+    if (closeFlushed) return;
+    event.preventDefault();
+    if (closePending) return;
+    closePending = true;
+    const finish = (): void => {
+      closeFlushed = true;
+      window.close();
+    };
+    const timer = setTimeout(finish, 3000);
+    ipcMain.once("app:flush-complete", () => {
+      clearTimeout(timer);
+      finish();
+    });
+    window.webContents.send("app:flush-before-close");
+  });
 
   if (process.env["KONGYO_SMOKE"] === "1") registerSmokeTest(window);
 

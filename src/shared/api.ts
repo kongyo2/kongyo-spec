@@ -8,4 +8,6 @@ export interface KongyoApi {
   renameSpec(id: string, title: string): Promise<SpecMeta>;
   deleteSpec(id: string): Promise<void>;
   openExternal(url: string): Promise<void>;
+  onFlushBeforeClose(callback: () => void): () => void;
+  notifyFlushComplete(): void;
 }

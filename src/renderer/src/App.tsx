@@ -154,9 +154,13 @@ export function App(): React.ReactElement {
     void (async () => {
       try {
         const list = await window.api.listSpecs();
-        setSpecs(list);
+        setSpecs((prev) => {
+          const known = new Set(list.map((spec) => spec.id));
+          const extras = prev.filter((spec) => !known.has(spec.id));
+          return [...extras, ...list].sort(byUpdatedDesc);
+        });
         const first = list[0];
-        if (first) await openSpec(first.id);
+        if (first && docRef.current === null) await openSpec(first.id);
       } catch (err) {
         setToast(`仕様書の読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -185,11 +189,9 @@ export function App(): React.ReactElement {
   }, [doc, flushSave]);
 
   useEffect(() => {
-    const handler = (): void => {
-      void flushSave();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
+    return window.api.onFlushBeforeClose(() => {
+      void flushSave().finally(() => window.api.notifyFlushComplete());
+    });
   }, [flushSave]);
 
   useEffect(() => {
@@ -338,6 +340,7 @@ export function App(): React.ReactElement {
   const handleDelete = (id: string): void => {
     void (async () => {
       try {
+        openRequestRef.current += 1;
         await window.api.deleteSpec(id);
         setDialog(null);
         const next = specs.filter((spec) => spec.id !== id);

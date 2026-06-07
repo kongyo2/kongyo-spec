@@ -96,7 +96,10 @@ function rehypeAssignIds(ids: string[]) {
       index += 1;
       const props = node.properties ?? {};
       node.properties = props;
-      props["id"] = provided ?? slugger.slug(toText(node));
+      const existing = props["id"];
+      if (typeof existing !== "string" || existing.length === 0) {
+        props["id"] = provided ?? slugger.slug(toText(node));
+      }
     });
   };
 }

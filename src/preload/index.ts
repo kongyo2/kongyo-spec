@@ -9,6 +9,12 @@ const api: KongyoApi = {
   renameSpec: (id, title) => ipcRenderer.invoke("specs:rename", { id, title }),
   deleteSpec: (id) => ipcRenderer.invoke("specs:delete", { id }),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),
+  onFlushBeforeClose: (callback) => {
+    const handler = (): void => callback();
+    ipcRenderer.on("app:flush-before-close", handler);
+    return () => ipcRenderer.removeListener("app:flush-before-close", handler);
+  },
+  notifyFlushComplete: () => ipcRenderer.send("app:flush-complete"),
 };
 
 contextBridge.exposeInMainWorld("api", api);

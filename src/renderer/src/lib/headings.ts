@@ -15,7 +15,14 @@ export function computePageHeadingIds(pageContents: string[]): string[][] {
     const tree = processor.runSync(processor.parse(content)) as Root;
     const ids: string[] = [];
     visit(tree, "element", (node: Element) => {
-      if (/^h[1-6]$/.test(node.tagName)) ids.push(slugger.slug(toText(node)));
+      if (!/^h[1-6]$/.test(node.tagName)) return;
+      const explicit = node.properties?.["id"];
+      if (typeof explicit === "string" && explicit.length > 0) {
+        slugger.slug(explicit);
+        ids.push(explicit);
+      } else {
+        ids.push(slugger.slug(toText(node)));
+      }
     });
     return ids;
   });
