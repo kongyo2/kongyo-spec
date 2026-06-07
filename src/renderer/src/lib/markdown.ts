@@ -50,11 +50,14 @@ function rehypeSanitizeScripts() {
       if (props) {
         delete props["style"];
         for (const key of Object.keys(props)) {
-          if (/^on/i.test(key)) delete props[key];
-        }
-        for (const attr of ["href", "src"] as const) {
-          const value = props[attr];
-          if (typeof value === "string" && /^\s*javascript:/i.test(value)) delete props[attr];
+          if (/^on/i.test(key)) {
+            delete props[key];
+            continue;
+          }
+          const value = props[key];
+          if (typeof value === "string" && /^\s*(?:javascript|vbscript):/i.test(value)) {
+            delete props[key];
+          }
         }
       }
       return undefined;

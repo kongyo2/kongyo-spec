@@ -27,10 +27,65 @@ interface Segment {
   end: number;
 }
 
+const BLOCK_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "caption",
+  "dd",
+  "details",
+  "div",
+  "dl",
+  "dt",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "li",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "ul",
+]);
+
+function closestBlock(node: Node): Element | null {
+  let element = node.parentElement;
+  while (element) {
+    if (BLOCK_TAGS.has(element.tagName.toLowerCase())) return element;
+    element = element.parentElement;
+  }
+  return null;
+}
+
 function collectText(root: Node): { text: string; segments: Segment[] } {
   const segments: Segment[] = [];
   let text = "";
+  let previousBlock: Element | null = null;
+  let first = true;
   eachTextNode(root, (node) => {
+    const block = closestBlock(node);
+    if (!first && block !== previousBlock) text += "\n";
+    first = false;
+    previousBlock = block;
     const value = node.nodeValue ?? "";
     segments.push({ node, start: text.length, end: text.length + value.length });
     text += value;

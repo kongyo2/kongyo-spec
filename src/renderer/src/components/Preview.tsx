@@ -13,6 +13,7 @@ export interface HeadingInfo {
 interface PreviewProps {
   pageContent: string;
   headingIds: string[];
+  linkDefs: string;
   theme: ResolvedTheme;
   searchQuery: string;
   searchCurrentInPage: number;
@@ -85,6 +86,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
   const {
     pageContent,
     headingIds,
+    linkDefs,
     theme,
     searchQuery,
     searchCurrentInPage,
@@ -109,13 +111,13 @@ export function Preview(props: PreviewProps): React.ReactElement {
 
   useEffect(() => {
     let active = true;
-    void renderCached(pageContent, headingIds).then((result) => {
+    void renderCached(pageContent + linkDefs, headingIds).then((result) => {
       if (active) setHtml(result);
     });
     return () => {
       active = false;
     };
-  }, [pageContent, headingIds]);
+  }, [pageContent, headingIds, linkDefs]);
 
   useEffect(() => {
     const container = containerRef.current;

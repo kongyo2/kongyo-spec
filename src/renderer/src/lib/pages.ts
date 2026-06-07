@@ -1,6 +1,7 @@
 import { toString } from "mdast-util-to-string";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import { visit } from "unist-util-visit";
 import type { Root as MdastRoot } from "mdast";
 
 export interface VirtualPage {
@@ -86,4 +87,14 @@ export function splitPages(markdown: string): VirtualPage[] {
     });
   }
   return pages;
+}
+
+export function collectLinkDefinitions(markdown: string): string {
+  const tree = parser.parse(markdown) as MdastRoot;
+  const lines: string[] = [];
+  visit(tree, "definition", (node) => {
+    const title = node.title ? ` "${node.title.replace(/"/g, '\\"')}"` : "";
+    lines.push(`[${node.identifier}]: ${node.url}${title}`);
+  });
+  return lines.length > 0 ? `\n\n${lines.join("\n")}\n` : "";
 }
