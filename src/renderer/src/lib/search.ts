@@ -21,16 +21,33 @@ function eachTextNode(root: Node, visit: (node: Text) => void): void {
   }
 }
 
-function countMatchesInNode(value: string, lowerQuery: string): number {
-  if (lowerQuery.length === 0) return 0;
-  const haystack = value.toLowerCase();
-  let count = 0;
+interface Segment {
+  node: Text;
+  start: number;
+  end: number;
+}
+
+function collectText(root: Node): { text: string; segments: Segment[] } {
+  const segments: Segment[] = [];
+  let text = "";
+  eachTextNode(root, (node) => {
+    const value = node.nodeValue ?? "";
+    segments.push({ node, start: text.length, end: text.length + value.length });
+    text += value;
+  });
+  return { text, segments };
+}
+
+function findMatchRanges(text: string, lowerQuery: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  if (lowerQuery.length === 0) return ranges;
+  const haystack = text.toLowerCase();
   let index = haystack.indexOf(lowerQuery);
   while (index !== -1) {
-    count += 1;
+    ranges.push([index, index + lowerQuery.length]);
     index = haystack.indexOf(lowerQuery, index + lowerQuery.length);
   }
-  return count;
+  return ranges;
 }
 
 export function buildGlobalMatches(pageHtmls: string[], query: string): GlobalMatch[] {
@@ -39,14 +56,9 @@ export function buildGlobalMatches(pageHtmls: string[], query: string): GlobalMa
   if (lowerQuery.length === 0) return matches;
   for (let pageIndex = 0; pageIndex < pageHtmls.length; pageIndex++) {
     const parsed = new DOMParser().parseFromString(pageHtmls[pageIndex] ?? "", "text/html");
-    let inPage = 0;
-    eachTextNode(parsed.body, (node) => {
-      const count = countMatchesInNode(node.nodeValue ?? "", lowerQuery);
-      for (let i = 0; i < count; i++) {
-        matches.push({ pageIndex, indexInPage: inPage });
-        inPage += 1;
-      }
-    });
+    const { text } = collectText(parsed.body);
+    const count = findMatchRanges(text, lowerQuery).length;
+    for (let i = 0; i < count; i++) matches.push({ pageIndex, indexInPage: i });
   }
   return matches;
 }
@@ -61,41 +73,54 @@ export function clearHighlights(container: HTMLElement): void {
   });
 }
 
+interface Piece {
+  start: number;
+  end: number;
+  matchIndex: number;
+}
+
 export function applyHighlights(container: HTMLElement, query: string, currentIndexInPage: number): HTMLElement | null {
   clearHighlights(container);
   const lowerQuery = query.toLowerCase();
   if (lowerQuery.length === 0) return null;
 
-  const textNodes: Text[] = [];
-  eachTextNode(container, (node) => textNodes.push(node));
+  const { text, segments } = collectText(container);
+  const ranges = findMatchRanges(text, lowerQuery);
+  if (ranges.length === 0) return null;
 
-  let running = 0;
+  const pieces = new Map<Text, Piece[]>();
+  ranges.forEach(([matchStart, matchEnd], matchIndex) => {
+    for (const segment of segments) {
+      if (segment.end <= matchStart || segment.start >= matchEnd) continue;
+      const start = Math.max(matchStart, segment.start) - segment.start;
+      const end = Math.min(matchEnd, segment.end) - segment.start;
+      if (end <= start) continue;
+      const list = pieces.get(segment.node) ?? [];
+      list.push({ start, end, matchIndex });
+      pieces.set(segment.node, list);
+    }
+  });
+
   let current: HTMLElement | null = null;
-
-  for (const textNode of textNodes) {
-    const value = textNode.nodeValue ?? "";
-    const lower = value.toLowerCase();
-    if (!lower.includes(lowerQuery)) continue;
-
+  for (const [node, list] of pieces) {
+    list.sort((a, b) => a.start - b.start);
+    const value = node.nodeValue ?? "";
     const fragment = document.createDocumentFragment();
     let cursor = 0;
-    let index = lower.indexOf(lowerQuery);
-    while (index !== -1) {
-      if (index > cursor) fragment.appendChild(document.createTextNode(value.slice(cursor, index)));
+    for (const piece of list) {
+      if (piece.start > cursor) fragment.appendChild(document.createTextNode(value.slice(cursor, piece.start)));
       const mark = document.createElement("mark");
       mark.className = "search-hit";
-      mark.textContent = value.slice(index, index + lowerQuery.length);
-      if (running === currentIndexInPage) {
+      mark.textContent = value.slice(piece.start, piece.end);
+      if (piece.matchIndex === currentIndexInPage) {
         mark.classList.add("search-hit-current");
-        current = mark;
+        if (!current) current = mark;
       }
       fragment.appendChild(mark);
-      running += 1;
-      cursor = index + lowerQuery.length;
-      index = lower.indexOf(lowerQuery, cursor);
+      cursor = piece.end;
     }
     if (cursor < value.length) fragment.appendChild(document.createTextNode(value.slice(cursor)));
-    textNode.parentNode?.replaceChild(fragment, textNode);
+    node.parentNode?.replaceChild(fragment, node);
   }
 
   if (current) current.scrollIntoView({ block: "center", behavior: "smooth" });

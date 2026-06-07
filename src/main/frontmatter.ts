@@ -1,5 +1,5 @@
 const BOM = "﻿";
-const FRONTMATTER_RE = /^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?/;
+const FRONTMATTER_RE = /^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 export interface ParsedFile {
   data: Record<string, unknown>;
@@ -41,6 +41,5 @@ export function stringifyFile(data: Record<string, string>, content: string): st
   const header = Object.entries(data)
     .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
     .join("\n");
-  const body = content.replace(/^\r?\n+/, "");
-  return `---\n${header}\n---\n\n${body}`;
+  return `---\n${header}\n---\n${content}`;
 }

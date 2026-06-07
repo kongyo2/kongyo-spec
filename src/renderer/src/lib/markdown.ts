@@ -48,6 +48,7 @@ function rehypeSanitizeScripts() {
       }
       const props = node.properties;
       if (props) {
+        delete props["style"];
         for (const key of Object.keys(props)) {
           if (/^on/i.test(key)) delete props[key];
         }
@@ -112,6 +113,7 @@ export async function renderMarkdownToHtml(markdown: string, headingIds: string[
     .use(remarkMath)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
+    .use(rehypeSanitizeScripts)
     .use(rehypeSpecAssets)
     .use(rehypeAssignIds, headingIds)
     .use(rehypeAutolinkHeadings, {
@@ -121,7 +123,6 @@ export async function renderMarkdownToHtml(markdown: string, headingIds: string[
     })
     .use(rehypeKatex)
     .use(rehypeMermaid)
-    .use(rehypeSanitizeScripts)
     .use(rehypeShikiFromHighlighter, highlighter, shikiOptions)
     .use(rehypeStringify, { allowDangerousHtml: true })
     .process(markdown);

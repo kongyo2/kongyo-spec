@@ -70,7 +70,7 @@ export function App(): React.ReactElement {
   const loadedContentRef = useRef("");
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
   const openRequestRef = useRef(0);
-  const savingRef = useRef(false);
+  const flushPromiseRef = useRef<Promise<boolean> | null>(null);
   const docRef = useRef<SpecDocument | null>(null);
   docRef.current = doc;
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -95,44 +95,50 @@ export function App(): React.ReactElement {
     return () => media.removeEventListener("change", handleChange);
   }, [themePreference]);
 
-  const flushSave = useCallback(async (): Promise<void> => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    try {
-      while (pendingSaveRef.current) {
-        const pending = pendingSaveRef.current;
-        try {
-          const meta = await window.api.saveSpec(pending.id, pending.content);
-          if (pendingSaveRef.current === pending) pendingSaveRef.current = null;
-          if (docRef.current && docRef.current.meta.id === pending.id) {
-            loadedContentRef.current = pending.content;
+  const flushSave = useCallback((): Promise<boolean> => {
+    if (flushPromiseRef.current) return flushPromiseRef.current;
+    const run = (async (): Promise<boolean> => {
+      try {
+        while (pendingSaveRef.current) {
+          const pending = pendingSaveRef.current;
+          try {
+            const meta = await window.api.saveSpec(pending.id, pending.content);
+            if (pendingSaveRef.current === pending) pendingSaveRef.current = null;
+            if (docRef.current && docRef.current.meta.id === pending.id) {
+              loadedContentRef.current = pending.content;
+            }
+            setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
+            setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
+          } catch (err) {
+            setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+            return false;
           }
-          setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
-          setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
-        } catch (err) {
-          setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
-          break;
         }
+        return true;
+      } finally {
+        flushPromiseRef.current = null;
+        setSaving(false);
       }
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
+    })();
+    flushPromiseRef.current = run;
+    return run;
   }, []);
 
   const openSpec = useCallback(
-    async (id: string): Promise<void> => {
+    async (id: string): Promise<boolean> => {
       const token = (openRequestRef.current += 1);
-      await flushSave();
-      if (token !== openRequestRef.current) return;
+      const flushed = await flushSave();
+      if (!flushed) return false;
+      if (token !== openRequestRef.current) return false;
       const document = await window.api.readSpec(id);
-      if (token !== openRequestRef.current) return;
+      if (token !== openRequestRef.current) return false;
       loadedContentRef.current = document.content;
       setActiveId(id);
       setDoc(document);
       setPageIndex(0);
       setMode("preview");
       setActiveHeadingId(null);
+      return true;
     },
     [flushSave],
   );
@@ -263,6 +269,10 @@ export function App(): React.ReactElement {
 
   const handleLinkActivate = useCallback(
     (href: string): void => {
+      if (href.startsWith("//")) {
+        void window.api.openExternal(`https:${href}`);
+        return;
+      }
       if (/^https?:\/\//i.test(href) || href.startsWith("mailto:")) {
         void window.api.openExternal(href);
         return;
@@ -283,8 +293,8 @@ export function App(): React.ReactElement {
         setToast(`リンク先が見つかりません: ${href}`);
         return;
       }
-      void openSpec(target.id).then(() => {
-        if (fragment) setPendingAnchor({ docId: target.id, id: fragment });
+      void openSpec(target.id).then((opened) => {
+        if (opened && fragment) setPendingAnchor({ docId: target.id, id: fragment });
       });
     },
     [doc, specs, openSpec],
@@ -296,8 +306,8 @@ export function App(): React.ReactElement {
         const meta = await window.api.createSpec(title);
         setSpecs((prev) => [meta, ...prev]);
         setDialog(null);
-        await openSpec(meta.id);
-        setMode("source");
+        const opened = await openSpec(meta.id);
+        if (opened) setMode("source");
       } catch (err) {
         setToast(`作成に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
       }

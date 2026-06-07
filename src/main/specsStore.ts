@@ -77,9 +77,11 @@ export async function listSpecs(): Promise<SpecMeta[]> {
   const metas: SpecMeta[] = [];
   for (const entry of entries) {
     if (!entry.endsWith(".md")) continue;
+    const id = entry.replace(/\.md$/, "");
+    if (!isSafeId(id)) continue;
     try {
       const raw = await fs.readFile(join(getSpecsDir(), entry), "utf8");
-      metas.push(parseFrontmatter(parseFile(raw).data));
+      metas.push({ ...parseFrontmatter(parseFile(raw).data), id });
     } catch (err) {
       console.warn(`[specsStore] skipping ${entry}:`, err);
     }
@@ -92,7 +94,7 @@ export async function readSpec(id: string): Promise<SpecDocument> {
   if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
   const raw = await fs.readFile(fileFor(id), "utf8");
   const parsed = parseFile(raw);
-  return { meta: parseFrontmatter(parsed.data), content: parsed.content };
+  return { meta: { ...parseFrontmatter(parsed.data), id }, content: parsed.content };
 }
 
 export async function createSpec(title: string): Promise<SpecMeta> {
