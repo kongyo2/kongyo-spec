@@ -55,10 +55,23 @@ export function Editor({ value, onChange, theme }: EditorProps): React.ReactElem
     const textarea = event.currentTarget;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    onChange(`${value.slice(0, start)}  ${value.slice(end)}`);
+
+    if (start === end && !event.shiftKey) {
+      onChange(`${value.slice(0, start)}  ${value.slice(end)}`);
+      requestAnimationFrame(() => {
+        textarea.selectionStart = start + 2;
+        textarea.selectionEnd = start + 2;
+      });
+      return;
+    }
+
+    const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    const block = value.slice(lineStart, end);
+    const modified = event.shiftKey ? block.replace(/^ {1,2}/gm, "") : block.replace(/^/gm, "  ");
+    onChange(value.slice(0, lineStart) + modified + value.slice(end));
     requestAnimationFrame(() => {
-      textarea.selectionStart = start + 2;
-      textarea.selectionEnd = start + 2;
+      textarea.selectionStart = lineStart;
+      textarea.selectionEnd = lineStart + modified.length;
     });
   };
 

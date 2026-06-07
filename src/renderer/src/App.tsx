@@ -70,6 +70,7 @@ export function App(): React.ReactElement {
   const loadedContentRef = useRef("");
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
   const openRequestRef = useRef(0);
+  const pendingOpenIdRef = useRef<string | null>(null);
   const flushPromiseRef = useRef<Promise<boolean> | null>(null);
   const docRef = useRef<SpecDocument | null>(null);
   docRef.current = doc;
@@ -128,24 +129,30 @@ export function App(): React.ReactElement {
   const openSpec = useCallback(
     async (id: string): Promise<boolean> => {
       const token = (openRequestRef.current += 1);
-      const flushed = await flushSave();
-      if (!flushed) return false;
-      if (token !== openRequestRef.current) return false;
-      let document: SpecDocument;
+      pendingOpenIdRef.current = id;
       try {
-        document = await window.api.readSpec(id);
-      } catch (err) {
-        setToast(`仕様書の読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
-        return false;
+        const flushed = await flushSave();
+        if (!flushed) return false;
+        if (token !== openRequestRef.current) return false;
+        let document: SpecDocument;
+        try {
+          document = await window.api.readSpec(id);
+        } catch (err) {
+          setToast(`仕様書の読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+          return false;
+        }
+        if (token !== openRequestRef.current) return false;
+        loadedContentRef.current = document.content;
+        setActiveId(id);
+        setDoc(document);
+        setPageIndex(0);
+        setMode("preview");
+        setActiveHeadingId(null);
+        setPendingAnchor(null);
+        return true;
+      } finally {
+        if (openRequestRef.current === token) pendingOpenIdRef.current = null;
       }
-      if (token !== openRequestRef.current) return false;
-      loadedContentRef.current = document.content;
-      setActiveId(id);
-      setDoc(document);
-      setPageIndex(0);
-      setMode("preview");
-      setActiveHeadingId(null);
-      return true;
     },
     [flushSave],
   );
@@ -343,14 +350,13 @@ export function App(): React.ReactElement {
   const handleDelete = (id: string): void => {
     void (async () => {
       try {
-        openRequestRef.current += 1;
+        if (pendingOpenIdRef.current === id) openRequestRef.current += 1;
         await window.api.deleteSpec(id);
         setDialog(null);
-        const next = specs.filter((spec) => spec.id !== id);
-        setSpecs(next);
+        setSpecs((prev) => prev.filter((spec) => spec.id !== id));
         if (activeId === id) {
           pendingSaveRef.current = null;
-          const fallback = next[0];
+          const fallback = specs.find((spec) => spec.id !== id);
           if (fallback) {
             await openSpec(fallback.id);
           } else {
