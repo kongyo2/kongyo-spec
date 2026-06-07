@@ -1,13 +1,20 @@
 import GithubSlugger from "github-slugger";
 import { toText } from "hast-util-to-text";
 import rehypeRaw from "rehype-raw";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import type { Element, Root } from "hast";
 
-const processor = unified().use(remarkParse).use(remarkRehype, { allowDangerousHtml: true }).use(rehypeRaw);
+const processor = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkMath)
+  .use(remarkRehype, { allowDangerousHtml: true })
+  .use(rehypeRaw);
 
 export function computePageHeadingIds(pageContents: string[]): string[][] {
   const slugger = new GithubSlugger();

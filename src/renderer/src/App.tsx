@@ -317,15 +317,17 @@ export function App(): React.ReactElement {
         return;
       }
       const hashIndex = href.indexOf("#");
-      const path = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
+      const beforeHash = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
       const fragment = hashIndex >= 0 ? safeDecode(href.slice(hashIndex + 1)) : null;
+      const queryIndex = beforeHash.indexOf("?");
+      const pathname = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
 
-      if (path.length === 0) {
+      if (pathname.length === 0) {
         if (fragment && doc) setPendingAnchor({ docId: doc.meta.id, id: fragment });
         return;
       }
 
-      const fileName = safeDecode(path).replace(/^\.\//, "").replace(/\/+$/, "");
+      const fileName = safeDecode(pathname).replace(/^\.\//, "").replace(/\/+$/, "");
       const targetId = fileName.replace(/\.md$/i, "");
       const target = specs.find((spec) => spec.id === targetId);
       if (!target) {
@@ -389,6 +391,11 @@ export function App(): React.ReactElement {
         }
       } catch (err) {
         setToast(`削除に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+        const current = docRef.current;
+        if (current && current.content !== loadedContentRef.current) {
+          pendingSaveRef.current = { id: current.meta.id, content: current.content };
+          void flushSave();
+        }
       }
     })();
   };

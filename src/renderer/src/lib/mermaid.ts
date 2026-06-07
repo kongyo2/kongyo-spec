@@ -28,7 +28,8 @@ function sourceOf(block: HTMLElement): string {
 function findLiveBlock(container: HTMLElement, source: string): HTMLElement | null {
   return (
     Array.from(container.querySelectorAll<HTMLElement>("pre.mermaid-block")).find(
-      (block) => !block.querySelector("svg") && sourceOf(block) === source,
+      (block) =>
+        !block.querySelector("svg") && !block.classList.contains("mermaid-error") && sourceOf(block) === source,
     ) ?? null
   );
 }
