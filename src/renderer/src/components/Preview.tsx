@@ -98,6 +98,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const renderedContentRef = useRef<string | null>(null);
   const [html, setHtml] = useState<string>("");
 
   const headingsRef = useRef(onHeadings);
@@ -111,8 +112,11 @@ export function Preview(props: PreviewProps): React.ReactElement {
 
   useEffect(() => {
     let active = true;
-    void renderCached(pageContent + linkDefs, headingIds).then((result) => {
-      if (active) setHtml(result);
+    void renderCached(linkDefs + pageContent, headingIds).then((result) => {
+      if (active) {
+        renderedContentRef.current = pageContent;
+        setHtml(result);
+      }
     });
     return () => {
       active = false;
@@ -181,12 +185,13 @@ export function Preview(props: PreviewProps): React.ReactElement {
   useEffect(() => {
     const container = containerRef.current;
     if (!container || pendingAnchor === null) return;
+    if (renderedContentRef.current !== pageContent) return;
     const target = container.querySelector(`[id="${CSS.escape(pendingAnchor)}"]`);
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       anchorHandledRef.current();
     }
-  }, [html, pendingAnchor]);
+  }, [html, pendingAnchor, pageContent]);
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     const target = event.target as HTMLElement;

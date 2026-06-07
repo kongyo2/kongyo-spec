@@ -61,7 +61,7 @@ export function splitPages(markdown: string): VirtualPage[] {
 
   const firstBoundaryLine = boundaries.length > 0 ? (boundaries[0]?.line ?? lines.length) : lines.length;
   const introContent = lines.slice(0, firstBoundaryLine).join("\n");
-  if (introContent.trim().length > 0) {
+  if (hasVisibleContent(introContent)) {
     const { id, slug } = allocate("Introduction");
     pages.push({ id, title: "Introduction", depth: 1, slug, startLine: 0, content: introContent });
   }
@@ -95,10 +95,23 @@ function serializeUrl(url: string): string {
 
 export function collectLinkDefinitions(markdown: string): string {
   const tree = parser.parse(markdown) as MdastRoot;
+  const seen = new Set<string>();
   const lines: string[] = [];
   visit(tree, "definition", (node) => {
+    if (seen.has(node.identifier)) return;
+    seen.add(node.identifier);
     const title = node.title ? ` "${node.title.replace(/"/g, '\\"')}"` : "";
     lines.push(`[${node.identifier}]: ${serializeUrl(node.url)}${title}`);
   });
-  return lines.length > 0 ? `\n\n${lines.join("\n")}\n` : "";
+  return lines.length > 0 ? `${lines.join("\n")}\n\n` : "";
+}
+
+function hasVisibleContent(markdown: string): boolean {
+  if (markdown.trim().length === 0) return false;
+  const tree = parser.parse(markdown) as MdastRoot;
+  return tree.children.some((node) => {
+    if (node.type === "definition" || node.type === "footnoteDefinition") return false;
+    if (node.type === "html") return !/^(?:\s|<!--[\s\S]*?-->)*$/.test(node.value);
+    return true;
+  });
 }

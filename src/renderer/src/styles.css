@@ -481,6 +481,7 @@ button {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+  scrollbar-gutter: stable;
   border: 0;
 }
 

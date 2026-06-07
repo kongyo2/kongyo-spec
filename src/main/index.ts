@@ -68,22 +68,19 @@ function createWindow(): void {
 
   let closeFlushed = false;
   let closePending = false;
+  window.webContents.on("render-process-gone", () => {
+    closeFlushed = true;
+    if (!window.isDestroyed()) window.close();
+  });
   window.on("close", (event) => {
     if (closeFlushed) return;
     event.preventDefault();
     if (closePending) return;
     closePending = true;
-    let timer: ReturnType<typeof setTimeout>;
     const cleanup = (): void => {
-      clearTimeout(timer);
       ipcMain.removeAllListeners("app:flush-complete");
       ipcMain.removeAllListeners("app:flush-failed");
     };
-    timer = setTimeout(() => {
-      cleanup();
-      closeFlushed = true;
-      window.close();
-    }, 10000);
     ipcMain.on("app:flush-complete", () => {
       cleanup();
       closeFlushed = true;
@@ -106,8 +103,9 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(
-  async () => {
+app
+  .whenReady()
+  .then(async () => {
     protocol.handle("specfile", async (request) => {
       const absolute = resolveSpecAsset(request.url);
       if (absolute === null) return new Response("Not found", { status: 404 });
@@ -125,12 +123,11 @@ app.whenReady().then(
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
-  },
-  (err: unknown) => {
+  })
+  .catch((err: unknown) => {
     console.error("[main] failed to start:", err);
     app.quit();
-  },
-);
+  });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

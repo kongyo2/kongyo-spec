@@ -169,7 +169,7 @@ export function App(): React.ReactElement {
           return [...extras, ...list].sort(byUpdatedDesc);
         });
         const first = list[0];
-        if (first && docRef.current === null) await openSpec(first.id);
+        if (first && docRef.current === null && pendingOpenIdRef.current === null) await openSpec(first.id);
       } catch (err) {
         setToast(`仕様書の読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -216,7 +216,7 @@ export function App(): React.ReactElement {
     const handle = window.setTimeout(() => {
       void (async () => {
         const htmls = await Promise.all(
-          pages.map((page, index) => renderCached(page.content + linkDefs, pageHeadingIds[index] ?? [])),
+          pages.map((page, index) => renderCached(linkDefs + page.content, pageHeadingIds[index] ?? [])),
         );
         if (cancelled) return;
         const found = buildGlobalMatches(htmls, search.query);
@@ -237,7 +237,7 @@ export function App(): React.ReactElement {
     let cancelled = false;
     void (async () => {
       for (let i = 0; i < pages.length; i++) {
-        const html = await renderCached((pages[i]?.content ?? "") + linkDefs, pageHeadingIds[i] ?? []);
+        const html = await renderCached(linkDefs + (pages[i]?.content ?? ""), pageHeadingIds[i] ?? []);
         if (cancelled) return;
         const parsed = new DOMParser().parseFromString(html, "text/html");
         if (parsed.getElementById(pendingAnchor.id)) {
