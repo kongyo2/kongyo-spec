@@ -72,6 +72,9 @@ export function App(): React.ReactElement {
   const openRequestRef = useRef(0);
   const pendingOpenIdRef = useRef<string | null>(null);
   const flushPromiseRef = useRef<Promise<boolean> | null>(null);
+  const flushSaveRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true));
+  const retryTimerRef = useRef<number | null>(null);
+  const saveFailedRef = useRef(false);
   const docRef = useRef<SpecDocument | null>(null);
   docRef.current = doc;
   const specsRef = useRef<SpecMeta[]>([]);
@@ -111,10 +114,20 @@ export function App(): React.ReactElement {
             if (docRef.current && docRef.current.meta.id === pending.id) {
               loadedContentRef.current = pending.content;
             }
+            saveFailedRef.current = false;
             setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
             setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
           } catch (err) {
-            setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+            if (!saveFailedRef.current) {
+              saveFailedRef.current = true;
+              setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            if (retryTimerRef.current === null) {
+              retryTimerRef.current = window.setTimeout(() => {
+                retryTimerRef.current = null;
+                if (pendingSaveRef.current) void flushSaveRef.current();
+              }, 3000);
+            }
             return false;
           }
         }
@@ -127,6 +140,7 @@ export function App(): React.ReactElement {
     flushPromiseRef.current = run;
     return run;
   }, []);
+  flushSaveRef.current = flushSave;
 
   const openSpec = useCallback(
     async (id: string): Promise<boolean> => {

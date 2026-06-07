@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { renderCached } from "../lib/markdown";
 import { renderMermaidIn } from "../lib/mermaid";
 import { applyHighlights, clearHighlights } from "../lib/search";
@@ -98,8 +98,13 @@ export function Preview(props: PreviewProps): React.ReactElement {
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const renderedContentRef = useRef<string | null>(null);
+  const renderedKeyRef = useRef<string | null>(null);
   const [html, setHtml] = useState<string>("");
+
+  const renderKey = useMemo(
+    () => `${linkDefs.length}:${headingIds.length}:${headingIds.join(",")}:${linkDefs}${pageContent}`,
+    [pageContent, headingIds, linkDefs],
+  );
 
   const headingsRef = useRef(onHeadings);
   const activeHeadingRef = useRef(onActiveHeading);
@@ -114,7 +119,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     let active = true;
     void renderCached(linkDefs + pageContent, headingIds).then((result) => {
       if (active) {
-        renderedContentRef.current = pageContent;
+        renderedKeyRef.current = renderKey;
         setHtml(result);
       }
     });
@@ -185,13 +190,13 @@ export function Preview(props: PreviewProps): React.ReactElement {
   useEffect(() => {
     const container = containerRef.current;
     if (!container || pendingAnchor === null) return;
-    if (renderedContentRef.current !== pageContent) return;
+    if (renderedKeyRef.current !== renderKey) return;
     const target = container.querySelector(`[id="${CSS.escape(pendingAnchor)}"]`);
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       anchorHandledRef.current();
     }
-  }, [html, pendingAnchor, pageContent]);
+  }, [html, pendingAnchor, renderKey]);
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     const target = event.target as HTMLElement;
