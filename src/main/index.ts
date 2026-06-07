@@ -68,19 +68,30 @@ function createWindow(): void {
 
   let closeFlushed = false;
   let closePending = false;
+  let rendererReady = false;
+  window.webContents.on("did-finish-load", () => {
+    rendererReady = true;
+  });
   window.webContents.on("render-process-gone", () => {
     closeFlushed = true;
     if (!window.isDestroyed()) window.close();
   });
   window.on("close", (event) => {
     if (closeFlushed) return;
+    if (!rendererReady) return;
     event.preventDefault();
     if (closePending) return;
     closePending = true;
+    let timer: ReturnType<typeof setTimeout>;
     const cleanup = (): void => {
+      clearTimeout(timer);
       ipcMain.removeAllListeners("app:flush-complete");
       ipcMain.removeAllListeners("app:flush-failed");
     };
+    timer = setTimeout(() => {
+      cleanup();
+      closePending = false;
+    }, 5000);
     ipcMain.on("app:flush-complete", () => {
       cleanup();
       closeFlushed = true;

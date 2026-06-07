@@ -194,7 +194,11 @@ export function App(): React.ReactElement {
 
   useEffect(() => {
     if (!doc) return;
-    if (doc.content === loadedContentRef.current) return;
+    if (doc.content === loadedContentRef.current) {
+      if (pendingSaveRef.current?.id === doc.meta.id) pendingSaveRef.current = null;
+      setSaving(false);
+      return;
+    }
     pendingSaveRef.current = { id: doc.meta.id, content: doc.content };
     setSaving(true);
     const handle = window.setTimeout(() => {
@@ -205,6 +209,10 @@ export function App(): React.ReactElement {
 
   useEffect(() => {
     return window.api.onFlushBeforeClose(() => {
+      const current = docRef.current;
+      if (current && current.content !== loadedContentRef.current) {
+        pendingSaveRef.current = { id: current.meta.id, content: current.content };
+      }
       void flushSave().then((ok) => {
         if (ok) window.api.notifyFlushComplete();
         else window.api.notifyFlushFailed();
