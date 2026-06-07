@@ -53,6 +53,14 @@ function createWindow(): void {
     return { action: "deny" };
   });
 
+  const handleNavigation = (event: { preventDefault: () => void }, url: string): void => {
+    if (url === window.webContents.getURL()) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+  };
+  window.webContents.on("will-navigate", handleNavigation);
+  window.webContents.on("will-redirect", handleNavigation);
+
   if (process.env["KONGYO_SMOKE"] === "1") registerSmokeTest(window);
 
   const devServerUrl = process.env["ELECTRON_RENDERER_URL"];

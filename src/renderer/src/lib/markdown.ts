@@ -37,7 +37,7 @@ function rehypeMermaid() {
   };
 }
 
-const DANGEROUS_TAGS = new Set(["script", "style", "link", "iframe", "object", "embed", "base"]);
+const DANGEROUS_TAGS = new Set(["script", "style", "link", "meta", "form", "iframe", "object", "embed", "base"]);
 
 function rehypeSanitizeScripts() {
   return (tree: Root): void => {

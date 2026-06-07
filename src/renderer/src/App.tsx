@@ -37,6 +37,14 @@ function byUpdatedDesc(a: SpecMeta, b: SpecMeta): number {
   return a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0;
 }
 
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function App(): React.ReactElement {
   const [specs, setSpecs] = useState<SpecMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -87,18 +95,6 @@ export function App(): React.ReactElement {
     return () => media.removeEventListener("change", handleChange);
   }, [themePreference]);
 
-  const openSpec = useCallback(async (id: string): Promise<void> => {
-    const token = (openRequestRef.current += 1);
-    const document = await window.api.readSpec(id);
-    if (token !== openRequestRef.current) return;
-    loadedContentRef.current = document.content;
-    setActiveId(id);
-    setDoc(document);
-    setPageIndex(0);
-    setMode("preview");
-    setActiveHeadingId(null);
-  }, []);
-
   const flushSave = useCallback(async (): Promise<void> => {
     if (savingRef.current) return;
     savingRef.current = true;
@@ -124,12 +120,21 @@ export function App(): React.ReactElement {
     }
   }, []);
 
-  const selectSpec = useCallback(
+  const openSpec = useCallback(
     async (id: string): Promise<void> => {
+      const token = (openRequestRef.current += 1);
       await flushSave();
-      await openSpec(id);
+      if (token !== openRequestRef.current) return;
+      const document = await window.api.readSpec(id);
+      if (token !== openRequestRef.current) return;
+      loadedContentRef.current = document.content;
+      setActiveId(id);
+      setDoc(document);
+      setPageIndex(0);
+      setMode("preview");
+      setActiveHeadingId(null);
     },
-    [flushSave, openSpec],
+    [flushSave],
   );
 
   useEffect(() => {
@@ -264,7 +269,7 @@ export function App(): React.ReactElement {
       }
       const hashIndex = href.indexOf("#");
       const path = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
-      const fragment = hashIndex >= 0 ? decodeURIComponent(href.slice(hashIndex + 1)) : null;
+      const fragment = hashIndex >= 0 ? safeDecode(href.slice(hashIndex + 1)) : null;
 
       if (path.length === 0) {
         if (fragment && doc) setPendingAnchor({ docId: doc.meta.id, id: fragment });
@@ -278,11 +283,11 @@ export function App(): React.ReactElement {
         setToast(`リンク先が見つかりません: ${href}`);
         return;
       }
-      void selectSpec(target.id).then(() => {
+      void openSpec(target.id).then(() => {
         if (fragment) setPendingAnchor({ docId: target.id, id: fragment });
       });
     },
-    [doc, specs, selectSpec],
+    [doc, specs, openSpec],
   );
 
   const handleCreate = (title: string): void => {
@@ -291,7 +296,6 @@ export function App(): React.ReactElement {
         const meta = await window.api.createSpec(title);
         setSpecs((prev) => [meta, ...prev]);
         setDialog(null);
-        await flushSave();
         await openSpec(meta.id);
         setMode("source");
       } catch (err) {
@@ -348,7 +352,7 @@ export function App(): React.ReactElement {
         <SpecsSidebar
           specs={specs}
           activeId={activeId}
-          onSelect={(id) => void selectSpec(id)}
+          onSelect={(id) => void openSpec(id)}
           onNew={() => setDialog({ kind: "new" })}
           onRename={(id) => {
             const spec = specs.find((item) => item.id === id);

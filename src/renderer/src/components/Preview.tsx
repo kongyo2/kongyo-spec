@@ -23,6 +23,14 @@ interface PreviewProps {
   onLinkActivate: (href: string) => void;
 }
 
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -186,7 +194,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     if (!href) return;
     event.preventDefault();
     if (href.startsWith("#")) {
-      const id = decodeURIComponent(href.slice(1));
+      const id = safeDecode(href.slice(1));
       const container = containerRef.current;
       const element = container?.querySelector(`[id="${CSS.escape(id)}"]`);
       if (element) {
