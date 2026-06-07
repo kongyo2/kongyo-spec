@@ -79,6 +79,8 @@ export function App(): React.ReactElement {
   docRef.current = doc;
   const specsRef = useRef<SpecMeta[]>([]);
   specsRef.current = specs;
+  const deletingIdsRef = useRef<Set<string>>(new Set());
+  const createIntentRef = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const pages = useMemo(() => splitPages(doc?.content ?? ""), [doc?.content]);
@@ -113,6 +115,9 @@ export function App(): React.ReactElement {
             if (pendingSaveRef.current === pending) pendingSaveRef.current = null;
             if (docRef.current && docRef.current.meta.id === pending.id) {
               loadedContentRef.current = pending.content;
+              if (docRef.current.content !== pending.content && pendingSaveRef.current === null) {
+                pendingSaveRef.current = { id: docRef.current.meta.id, content: docRef.current.content };
+              }
             }
             saveFailedRef.current = false;
             setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
@@ -164,9 +169,11 @@ export function App(): React.ReactElement {
           if (!(await flushSave())) return false;
           if (token !== openRequestRef.current) return false;
         }
+        if (deletingIdsRef.current.has(id)) return false;
+        const reconciledMeta = specsRef.current.find((spec) => spec.id === id) ?? document.meta;
         loadedContentRef.current = document.content;
         setActiveId(id);
-        setDoc(document);
+        setDoc({ meta: reconciledMeta, content: document.content });
         setPageIndex(0);
         setMode("preview");
         setActiveHeadingId(null);
@@ -358,10 +365,12 @@ export function App(): React.ReactElement {
   const handleCreate = (title: string): void => {
     setDialog(null);
     const navToken = openRequestRef.current;
+    const intent = (createIntentRef.current += 1);
     void (async () => {
       try {
         const meta = await window.api.createSpec(title);
         setSpecs((prev) => [meta, ...prev]);
+        if (createIntentRef.current !== intent) return;
         if (openRequestRef.current !== navToken) return;
         const opened = await openSpec(meta.id);
         if (opened) setMode("source");
@@ -386,6 +395,7 @@ export function App(): React.ReactElement {
 
   const handleDelete = (id: string): void => {
     void (async () => {
+      deletingIdsRef.current.add(id);
       try {
         if (docRef.current?.meta.id === id) pendingSaveRef.current = null;
         await flushSave();
@@ -410,6 +420,8 @@ export function App(): React.ReactElement {
           pendingSaveRef.current = { id: current.meta.id, content: current.content };
           void flushSave();
         }
+      } finally {
+        deletingIdsRef.current.delete(id);
       }
     })();
   };
