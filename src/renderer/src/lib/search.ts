@@ -3,7 +3,7 @@ export interface GlobalMatch {
   indexInPage: number;
 }
 
-const EXCLUDED_FROM_SEARCH = ".mermaid-block, .copy-button, .code-lang, .heading-anchor, .katex-mathml";
+const EXCLUDED_FROM_SEARCH = ".mermaid-block, .copy-button, .code-lang, .heading-anchor, .katex-mathml, [hidden]";
 
 interface Segment {
   node: Text;

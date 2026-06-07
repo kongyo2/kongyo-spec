@@ -333,10 +333,12 @@ export function App(): React.ReactElement {
 
   const handleCreate = (title: string): void => {
     setDialog(null);
+    const navToken = openRequestRef.current;
     void (async () => {
       try {
         const meta = await window.api.createSpec(title);
         setSpecs((prev) => [meta, ...prev]);
+        if (openRequestRef.current !== navToken) return;
         const opened = await openSpec(meta.id);
         if (opened) setMode("source");
       } catch (err) {
@@ -361,12 +363,13 @@ export function App(): React.ReactElement {
   const handleDelete = (id: string): void => {
     void (async () => {
       try {
+        if (docRef.current?.meta.id === id) pendingSaveRef.current = null;
+        await flushSave();
         if (pendingOpenIdRef.current === id) openRequestRef.current += 1;
         await window.api.deleteSpec(id);
         setDialog(null);
         setSpecs((prev) => prev.filter((spec) => spec.id !== id));
         if (docRef.current?.meta.id === id) {
-          pendingSaveRef.current = null;
           const fallback = specsRef.current.find((spec) => spec.id !== id);
           if (fallback) {
             await openSpec(fallback.id);
