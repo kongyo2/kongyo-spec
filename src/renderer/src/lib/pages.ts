@@ -1,4 +1,5 @@
 import { toString } from "mdast-util-to-string";
+import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
@@ -30,7 +31,7 @@ export function slugify(input: string): string {
   return base.length > 0 ? base : "section";
 }
 
-const parser = unified().use(remarkParse);
+const parser = unified().use(remarkParse).use(remarkGfm);
 
 function findBoundaries(markdown: string): Boundary[] {
   const tree = parser.parse(markdown) as MdastRoot;
@@ -89,21 +90,20 @@ export function splitPages(markdown: string): VirtualPage[] {
   return pages;
 }
 
-function serializeUrl(url: string): string {
-  return /[\s()<>]/.test(url) ? `<${url.replace(/([<>\\])/g, "\\$1")}>` : url;
-}
-
 export function collectLinkDefinitions(markdown: string): string {
   const tree = parser.parse(markdown) as MdastRoot;
   const seen = new Set<string>();
-  const lines: string[] = [];
-  visit(tree, "definition", (node) => {
-    if (seen.has(node.identifier)) return;
-    seen.add(node.identifier);
-    const title = node.title ? ` "${node.title.replace(/"/g, '\\"')}"` : "";
-    lines.push(`[${node.identifier}]: ${serializeUrl(node.url)}${title}`);
+  const blocks: string[] = [];
+  visit(tree, (node) => {
+    if (node.type !== "definition" && node.type !== "footnoteDefinition") return;
+    const key = `${node.type}:${node.identifier}`;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (seen.has(key) || start === undefined || end === undefined) return;
+    seen.add(key);
+    blocks.push(markdown.slice(start, end));
   });
-  return lines.length > 0 ? `${lines.join("\n")}\n\n` : "";
+  return blocks.length > 0 ? `${blocks.join("\n\n")}\n\n` : "";
 }
 
 function hasVisibleContent(markdown: string): boolean {

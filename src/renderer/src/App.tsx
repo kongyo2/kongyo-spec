@@ -144,6 +144,12 @@ export function App(): React.ReactElement {
           return false;
         }
         if (token !== openRequestRef.current) return false;
+        const current = docRef.current;
+        if (current && current.content !== loadedContentRef.current) {
+          pendingSaveRef.current = { id: current.meta.id, content: current.content };
+          if (!(await flushSave())) return false;
+          if (token !== openRequestRef.current) return false;
+        }
         loadedContentRef.current = document.content;
         setActiveId(id);
         setDoc(document);
@@ -311,7 +317,7 @@ export function App(): React.ReactElement {
         return;
       }
 
-      const fileName = path.replace(/^\.\//, "").replace(/\/+$/, "");
+      const fileName = safeDecode(path).replace(/^\.\//, "").replace(/\/+$/, "");
       const targetId = fileName.replace(/\.md$/i, "");
       const target = specs.find((spec) => spec.id === targetId);
       if (!target) {
