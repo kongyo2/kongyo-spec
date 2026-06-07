@@ -115,9 +115,8 @@ window — fine on a desktop, but there is nothing to see headless. Use the driv
 - **Mermaid renders asynchronously.** The driver waits up to 20s for
   `.mermaid-block svg`; `probe`'s `mermaidErr` count catches diagram failures
   that still leave the rest of the page intact.
-- **The built-in smoke test (`KONGYO_SMOKE=1`) now FAILs.** It expects
-  auto-seeded content that no longer exists; use the driver's `demo`/`probe`
-  to validate rendering instead.
+- **There is no built-in headless self-check.** Validate rendering through the
+  driver's `demo`/`probe` (counts of shiki/katex/mermaid in the live DOM).
 
 ## Troubleshooting
 
