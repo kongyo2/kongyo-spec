@@ -59,11 +59,23 @@ async function writeSpec(meta: SpecMeta, content: string): Promise<void> {
 }
 
 async function seedIfEmpty(): Promise<void> {
+  const markerPath = join(getSpecsDir(), ".seeded");
+  try {
+    await fs.access(markerPath);
+    return;
+  } catch {
+    // The store has not been initialized yet.
+  }
   const entries = await fs.readdir(getSpecsDir());
-  if (entries.some((entry) => entry.endsWith(".md"))) return;
-  const stamp = nowIso();
-  await writeSpec({ id: "welcome", title: "Kongyo Spec へようこそ", createdAt: stamp, updatedAt: stamp }, welcomeSeed);
-  await writeSpec({ id: "mdxg-notes", title: "MDXG 準拠ノート", createdAt: stamp, updatedAt: stamp }, mdxgSeed);
+  if (!entries.some((entry) => entry.endsWith(".md"))) {
+    const stamp = nowIso();
+    await writeSpec(
+      { id: "welcome", title: "Kongyo Spec へようこそ", createdAt: stamp, updatedAt: stamp },
+      welcomeSeed,
+    );
+    await writeSpec({ id: "mdxg-notes", title: "MDXG 準拠ノート", createdAt: stamp, updatedAt: stamp }, mdxgSeed);
+  }
+  await fs.writeFile(markerPath, new Date().toISOString(), "utf8");
 }
 
 export async function initStore(): Promise<void> {

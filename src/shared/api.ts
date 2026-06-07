@@ -10,4 +10,5 @@ export interface KongyoApi {
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;
+  notifyFlushFailed(): void;
 }

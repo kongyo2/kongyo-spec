@@ -190,7 +190,10 @@ export function App(): React.ReactElement {
 
   useEffect(() => {
     return window.api.onFlushBeforeClose(() => {
-      void flushSave().finally(() => window.api.notifyFlushComplete());
+      void flushSave().then((ok) => {
+        if (ok) window.api.notifyFlushComplete();
+        else window.api.notifyFlushFailed();
+      });
     });
   }, [flushSave]);
 
@@ -311,11 +314,11 @@ export function App(): React.ReactElement {
   );
 
   const handleCreate = (title: string): void => {
+    setDialog(null);
     void (async () => {
       try {
         const meta = await window.api.createSpec(title);
         setSpecs((prev) => [meta, ...prev]);
-        setDialog(null);
         const opened = await openSpec(meta.id);
         if (opened) setMode("source");
       } catch (err) {
@@ -325,12 +328,12 @@ export function App(): React.ReactElement {
   };
 
   const handleRename = (id: string, title: string): void => {
+    setDialog(null);
     void (async () => {
       try {
         const meta = await window.api.renameSpec(id, title);
         setSpecs((prev) => prev.map((spec) => (spec.id === id ? meta : spec)).sort(byUpdatedDesc));
         setDoc((prev) => (prev && prev.meta.id === id ? { ...prev, meta } : prev));
-        setDialog(null);
       } catch (err) {
         setToast(`変更に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
       }

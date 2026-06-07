@@ -15,6 +15,7 @@ const api: KongyoApi = {
     return () => ipcRenderer.removeListener("app:flush-before-close", handler);
   },
   notifyFlushComplete: () => ipcRenderer.send("app:flush-complete"),
+  notifyFlushFailed: () => ipcRenderer.send("app:flush-failed"),
 };
 
 contextBridge.exposeInMainWorld("api", api);

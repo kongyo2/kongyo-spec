@@ -93,26 +93,34 @@ function collectText(root: Node): { text: string; segments: Segment[] } {
   return { text, segments };
 }
 
-function findMatchRanges(text: string, lowerQuery: string): Array<[number, number]> {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findMatchRanges(text: string, query: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
-  if (lowerQuery.length === 0) return ranges;
-  const haystack = text.toLowerCase();
-  let index = haystack.indexOf(lowerQuery);
-  while (index !== -1) {
-    ranges.push([index, index + lowerQuery.length]);
-    index = haystack.indexOf(lowerQuery, index + lowerQuery.length);
+  if (query.length === 0) return ranges;
+  const regex = new RegExp(escapeRegExp(query), "gi");
+  let match = regex.exec(text);
+  while (match !== null) {
+    if (match[0].length === 0) {
+      regex.lastIndex += 1;
+    } else {
+      ranges.push([match.index, match.index + match[0].length]);
+      regex.lastIndex = match.index + match[0].length;
+    }
+    match = regex.exec(text);
   }
   return ranges;
 }
 
 export function buildGlobalMatches(pageHtmls: string[], query: string): GlobalMatch[] {
-  const lowerQuery = query.toLowerCase();
   const matches: GlobalMatch[] = [];
-  if (lowerQuery.length === 0) return matches;
+  if (query.length === 0) return matches;
   for (let pageIndex = 0; pageIndex < pageHtmls.length; pageIndex++) {
     const parsed = new DOMParser().parseFromString(pageHtmls[pageIndex] ?? "", "text/html");
     const { text } = collectText(parsed.body);
-    const count = findMatchRanges(text, lowerQuery).length;
+    const count = findMatchRanges(text, query).length;
     for (let i = 0; i < count; i++) matches.push({ pageIndex, indexInPage: i });
   }
   return matches;
@@ -136,11 +144,10 @@ interface Piece {
 
 export function applyHighlights(container: HTMLElement, query: string, currentIndexInPage: number): HTMLElement | null {
   clearHighlights(container);
-  const lowerQuery = query.toLowerCase();
-  if (lowerQuery.length === 0) return null;
+  if (query.length === 0) return null;
 
   const { text, segments } = collectText(container);
-  const ranges = findMatchRanges(text, lowerQuery);
+  const ranges = findMatchRanges(text, query);
   if (ranges.length === 0) return null;
 
   const pieces = new Map<Text, Piece[]>();

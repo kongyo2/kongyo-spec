@@ -89,12 +89,16 @@ export function splitPages(markdown: string): VirtualPage[] {
   return pages;
 }
 
+function serializeUrl(url: string): string {
+  return /[\s()<>]/.test(url) ? `<${url.replace(/([<>\\])/g, "\\$1")}>` : url;
+}
+
 export function collectLinkDefinitions(markdown: string): string {
   const tree = parser.parse(markdown) as MdastRoot;
   const lines: string[] = [];
   visit(tree, "definition", (node) => {
     const title = node.title ? ` "${node.title.replace(/"/g, '\\"')}"` : "";
-    lines.push(`[${node.identifier}]: ${node.url}${title}`);
+    lines.push(`[${node.identifier}]: ${serializeUrl(node.url)}${title}`);
   });
   return lines.length > 0 ? `\n\n${lines.join("\n")}\n` : "";
 }

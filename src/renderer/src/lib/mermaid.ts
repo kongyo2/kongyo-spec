@@ -3,6 +3,7 @@ import type { ResolvedTheme } from "./theme";
 
 let initializedTheme: ResolvedTheme | null = null;
 let counter = 0;
+let generation = 0;
 const svgCache = new Map<string, string>();
 
 function ensureInit(theme: ResolvedTheme): void {
@@ -13,7 +14,10 @@ function ensureInit(theme: ResolvedTheme): void {
     theme: theme === "dark" ? "dark" : "default",
     fontFamily: "inherit",
   });
-  if (initializedTheme !== null) svgCache.clear();
+  if (initializedTheme !== null) {
+    svgCache.clear();
+    generation += 1;
+  }
   initializedTheme = theme;
 }
 
@@ -32,6 +36,7 @@ function findLiveBlock(container: HTMLElement, source: string): HTMLElement | nu
 export async function renderMermaidIn(container: HTMLElement, theme: ResolvedTheme): Promise<void> {
   const themeChanged = initializedTheme !== null && initializedTheme !== theme;
   ensureInit(theme);
+  const gen = generation;
   if (themeChanged) {
     container.querySelectorAll<HTMLElement>("pre.mermaid-block.mermaid-rendered").forEach((block) => {
       const source = block.getAttribute("data-source");
@@ -61,12 +66,14 @@ export async function renderMermaidIn(container: HTMLElement, theme: ResolvedThe
     const id = `mermaid-render-${Date.now().toString(36)}-${counter}`;
     try {
       const { svg } = await mermaid.render(id, source);
+      if (gen !== generation) return;
       svgCache.set(source, svg);
       const target = findLiveBlock(container, source) ?? block;
       target.innerHTML = svg;
       target.classList.add("mermaid-rendered");
       target.classList.remove("mermaid-error");
     } catch (err) {
+      if (gen !== generation) return;
       const message = err instanceof Error ? err.message : String(err);
       const target = findLiveBlock(container, source) ?? block;
       target.classList.add("mermaid-error");
