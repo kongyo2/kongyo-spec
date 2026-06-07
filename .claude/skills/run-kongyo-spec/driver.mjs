@@ -87,15 +87,26 @@ const COMMANDS = {
   },
 
   // Create a spec through the real UI: sidebar "+ 新規作成" -> dialog -> confirm.
-  // It opens in Source mode, so .editor-input is present afterward.
+  // Wait for the NEW spec's identity (one more .spec-item AND the editor showing
+  // its "# <title>" seed) rather than any .editor-input, which may already exist
+  // from a spec opened in Source mode and make the wait return too early.
   async new(title) {
     if (!page) return console.log("ERROR: launch first");
-    const name = title || "Demo Spec";
+    const name = (title || "Demo Spec").trim();
+    const before = await page.evaluate(() => document.querySelectorAll(".spec-item").length);
     await page.click(".new-spec-button");
     await page.waitForSelector(".modal-input", { timeout: 5_000 });
     await page.fill(".modal-input", name);
     await page.click(".modal-confirm");
-    await page.waitForSelector(".editor-input", { timeout: 5_000 });
+    await page.waitForFunction(
+      ({ n, prev }) => {
+        const items = document.querySelectorAll(".spec-item").length;
+        const editor = document.querySelector(".editor-input");
+        return items > prev && !!editor && editor.value.startsWith("# " + n);
+      },
+      { n: name, prev: before },
+      { timeout: 8_000 },
+    );
     console.log("created + opened (source mode):", name);
   },
 
