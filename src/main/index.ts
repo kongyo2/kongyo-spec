@@ -1,0 +1,145 @@
+import { join, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron";
+import { registerIpc } from "./ipc";
+import { registerSmokeTest } from "./smoke";
+import { getSpecsDir, initStore } from "./specsStore";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "specfile",
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
+]);
+
+function resolveSpecAsset(requestUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(requestUrl);
+  } catch {
+    return null;
+  }
+  let relative: string;
+  try {
+    relative = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
+  if (relative.length === 0) return null;
+  const base = getSpecsDir();
+  const absolute = join(base, relative);
+  if (absolute !== base && !absolute.startsWith(base + sep)) return null;
+  return absolute;
+}
+
+function createWindow(): void {
+  const window = new BrowserWindow({
+    width: 1320,
+    height: 880,
+    minWidth: 900,
+    minHeight: 600,
+    show: false,
+    backgroundColor: "#ffffff",
+    title: "Kongyo Spec",
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: join(__dirname, "../preload/index.js"),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      spellcheck: false,
+    },
+  });
+
+  window.once("ready-to-show", () => window.show());
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
+
+  const handleNavigation = (event: { preventDefault: () => void }, url: string): void => {
+    if (url === window.webContents.getURL()) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+  };
+  window.webContents.on("will-navigate", handleNavigation);
+  window.webContents.on("will-redirect", handleNavigation);
+
+  let closeFlushed = false;
+  let closePending = false;
+  let rendererReady = false;
+  window.webContents.on("did-finish-load", () => {
+    rendererReady = true;
+  });
+  window.webContents.on("render-process-gone", () => {
+    closeFlushed = true;
+    if (!window.isDestroyed()) window.close();
+  });
+  window.on("close", (event) => {
+    if (closeFlushed) return;
+    if (!rendererReady) return;
+    event.preventDefault();
+    if (closePending) return;
+    closePending = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      ipcMain.removeAllListeners("app:flush-complete");
+      ipcMain.removeAllListeners("app:flush-failed");
+    };
+    timer = setTimeout(() => {
+      cleanup();
+      closePending = false;
+    }, 5000);
+    ipcMain.on("app:flush-complete", () => {
+      cleanup();
+      closeFlushed = true;
+      window.close();
+    });
+    ipcMain.on("app:flush-failed", () => {
+      cleanup();
+      closePending = false;
+    });
+    window.webContents.send("app:flush-before-close");
+  });
+
+  if (process.env["KONGYO_SMOKE"] === "1") registerSmokeTest(window);
+
+  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
+  if (devServerUrl) {
+    void window.loadURL(devServerUrl);
+  } else {
+    void window.loadFile(join(__dirname, "../renderer/index.html"));
+  }
+}
+
+app
+  .whenReady()
+  .then(async () => {
+    protocol.handle("specfile", async (request) => {
+      const absolute = resolveSpecAsset(request.url);
+      if (absolute === null) return new Response("Not found", { status: 404 });
+      try {
+        return await net.fetch(pathToFileURL(absolute).toString());
+      } catch {
+        return new Response("Not found", { status: 404 });
+      }
+    });
+
+    await initStore();
+    registerIpc();
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  })
+  .catch((err: unknown) => {
+    console.error("[main] failed to start:", err);
+    app.quit();
+  });
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
