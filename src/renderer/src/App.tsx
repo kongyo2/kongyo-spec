@@ -74,6 +74,8 @@ export function App(): React.ReactElement {
   const flushPromiseRef = useRef<Promise<boolean> | null>(null);
   const docRef = useRef<SpecDocument | null>(null);
   docRef.current = doc;
+  const specsRef = useRef<SpecMeta[]>([]);
+  specsRef.current = specs;
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const pages = useMemo(() => splitPages(doc?.content ?? ""), [doc?.content]);
@@ -289,12 +291,15 @@ export function App(): React.ReactElement {
 
   const handleLinkActivate = useCallback(
     (href: string): void => {
+      const reportLaunchFailure = (err: unknown): void => {
+        setToast(`リンクを開けませんでした: ${err instanceof Error ? err.message : String(err)}`);
+      };
       if (href.startsWith("//")) {
-        void window.api.openExternal(`https:${href}`);
+        void window.api.openExternal(`https:${href}`).catch(reportLaunchFailure);
         return;
       }
-      if (/^https?:\/\//i.test(href) || href.startsWith("mailto:")) {
-        void window.api.openExternal(href);
+      if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href)) {
+        void window.api.openExternal(href).catch(reportLaunchFailure);
         return;
       }
       const hashIndex = href.indexOf("#");
@@ -354,9 +359,9 @@ export function App(): React.ReactElement {
         await window.api.deleteSpec(id);
         setDialog(null);
         setSpecs((prev) => prev.filter((spec) => spec.id !== id));
-        if (activeId === id) {
+        if (docRef.current?.meta.id === id) {
           pendingSaveRef.current = null;
-          const fallback = specs.find((spec) => spec.id !== id);
+          const fallback = specsRef.current.find((spec) => spec.id !== id);
           if (fallback) {
             await openSpec(fallback.id);
           } else {

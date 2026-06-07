@@ -65,13 +65,31 @@ export function Editor({ value, onChange, theme }: EditorProps): React.ReactElem
       return;
     }
 
-    const lineStart = value.lastIndexOf("\n", start - 1) + 1;
-    const block = value.slice(lineStart, end);
+    if (start === end) {
+      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+      const newlineIndex = value.indexOf("\n", start);
+      const lineEnd = newlineIndex === -1 ? value.length : newlineIndex;
+      const line = value.slice(lineStart, lineEnd);
+      const dedented = line.replace(/^ {1,2}/, "");
+      const removed = line.length - dedented.length;
+      onChange(value.slice(0, lineStart) + dedented + value.slice(lineEnd));
+      const cursor = Math.max(lineStart, start - removed);
+      requestAnimationFrame(() => {
+        textarea.selectionStart = cursor;
+        textarea.selectionEnd = cursor;
+      });
+      return;
+    }
+
+    const blockStart = value.lastIndexOf("\n", start - 1) + 1;
+    const newlineIndex = value.indexOf("\n", end - 1);
+    const blockEnd = newlineIndex === -1 ? value.length : newlineIndex;
+    const block = value.slice(blockStart, blockEnd);
     const modified = event.shiftKey ? block.replace(/^ {1,2}/gm, "") : block.replace(/^/gm, "  ");
-    onChange(value.slice(0, lineStart) + modified + value.slice(end));
+    onChange(value.slice(0, blockStart) + modified + value.slice(blockEnd));
     requestAnimationFrame(() => {
-      textarea.selectionStart = lineStart;
-      textarea.selectionEnd = lineStart + modified.length;
+      textarea.selectionStart = blockStart;
+      textarea.selectionEnd = blockStart + modified.length;
     });
   };
 

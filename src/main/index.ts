@@ -19,7 +19,12 @@ function resolveSpecAsset(requestUrl: string): string | null {
   } catch {
     return null;
   }
-  const relative = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
+  let relative: string;
+  try {
+    relative = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
   if (relative.length === 0) return null;
   const base = getSpecsDir();
   const absolute = join(base, relative);

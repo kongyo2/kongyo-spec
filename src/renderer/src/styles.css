@@ -823,7 +823,7 @@ mark.search-hit-current {
 }
 
 /* ---------- Modal ---------- */
-.modal-overlay {
+.app > .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(1, 4, 9, 0.45);
@@ -904,7 +904,7 @@ mark.search-hit-current {
 }
 
 /* ---------- Toast ---------- */
-.toast {
+.app > .toast {
   position: fixed;
   bottom: 20px;
   left: 50%;

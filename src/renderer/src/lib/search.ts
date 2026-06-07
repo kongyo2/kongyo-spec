@@ -3,23 +3,7 @@ export interface GlobalMatch {
   indexInPage: number;
 }
 
-const EXCLUDED_FROM_SEARCH = ".mermaid-block, .copy-button, .code-lang, .heading-anchor";
-
-function eachTextNode(root: Node, visit: (node: Text) => void): void {
-  const doc = root.ownerDocument ?? document;
-  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement;
-      if (parent && parent.closest(EXCLUDED_FROM_SEARCH)) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
-  let node = walker.nextNode();
-  while (node) {
-    if (node.nodeValue && node.nodeValue.length > 0) visit(node as Text);
-    node = walker.nextNode();
-  }
-}
+const EXCLUDED_FROM_SEARCH = ".mermaid-block, .copy-button, .code-lang, .heading-anchor, .katex-mathml";
 
 interface Segment {
   node: Text;
@@ -77,19 +61,39 @@ function closestBlock(node: Node): Element | null {
 }
 
 function collectText(root: Node): { text: string; segments: Segment[] } {
+  const doc = root.ownerDocument ?? document;
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        return (node as Element).matches(EXCLUDED_FROM_SEARCH) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
   const segments: Segment[] = [];
   let text = "";
   let previousBlock: Element | null = null;
   let first = true;
-  eachTextNode(root, (node) => {
-    const block = closestBlock(node);
-    if (!first && block !== previousBlock) text += "\n";
-    first = false;
-    previousBlock = block;
+  let breakPending = false;
+  let node = walker.nextNode();
+  while (node) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if ((node as Element).tagName === "BR") breakPending = true;
+      node = walker.nextNode();
+      continue;
+    }
     const value = node.nodeValue ?? "";
-    segments.push({ node, start: text.length, end: text.length + value.length });
-    text += value;
-  });
+    if (value.length > 0) {
+      const block = closestBlock(node);
+      if (!first && (block !== previousBlock || breakPending)) text += "\n";
+      first = false;
+      previousBlock = block;
+      breakPending = false;
+      segments.push({ node: node as Text, start: text.length, end: text.length + value.length });
+      text += value;
+    }
+    node = walker.nextNode();
+  }
   return { text, segments };
 }
 
