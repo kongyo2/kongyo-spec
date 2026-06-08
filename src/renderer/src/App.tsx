@@ -506,6 +506,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           try {
             const plan = buildImportPlan(dropped);
             strippedMeta = plan.strippedMeta;
+            if (plan.assetsCapped) notes.push("画像が多すぎるため一部のアセットは取り込まれません");
             const result = await window.api.importSpecs({ specs: plan.specs, assets: plan.assets });
             metas = result.metas;
             if (result.skippedAssets > 0) notes.push(`${result.skippedAssets} 件のアセットを取り込めません`);

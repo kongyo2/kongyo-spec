@@ -124,6 +124,21 @@ function assetsDirFor(id: string): string {
   return join(getSpecsDir(), "assets", id);
 }
 
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp", ".ico"]);
+
+function hasImageExtension(pathLike: string): boolean {
+  const dot = pathLike.lastIndexOf(".");
+  return dot >= 0 && IMAGE_EXTENSIONS.has(pathLike.slice(dot).toLowerCase());
+}
+
+function destWithinImportAssets(dest: string, allowedIds: Set<string>): boolean {
+  const match = /^assets\/([^/\\]+)\/(.+)$/.exec(dest);
+  if (!match) return false;
+  const [, id, rest] = match;
+  if (id === undefined || rest === undefined || !allowedIds.has(id)) return false;
+  return !rest.split(/[\\/]/).includes("..");
+}
+
 type CopyOutcome = "copied" | "skipped-size" | "skipped-missing";
 
 async function copyImportedAsset(
@@ -157,9 +172,14 @@ async function copyImportedAsset(
 export async function importSpecs(batch: ImportBatch): Promise<ImportResult> {
   await ensureDir();
   const specsDir = getSpecsDir();
+  const allowedIds = new Set(batch.specs.map((entry) => entry.id));
   const budget = { remaining: MAX_TOTAL_ASSET_BYTES };
   let skippedAssets = 0;
   for (const op of batch.assets) {
+    if (!destWithinImportAssets(op.dest, allowedIds) || !hasImageExtension(op.url)) {
+      skippedAssets += 1;
+      continue;
+    }
     // eslint-disable-next-line no-await-in-loop -- sequential copies keep the file-descriptor count bounded
     const outcome = await copyImportedAsset(specsDir, op, budget);
     if (outcome !== "copied") skippedAssets += 1;

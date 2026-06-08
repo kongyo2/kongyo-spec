@@ -5,7 +5,7 @@ import { visit } from "unist-util-visit";
 import type { Node } from "unist";
 import { parseFile } from "@shared/frontmatter";
 import type { ImportAssetOp, ImportPlan, ImportSpecEntry } from "@shared/api";
-import { deriveTitle, RESERVED_FRONTMATTER_KEYS } from "./import";
+import { deriveTitle, MAX_ASSET_OPS, RESERVED_FRONTMATTER_KEYS } from "./import";
 
 export interface DroppedFile {
   name: string;
@@ -15,6 +15,7 @@ export interface DroppedFile {
 
 export interface BuiltPlan extends ImportPlan {
   strippedMeta: boolean;
+  assetsCapped: boolean;
 }
 
 interface UrlNode extends Node {
@@ -48,8 +49,21 @@ interface AssetNaming {
   usedNames: Set<string>;
 }
 
+interface LinkMaps {
+  idByName: Map<string, string>;
+  idByPath: Map<string, string>;
+  idByPathLower: Map<string, string>;
+}
+
+interface BuildCtx {
+  maps: LinkMaps;
+  assets: ImportAssetOp[];
+  capped: { value: boolean };
+}
+
 const MD_EXT = /\.(?:md|markdown)$/i;
-const IMG_SRC_RE = /<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+const IMG_SRC_RE = /<img\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 const parser = unified().use(remarkParse).use(remarkGfm);
 
 function uuid(): string {
@@ -58,6 +72,25 @@ function uuid(): string {
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0"));
   return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
+}
+
+function safeFromCodePoint(code: number, fallback: string): string {
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return fallback;
+  }
+}
+
+function decodeEntities(input: string): string {
+  return input.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);/gi, (match, body: string) => {
+    if (body[0] === "#") {
+      const isHex = body[1] === "x" || body[1] === "X";
+      const code = isHex ? Number.parseInt(body.slice(2), 16) : Number.parseInt(body.slice(1), 10);
+      return Number.isFinite(code) ? safeFromCodePoint(code, match) : match;
+    }
+    return NAMED_ENTITIES[body.toLowerCase()] ?? match;
+  });
 }
 
 function isExternalUrl(url: string): boolean {
@@ -146,6 +179,10 @@ function urlSpan(node: UrlNode, source: string): { start: number; end: number } 
     let j = i;
     while (j < sub.length) {
       const char = sub[j] ?? "";
+      if (char === "\\" && j + 1 < sub.length) {
+        j += 2;
+        continue;
+      }
       if (node.type === "definition") {
         if (/\s/.test(char)) break;
       } else if (char === "(") {
@@ -174,12 +211,17 @@ function isUrlNode(node: Node): node is UrlNode {
 }
 
 function encodeDestUrl(id: string, candidate: string): string {
-  return `assets/${id}/${encodeURIComponent(candidate)}`;
+  const encoded = encodeURIComponent(candidate).replace(/\(/g, "%28").replace(/\)/g, "%29");
+  return `assets/${id}/${encoded}`;
 }
 
-function assetDestFor(prepared: Prepared, rawPath: string, naming: AssetNaming, assets: ImportAssetOp[]): AssetDest {
+function assetDestFor(prepared: Prepared, rawPath: string, naming: AssetNaming, ctx: BuildCtx): AssetDest | null {
   const existing = naming.destByUrl.get(rawPath);
   if (existing !== undefined) return existing;
+  if (ctx.assets.length >= MAX_ASSET_OPS) {
+    ctx.capped.value = true;
+    return null;
+  }
   const base = basename(decodePath(rawPath)) || "asset";
   const dot = base.lastIndexOf(".");
   let candidate = base;
@@ -194,26 +236,24 @@ function assetDestFor(prepared: Prepared, rawPath: string, naming: AssetNaming, 
     urlDest: encodeDestUrl(prepared.id, candidate),
   };
   naming.destByUrl.set(rawPath, dest);
-  assets.push({ srcFile: prepared.file.path, url: rawPath, dest: dest.fileDest });
+  ctx.assets.push({ srcFile: prepared.file.path, url: rawPath, dest: dest.fileDest });
   return dest;
 }
 
-function resolveLinkTarget(
-  prepared: Prepared,
-  decoded: string,
-  idByName: Map<string, string>,
-  idByPath: Map<string, string>,
-): string | undefined {
+function resolveLinkTarget(prepared: Prepared, decoded: string, maps: LinkMaps): string | undefined {
   if (prepared.file.path.length > 0) {
-    const resolved = normalizePath(`${dirOf(prepared.file.path)}/${decoded}`).toLowerCase();
-    const byPath = idByPath.get(resolved) ?? idByPath.get(resolved.replace(MD_EXT, ""));
-    if (byPath) return byPath;
+    const resolved = normalizePath(`${dirOf(prepared.file.path)}/${decoded}`);
+    const resolvedNoExt = resolved.replace(MD_EXT, "");
+    const exact = maps.idByPath.get(resolved) ?? maps.idByPath.get(resolvedNoExt);
+    if (exact) return exact;
+    const lower = maps.idByPathLower.get(resolved.toLowerCase()) ?? maps.idByPathLower.get(resolvedNoExt.toLowerCase());
+    if (lower) return lower;
   }
   const key = decoded.replace(/^\.\//, "").toLowerCase();
-  return key.includes("/") ? undefined : idByName.get(key);
+  return key.includes("/") ? undefined : maps.idByName.get(key);
 }
 
-function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, assets: ImportAssetOp[]): Replacement[] {
+function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ctx: BuildCtx): Replacement[] {
   const start = offsetOf(node, "start");
   const raw = (node as { value?: unknown }).value;
   const value = typeof raw === "string" ? raw : "";
@@ -222,45 +262,37 @@ function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ass
   IMG_SRC_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = IMG_SRC_RE.exec(value)) !== null) {
-    const rawUrl = match[1] ?? match[2] ?? match[3] ?? "";
-    if (rawUrl.length === 0) continue;
-    const { path, suffix } = splitSuffix(rawUrl);
+    const rawSrc = match[1] ?? match[2] ?? match[3] ?? "";
+    if (rawSrc.length === 0) continue;
+    const { path, suffix } = splitSuffix(decodeEntities(rawSrc));
     const decoded = decodePath(path);
     if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) continue;
-    const offsetInMatch = match[0].lastIndexOf(rawUrl);
+    const offsetInMatch = match[0].lastIndexOf(rawSrc);
     if (offsetInMatch < 0) continue;
+    const dest = assetDestFor(prepared, path, naming, ctx);
+    if (!dest) continue;
     const urlStart = start + match.index + offsetInMatch;
-    const dest = assetDestFor(prepared, path, naming, assets);
-    replacements.push({ start: urlStart, end: urlStart + rawUrl.length, value: `${dest.urlDest}${suffix}` });
+    replacements.push({ start: urlStart, end: urlStart + rawSrc.length, value: `${dest.urlDest}${suffix}` });
   }
   return replacements;
 }
 
-function collectImageRefIds(tree: Node): Set<string> {
-  const ids = new Set<string>();
+function rewriteBody(prepared: Prepared, ctx: BuildCtx): string {
+  const body = prepared.body;
+  const tree = parser.parse(body);
+  const imageRefIds = new Set<string>();
   visit(tree, (node: Node) => {
     if (node.type !== "imageReference") return;
     const identifier = (node as { identifier?: unknown }).identifier;
-    if (typeof identifier === "string") ids.add(identifier.toLowerCase());
+    if (typeof identifier === "string") imageRefIds.add(identifier.toLowerCase());
   });
-  return ids;
-}
 
-function rewriteBody(
-  prepared: Prepared,
-  idByName: Map<string, string>,
-  idByPath: Map<string, string>,
-  assets: ImportAssetOp[],
-): string {
-  const body = prepared.body;
-  const tree = parser.parse(body);
-  const imageRefIds = collectImageRefIds(tree);
   const replacements: Replacement[] = [];
   const naming: AssetNaming = { destByUrl: new Map(), usedNames: new Set() };
 
   visit(tree, (node: Node) => {
     if (node.type === "html") {
-      replacements.push(...rewriteRawHtml(prepared, node, naming, assets));
+      replacements.push(...rewriteRawHtml(prepared, node, naming, ctx));
       return;
     }
     if (!isUrlNode(node)) return;
@@ -270,7 +302,7 @@ function rewriteBody(
     const decoded = decodePath(path);
 
     if (node.type === "link" || node.type === "definition") {
-      const target = resolveLinkTarget(prepared, decoded, idByName, idByPath);
+      const target = resolveLinkTarget(prepared, decoded, ctx.maps);
       if (target) {
         replacements.push({ start: span.start, end: span.end, value: `${target}.md${suffix}` });
         return;
@@ -285,8 +317,8 @@ function rewriteBody(
       !isExternalUrl(path) &&
       !MD_EXT.test(decoded)
     ) {
-      const dest = assetDestFor(prepared, path, naming, assets);
-      replacements.push({ start: span.start, end: span.end, value: `${dest.urlDest}${suffix}` });
+      const dest = assetDestFor(prepared, path, naming, ctx);
+      if (dest) replacements.push({ start: span.start, end: span.end, value: `${dest.urlDest}${suffix}` });
     }
   });
 
@@ -315,24 +347,30 @@ export function buildImportPlan(files: DroppedFile[]): BuiltPlan {
 
   const idByName = new Map<string, string>();
   const idByPath = new Map<string, string>();
+  const idByPathLower = new Map<string, string>();
   for (const item of prepared) {
     const lower = item.file.name.toLowerCase();
     if (!idByName.has(lower)) idByName.set(lower, item.id);
     const stem = lower.replace(MD_EXT, "");
     if (!idByName.has(stem)) idByName.set(stem, item.id);
     if (item.file.path.length > 0) {
-      const normalized = normalizePath(item.file.path).toLowerCase();
+      const normalized = normalizePath(item.file.path);
+      const normalizedNoExt = normalized.replace(MD_EXT, "");
       idByPath.set(normalized, item.id);
-      idByPath.set(normalized.replace(MD_EXT, ""), item.id);
+      idByPath.set(normalizedNoExt, item.id);
+      const lowerPath = normalized.toLowerCase();
+      const lowerPathNoExt = normalizedNoExt.toLowerCase();
+      if (!idByPathLower.has(lowerPath)) idByPathLower.set(lowerPath, item.id);
+      if (!idByPathLower.has(lowerPathNoExt)) idByPathLower.set(lowerPathNoExt, item.id);
     }
   }
 
-  const assets: ImportAssetOp[] = [];
+  const ctx: BuildCtx = { maps: { idByName, idByPath, idByPathLower }, assets: [], capped: { value: false } };
   let strippedMeta = false;
   const specs: ImportSpecEntry[] = prepared.map((item) => {
     if (item.extra) strippedMeta = true;
-    return { id: item.id, title: item.title, content: rewriteBody(item, idByName, idByPath, assets) };
+    return { id: item.id, title: item.title, content: rewriteBody(item, ctx) };
   });
 
-  return { specs, assets, strippedMeta };
+  return { specs, assets: ctx.assets, strippedMeta, assetsCapped: ctx.capped.value };
 }

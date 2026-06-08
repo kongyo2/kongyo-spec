@@ -1,6 +1,7 @@
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 export const MAX_TOTAL_IMPORT_BYTES = 64 * 1024 * 1024;
 export const MAX_IMPORT_FILES = 200;
+export const MAX_ASSET_OPS = 5000;
 
 export const RESERVED_FRONTMATTER_KEYS = new Set(["id", "title", "createdAt", "updatedAt"]);
 
