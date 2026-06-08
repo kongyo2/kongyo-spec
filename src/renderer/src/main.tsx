@@ -1,6 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { DEFAULT_SETTINGS, type Settings } from "@shared/schemas/settings";
+import "@fontsource-variable/geist/index.css";
+import "@fontsource-variable/geist-mono/index.css";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 import { App } from "./App";

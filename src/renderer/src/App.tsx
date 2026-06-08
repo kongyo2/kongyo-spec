@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText } from "lucide-react";
+import { FileText, Plus } from "lucide-react";
 import type { Settings } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
@@ -39,6 +39,8 @@ interface PendingAnchor {
 interface AppProps {
   initialSettings: Settings;
 }
+
+const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl ";
 
 export function App({ initialSettings }: AppProps): React.ReactElement {
   const [specs, setSpecs] = useState<SpecMeta[]>([]);
@@ -496,9 +498,17 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         <div className="content-area">
           {doc === null ? (
             <div className="empty-state">
-              <p>仕様書が選択されていません。</p>
-              <button type="button" onClick={() => setDialog({ kind: "new" })}>
-                + 新規作成
+              <div className="empty-icon">
+                <FileText size={28} aria-hidden="true" />
+              </div>
+              <div>
+                <p className="empty-title">仕様書がありません</p>
+                <p className="empty-sub">新しい仕様書を作成して書き始めましょう。</p>
+              </div>
+              <button type="button" className="empty-action" onClick={() => setDialog({ kind: "new" })}>
+                <Plus size={16} aria-hidden="true" />
+                新規作成
+                <kbd>{modKey}N</kbd>
               </button>
             </div>
           ) : mode === "preview" ? (
