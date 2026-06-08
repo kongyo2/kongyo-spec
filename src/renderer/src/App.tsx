@@ -467,10 +467,15 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const importFiles = useCallback(
     (files: File[]): void => {
       const markdownFiles = files.filter(isMarkdownFile);
+      const skipped = files.length - markdownFiles.length;
       if (markdownFiles.length === 0) {
         setToast("Markdown（.md）ファイルのみ読み込めます");
         return;
       }
+      if (skipped > 0) {
+        setToast(`Markdown 以外の ${skipped} 件のファイルをスキップしました`);
+      }
+      const navToken = openRequestRef.current;
       void (async () => {
         const imported: SpecMeta[] = [];
         for (const file of markdownFiles) {
@@ -491,7 +496,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         if (imported.length === 0) return;
         setSpecs((prev) => [...imported, ...prev].sort(byUpdatedDesc));
         const last = imported[imported.length - 1];
-        if (last) await openSpec(last.id);
+        if (last && openRequestRef.current === navToken) await openSpec(last.id);
       })();
     },
     [openSpec],
