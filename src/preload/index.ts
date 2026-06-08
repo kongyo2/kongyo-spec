@@ -8,6 +8,8 @@ const api: KongyoApi = {
   saveSpec: (id, content) => ipcRenderer.invoke("specs:save", { id, content }),
   renameSpec: (id, title) => ipcRenderer.invoke("specs:rename", { id, title }),
   deleteSpec: (id) => ipcRenderer.invoke("specs:delete", { id }),
+  getSettings: () => ipcRenderer.invoke("settings:get"),
+  setSetting: (key, value) => ipcRenderer.invoke("settings:set", { key, value }),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),
   onFlushBeforeClose: (callback) => {
     const handler = (): void => callback();

@@ -6,6 +6,8 @@ import {
   parseSaveSpecInput,
   parseSpecIdInput,
 } from "@shared/schemas/ipc";
+import { parseSetSettingInput } from "@shared/schemas/settings";
+import { readSettings, writeSetting } from "./settingsStore";
 import { createSpec, deleteSpec, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
 
 export function registerIpc(): void {
@@ -26,6 +28,13 @@ export function registerIpc(): void {
   });
 
   ipcMain.handle("specs:delete", (_event, raw: unknown) => deleteSpec(parseSpecIdInput(raw).id));
+
+  ipcMain.handle("settings:get", () => readSettings());
+
+  ipcMain.handle("settings:set", (_event, raw: unknown) => {
+    const input = parseSetSettingInput(raw);
+    writeSetting(input.key, input.value);
+  });
 
   ipcMain.handle("shell:openExternal", async (_event, raw: unknown) => {
     const { url } = parseOpenExternalInput(raw);

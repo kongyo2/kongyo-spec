@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText } from "lucide-react";
+import type { Settings } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
 import { Editor } from "./components/Editor";
@@ -17,10 +18,8 @@ import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
 import {
   applyTheme,
-  loadThemePreference,
   nextPreference,
   resolveTheme,
-  saveThemePreference,
   systemTheme,
   type ResolvedTheme,
   type ThemePreference,
@@ -36,7 +35,11 @@ interface PendingAnchor {
   id: string;
 }
 
-export function App(): React.ReactElement {
+interface AppProps {
+  initialSettings: Settings;
+}
+
+export function App({ initialSettings }: AppProps): React.ReactElement {
   const [specs, setSpecs] = useState<SpecMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [doc, setDoc] = useState<SpecDocument | null>(null);
@@ -55,8 +58,8 @@ export function App(): React.ReactElement {
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() => loadThemePreference());
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(loadThemePreference()));
+  const [themePreference, setThemePreference] = useState<ThemePreference>(initialSettings.theme);
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(initialSettings.theme));
 
   const loadedContentRef = useRef("");
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
@@ -83,7 +86,7 @@ export function App(): React.ReactElement {
     const resolved = resolveTheme(themePreference);
     setResolvedTheme(resolved);
     applyTheme(resolved);
-    saveThemePreference(themePreference);
+    void window.api.setSetting("theme", themePreference).catch(() => undefined);
     if (themePreference !== "system") return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const handleChange = (): void => {
@@ -94,6 +97,11 @@ export function App(): React.ReactElement {
     media.addEventListener("change", handleChange);
     return () => media.removeEventListener("change", handleChange);
   }, [themePreference]);
+
+  useEffect(() => {
+    if (activeId === null) return;
+    void window.api.setSetting("lastActiveSpecId", activeId).catch(() => undefined);
+  }, [activeId]);
 
   const flushSave = useCallback((): Promise<boolean> => {
     if (flushPromiseRef.current) return flushPromiseRef.current;
@@ -187,8 +195,9 @@ export function App(): React.ReactElement {
           const extras = prev.filter((spec) => !known.has(spec.id));
           return [...extras, ...list].sort(byUpdatedDesc);
         });
-        const first = list[0];
-        if (first && docRef.current === null && pendingOpenIdRef.current === null) await openSpec(first.id);
+        const preferred = initialSettings.lastActiveSpecId;
+        const target = (preferred !== null ? list.find((spec) => spec.id === preferred) : undefined) ?? list[0];
+        if (target && docRef.current === null && pendingOpenIdRef.current === null) await openSpec(target.id);
       } catch (err) {
         setToast(`仕様書の読み込みに失敗しました: ${errorMessage(err)}`);
       }

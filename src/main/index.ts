@@ -1,7 +1,9 @@
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, ipcMain, net, protocol, screen, shell } from "electron";
+import type { WindowBounds } from "@shared/schemas/settings";
 import { registerIpc } from "./ipc";
+import { closeSettingsStore, initSettingsStore, readSettings, writeSetting } from "./settingsStore";
 import { getSpecsDir, initStore } from "./specsStore";
 
 protocol.registerSchemesAsPrivileged([
@@ -31,10 +33,34 @@ function resolveSpecAsset(requestUrl: string): string | null {
   return absolute;
 }
 
+function isOnScreen(bounds: WindowBounds): boolean {
+  const { x, y, width, height } = bounds;
+  if (x === null || y === null) return true;
+  return screen.getAllDisplays().some(({ workArea }) => {
+    return (
+      x < workArea.x + workArea.width &&
+      x + width > workArea.x &&
+      y < workArea.y + workArea.height &&
+      y + height > workArea.y
+    );
+  });
+}
+
+function debounce(fn: () => void, ms: number): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(fn, ms);
+  };
+}
+
 function createWindow(): void {
+  const saved = readSettings().windowBounds;
+  const restored = saved && isOnScreen(saved) ? saved : null;
   const window = new BrowserWindow({
-    width: 1320,
-    height: 880,
+    width: restored?.width ?? 1320,
+    height: restored?.height ?? 880,
+    ...(restored && restored.x !== null && restored.y !== null ? { x: restored.x, y: restored.y } : {}),
     minWidth: 900,
     minHeight: 600,
     show: false,
@@ -49,6 +75,25 @@ function createWindow(): void {
       spellcheck: false,
     },
   });
+
+  if (restored?.maximized) window.maximize();
+
+  const captureBounds = (): void => {
+    if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return;
+    const bounds = window.getNormalBounds();
+    writeSetting("windowBounds", {
+      width: bounds.width,
+      height: bounds.height,
+      x: bounds.x,
+      y: bounds.y,
+      maximized: window.isMaximized(),
+    });
+  };
+  const persistBounds = debounce(captureBounds, 400);
+  window.on("resize", persistBounds);
+  window.on("move", persistBounds);
+  window.on("maximize", persistBounds);
+  window.on("unmaximize", persistBounds);
 
   window.once("ready-to-show", () => window.show());
 
@@ -76,6 +121,7 @@ function createWindow(): void {
     if (!window.isDestroyed()) window.close();
   });
   window.on("close", (event) => {
+    captureBounds();
     if (closeFlushed) return;
     if (!rendererReady) return;
     event.preventDefault();
@@ -125,6 +171,7 @@ app
     });
 
     await initStore();
+    initSettingsStore();
     registerIpc();
     createWindow();
 
@@ -140,3 +187,5 @@ app
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+
+app.on("will-quit", () => closeSettingsStore());

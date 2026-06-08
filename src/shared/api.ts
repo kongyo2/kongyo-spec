@@ -1,3 +1,4 @@
+import type { SettingKey, Settings } from "./schemas/settings";
 import type { SpecDocument, SpecMeta } from "./schemas/spec";
 
 export interface KongyoApi {
@@ -7,6 +8,8 @@ export interface KongyoApi {
   saveSpec(id: string, content: string): Promise<SpecMeta>;
   renameSpec(id: string, title: string): Promise<SpecMeta>;
   deleteSpec(id: string): Promise<void>;
+  getSettings(): Promise<Settings>;
+  setSetting<K extends SettingKey>(key: K, value: Settings[K]): Promise<void>;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;
