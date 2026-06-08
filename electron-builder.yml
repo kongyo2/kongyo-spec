@@ -5,6 +5,7 @@ directories:
   output: dist
 files:
   - out/**/*
+  - resources/icon.png
   - package.json
   - "!node_modules/**/*"
   - node_modules/zod/**/*
