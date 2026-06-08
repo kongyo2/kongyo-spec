@@ -28,6 +28,7 @@ function ensureInit(theme: ResolvedTheme): void {
       secondaryColor: cssVar("--surface-3"),
       tertiaryColor: cssVar("--code-bg"),
       lineColor: cssVar("--muted-2"),
+      arrowheadColor: cssVar("--muted-2"),
       textColor: cssVar("--fg"),
       mainBkg: cssVar("--surface-2"),
       nodeBorder: cssVar("--accent"),
