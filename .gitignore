@@ -1,7 +1,10 @@
 node_modules/
 out/
 dist/
-build/
+build/*
+!build/icon.svg
+!build/icon.png
+!build/icon.ico
 release/
 coverage/
 .cache/

@@ -1,6 +1,7 @@
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol, screen, shell } from "electron";
+import icon from "../../resources/icon.png?asset";
 import type { WindowBounds } from "@shared/schemas/settings";
 import { registerIpc } from "./ipc";
 import { closeSettingsStore, initSettingsStore, readSettings, writeSetting } from "./settingsStore";
@@ -69,6 +70,7 @@ function createWindow(): void {
     show: false,
     backgroundColor: startDark ? "#0a0a0a" : "#ffffff",
     title: "Kongyo Spec",
+    icon,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
