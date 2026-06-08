@@ -80,6 +80,8 @@ const ACCENT_VARS = [
   "--accent-soft",
   "--accent-line",
   "--accent-glow",
+  "--ring",
+  "--select-bg",
 ] as const;
 
 function applyAccent(root: HTMLElement, accent: Accent, resolvedTheme: ResolvedTheme): void {
@@ -99,6 +101,8 @@ function applyAccent(root: HTMLElement, accent: Accent, resolvedTheme: ResolvedT
   root.style.setProperty("--accent-soft", alpha(isDark ? 16 : 10));
   root.style.setProperty("--accent-line", isDark ? base : alpha(86));
   root.style.setProperty("--accent-glow", alpha(isDark ? 48 : 24));
+  root.style.setProperty("--ring", alpha(isDark ? 60 : 50));
+  root.style.setProperty("--select-bg", alpha(isDark ? 32 : 20));
 }
 
 function readingWidthPx(width: ReadingWidth): number {
