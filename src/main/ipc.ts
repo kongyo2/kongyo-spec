@@ -1,6 +1,7 @@
 import { ipcMain, shell } from "electron";
 import {
   parseCreateSpecInput,
+  parseImportSpecInput,
   parseOpenExternalInput,
   parseRenameSpecInput,
   parseSaveSpecInput,
@@ -8,7 +9,7 @@ import {
 } from "@shared/schemas/ipc";
 import { parseSetSettingInput } from "@shared/schemas/settings";
 import { readSettings, writeSetting } from "./settingsStore";
-import { createSpec, deleteSpec, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
+import { createSpec, deleteSpec, importSpec, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
 
 export function registerIpc(): void {
   ipcMain.handle("specs:list", () => listSpecs());
@@ -16,6 +17,11 @@ export function registerIpc(): void {
   ipcMain.handle("specs:read", (_event, raw: unknown) => readSpec(parseSpecIdInput(raw).id));
 
   ipcMain.handle("specs:create", (_event, raw: unknown) => createSpec(parseCreateSpecInput(raw).title));
+
+  ipcMain.handle("specs:import", (_event, raw: unknown) => {
+    const input = parseImportSpecInput(raw);
+    return importSpec(input.title, input.content);
+  });
 
   ipcMain.handle("specs:save", (_event, raw: unknown) => {
     const input = parseSaveSpecInput(raw);

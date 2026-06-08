@@ -3,6 +3,7 @@ import { FileText, Plus } from "lucide-react";
 import { DEFAULT_SETTINGS, type Settings } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
+import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
 import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
@@ -15,6 +16,7 @@ import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
 import { safeDecode } from "./lib/dom";
 import { errorMessage } from "./lib/errors";
 import { computePageHeadingIds } from "./lib/headings";
+import { deriveTitle, isMarkdownFile, MAX_IMPORT_BYTES } from "./lib/import";
 import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
@@ -27,6 +29,7 @@ import {
   type ResolvedTheme,
   type ThemePreference,
 } from "./lib/theme";
+import { useFileDrop } from "./lib/useFileDrop";
 
 interface SearchUiState {
   open: boolean;
@@ -461,6 +464,41 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     })();
   };
 
+  const importFiles = useCallback(
+    (files: File[]): void => {
+      const markdownFiles = files.filter(isMarkdownFile);
+      if (markdownFiles.length === 0) {
+        setToast("Markdown（.md）ファイルのみ読み込めます");
+        return;
+      }
+      void (async () => {
+        const imported: SpecMeta[] = [];
+        for (const file of markdownFiles) {
+          if (file.size > MAX_IMPORT_BYTES) {
+            setToast(`ファイルが大きすぎます: ${file.name}`);
+            continue;
+          }
+          try {
+            // eslint-disable-next-line no-await-in-loop -- sequential imports keep ids and ordering stable
+            const text = await file.text();
+            // eslint-disable-next-line no-await-in-loop -- part of the same serialized import loop
+            const meta = await window.api.importSpec(deriveTitle(file.name), text);
+            imported.push(meta);
+          } catch (err) {
+            setToast(`「${file.name}」の読み込みに失敗しました: ${errorMessage(err)}`);
+          }
+        }
+        if (imported.length === 0) return;
+        setSpecs((prev) => [...imported, ...prev].sort(byUpdatedDesc));
+        const last = imported[imported.length - 1];
+        if (last) await openSpec(last.id);
+      })();
+    },
+    [openSpec],
+  );
+
+  const dragActive = useFileDrop(importFiles);
+
   const handleSettingChange = useCallback((change: SettingChange): void => {
     switch (change.key) {
       case "theme":
@@ -629,6 +667,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
+
+      {dragActive ? <DropOverlay /> : null}
 
       {toast ? <div className="toast">{toast}</div> : null}
     </div>

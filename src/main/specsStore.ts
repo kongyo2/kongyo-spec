@@ -95,6 +95,22 @@ export async function createSpec(title: string): Promise<SpecMeta> {
   return meta;
 }
 
+export async function importSpec(fallbackTitle: string, content: string): Promise<SpecMeta> {
+  await ensureDir();
+  const parsed = parseFile(content);
+  const frontmatterTitle = typeof parsed.data.title === "string" ? parsed.data.title.trim() : "";
+  const chosen = frontmatterTitle.length > 0 ? frontmatterTitle : fallbackTitle;
+  const stamp = nowIso();
+  const meta: SpecMeta = {
+    id: randomUUID(),
+    title: chosen.length > 200 ? chosen.slice(0, 200) : chosen,
+    createdAt: stamp,
+    updatedAt: stamp,
+  };
+  await writeSpec(meta, parsed.content);
+  return meta;
+}
+
 export async function saveSpec(id: string, content: string): Promise<SpecMeta> {
   if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
   return withLock(id, async () => {

@@ -18,6 +18,12 @@ export function parseSaveSpecInput(raw: unknown): SaveSpecInput {
   return SaveSpecInputSchema.parse(raw);
 }
 
+export const ImportSpecInputSchema = z.object({ title: z.string().min(1).max(200), content: z.string() });
+export type ImportSpecInput = z.infer<typeof ImportSpecInputSchema>;
+export function parseImportSpecInput(raw: unknown): ImportSpecInput {
+  return ImportSpecInputSchema.parse(raw);
+}
+
 export const RenameSpecInputSchema = z.object({ id: z.string().min(1).max(200), title: z.string().min(1).max(200) });
 export type RenameSpecInput = z.infer<typeof RenameSpecInputSchema>;
 export function parseRenameSpecInput(raw: unknown): RenameSpecInput {
