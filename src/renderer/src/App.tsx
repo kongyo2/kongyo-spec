@@ -16,7 +16,8 @@ import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
 import { safeDecode } from "./lib/dom";
 import { errorMessage } from "./lib/errors";
 import { computePageHeadingIds } from "./lib/headings";
-import { deriveTitle, isMarkdownFile, MAX_IMPORT_BYTES } from "./lib/import";
+import { isMarkdownFile, MAX_IMPORT_BYTES } from "./lib/import";
+import { buildImportPlan, type DroppedFile } from "./lib/importPlan";
 import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
@@ -90,6 +91,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   specsRef.current = specs;
   const deletingIdsRef = useRef<Set<string>>(new Set());
   const createIntentRef = useRef(0);
+  const importIntentRef = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const pages = useMemo(() => splitPages(doc?.content ?? ""), [doc?.content]);
@@ -467,36 +469,46 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const importFiles = useCallback(
     (files: File[]): void => {
       const markdownFiles = files.filter(isMarkdownFile);
-      const skipped = files.length - markdownFiles.length;
       if (markdownFiles.length === 0) {
         setToast("Markdown（.md）ファイルのみ読み込めます");
         return;
       }
-      if (skipped > 0) {
-        setToast(`Markdown 以外の ${skipped} 件のファイルをスキップしました`);
-      }
+      const skipped = files.length - markdownFiles.length;
+      const intent = (importIntentRef.current += 1);
       const navToken = openRequestRef.current;
       void (async () => {
-        const imported: SpecMeta[] = [];
+        const dropped: DroppedFile[] = [];
         for (const file of markdownFiles) {
           if (file.size > MAX_IMPORT_BYTES) {
             setToast(`ファイルが大きすぎます: ${file.name}`);
             continue;
           }
           try {
-            // eslint-disable-next-line no-await-in-loop -- sequential imports keep ids and ordering stable
-            const text = await file.text();
-            // eslint-disable-next-line no-await-in-loop -- part of the same serialized import loop
-            const meta = await window.api.importSpec(deriveTitle(file.name), text);
-            imported.push(meta);
+            // eslint-disable-next-line no-await-in-loop -- sequential reads keep ordering stable and bound memory
+            const content = await file.text();
+            dropped.push({ name: file.name, path: window.api.getFilePath(file), content });
           } catch (err) {
             setToast(`「${file.name}」の読み込みに失敗しました: ${errorMessage(err)}`);
           }
         }
-        if (imported.length === 0) return;
-        setSpecs((prev) => [...imported, ...prev].sort(byUpdatedDesc));
-        const last = imported[imported.length - 1];
-        if (last && openRequestRef.current === navToken) await openSpec(last.id);
+        if (dropped.length === 0) return;
+        let metas: SpecMeta[];
+        let strippedMeta: boolean;
+        try {
+          const plan = buildImportPlan(dropped);
+          strippedMeta = plan.strippedMeta;
+          metas = await window.api.importSpecs({ specs: plan.specs, assets: plan.assets });
+        } catch (err) {
+          setToast(`読み込みに失敗しました: ${errorMessage(err)}`);
+          return;
+        }
+        setSpecs((prev) => [...metas, ...prev].sort(byUpdatedDesc));
+        const notes: string[] = [];
+        if (skipped > 0) notes.push(`Markdown 以外の ${skipped} 件をスキップ`);
+        if (strippedMeta) notes.push("一部のフロントマターは取り込まれません");
+        if (notes.length > 0) setToast(notes.join(" ／ "));
+        const last = metas[metas.length - 1];
+        if (last && importIntentRef.current === intent && openRequestRef.current === navToken) await openSpec(last.id);
       })();
     },
     [openSpec],

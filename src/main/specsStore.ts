@@ -1,9 +1,28 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { app } from "electron";
+import { parseFile, stringifyFile } from "@shared/frontmatter";
 import { byUpdatedDesc, parseFrontmatter, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
-import { parseFile, stringifyFile } from "./frontmatter";
+
+export interface ImportSpecEntry {
+  id: string;
+  title: string;
+  content: string;
+}
+
+export interface ImportAssetOp {
+  srcFile: string;
+  url: string;
+  dest: string;
+}
+
+export interface ImportBatch {
+  specs: ImportSpecEntry[];
+  assets: ImportAssetOp[];
+}
+
+const MAX_ASSET_BYTES = 25 * 1024 * 1024;
 
 let cachedDir: string | null = null;
 
@@ -95,20 +114,52 @@ export async function createSpec(title: string): Promise<SpecMeta> {
   return meta;
 }
 
-export async function importSpec(fallbackTitle: string, content: string): Promise<SpecMeta> {
+function assetsDirFor(id: string): string {
+  return join(getSpecsDir(), "assets", id);
+}
+
+async function copyImportedAsset(specsDir: string, op: ImportAssetOp): Promise<void> {
+  const destination = join(specsDir, op.dest);
+  if (destination !== specsDir && !destination.startsWith(specsDir + sep)) return;
+  let source: string;
+  try {
+    source = decodeURIComponent(op.url);
+  } catch {
+    source = op.url;
+  }
+  const absolute = resolve(dirname(op.srcFile), source);
+  try {
+    const stat = await fs.stat(absolute);
+    if (!stat.isFile() || stat.size > MAX_ASSET_BYTES) return;
+    await fs.mkdir(dirname(destination), { recursive: true });
+    await fs.copyFile(absolute, destination);
+  } catch (err) {
+    console.warn(`[specsStore] skipping asset ${op.url}:`, err);
+  }
+}
+
+export async function importSpecs(batch: ImportBatch): Promise<SpecMeta[]> {
   await ensureDir();
-  const parsed = parseFile(content);
-  const frontmatterTitle = typeof parsed.data.title === "string" ? parsed.data.title.trim() : "";
-  const chosen = frontmatterTitle.length > 0 ? frontmatterTitle : fallbackTitle;
+  const specsDir = getSpecsDir();
+  for (const op of batch.assets) {
+    // eslint-disable-next-line no-await-in-loop -- sequential copies keep the file-descriptor count bounded
+    await copyImportedAsset(specsDir, op);
+  }
   const stamp = nowIso();
-  const meta: SpecMeta = {
-    id: randomUUID(),
-    title: chosen.length > 200 ? chosen.slice(0, 200) : chosen,
-    createdAt: stamp,
-    updatedAt: stamp,
-  };
-  await writeSpec(meta, parsed.content);
-  return meta;
+  const metas: SpecMeta[] = [];
+  for (const entry of batch.specs) {
+    if (!isSafeId(entry.id)) throw new Error(`invalid import id: ${entry.id}`);
+    const meta: SpecMeta = {
+      id: entry.id,
+      title: entry.title.length > 200 ? entry.title.slice(0, 200) : entry.title,
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    // eslint-disable-next-line no-await-in-loop -- sequential writes keep the file-descriptor count bounded
+    await writeSpec(meta, entry.content);
+    metas.push(meta);
+  }
+  return metas;
 }
 
 export async function saveSpec(id: string, content: string): Promise<SpecMeta> {
@@ -135,5 +186,6 @@ export async function deleteSpec(id: string): Promise<void> {
   if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
   await withLock(id, async () => {
     await fs.rm(fileFor(id), { force: true });
+    await fs.rm(assetsDirFor(id), { recursive: true, force: true });
   });
 }

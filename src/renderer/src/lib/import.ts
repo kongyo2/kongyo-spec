@@ -1,5 +1,7 @@
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
+export const RESERVED_FRONTMATTER_KEYS = new Set(["id", "title", "createdAt", "updatedAt"]);
+
 const MARKDOWN_RE = /\.(?:md|markdown)$/i;
 
 export function isMarkdownFile(file: File): boolean {
