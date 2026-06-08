@@ -16,7 +16,7 @@
     "lint": "oxlint --format agent",
     "lint:fix": "oxlint --fix",
     "lint:strict": "oxlint --deny-warnings",
-    "lint:ci": "oxlint --format github"
+    "lint:ci": "oxlint --format github --deny-warnings"
   },
   "dependencies": {
     "@shikijs/rehype": "^4.2.0",

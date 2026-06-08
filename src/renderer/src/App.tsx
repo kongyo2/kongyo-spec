@@ -111,6 +111,7 @@ export function App(): React.ReactElement {
         while (pendingSaveRef.current) {
           const pending = pendingSaveRef.current;
           try {
+            // eslint-disable-next-line no-await-in-loop -- drains a serialized save queue in order
             const meta = await window.api.saveSpec(pending.id, pending.content);
             if (pendingSaveRef.current === pending) pendingSaveRef.current = null;
             if (docRef.current && docRef.current.meta.id === pending.id) {
@@ -272,6 +273,7 @@ export function App(): React.ReactElement {
     let cancelled = false;
     void (async () => {
       for (let i = 0; i < pages.length; i++) {
+        // eslint-disable-next-line no-await-in-loop -- short-circuits on the first matching page
         const html = await renderCached(linkDefs + (pages[i]?.content ?? ""), pageHeadingIds[i] ?? []);
         if (cancelled) return;
         const parsed = new DOMParser().parseFromString(html, "text/html");

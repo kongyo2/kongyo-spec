@@ -66,6 +66,7 @@ export async function renderMermaidIn(container: HTMLElement, theme: ResolvedThe
     counter += 1;
     const id = `mermaid-render-${Date.now().toString(36)}-${counter}`;
     try {
+      // eslint-disable-next-line no-await-in-loop -- mermaid.render is not concurrency-safe
       const { svg } = await mermaid.render(id, source);
       if (gen !== generation) return;
       svgCache.set(source, svg);

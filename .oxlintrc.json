@@ -8,7 +8,9 @@
     "pedantic": "off"
   },
   "rules": {
-    "no-console": "off"
+    "no-console": "off",
+    "promise/always-return": ["warn", { "ignoreLastCallback": true }],
+    "import/no-unassigned-import": ["warn", { "allow": ["**/*.css"] }]
   },
   "ignorePatterns": ["node_modules", "dist", "build", "coverage", "out", "release", "*.min.js"]
 }
