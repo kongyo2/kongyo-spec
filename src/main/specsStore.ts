@@ -124,11 +124,19 @@ function assetsDirFor(id: string): string {
   return join(getSpecsDir(), "assets", id);
 }
 
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp", ".ico"]);
+const IMAGE_SNIFF_BYTES = 256;
 
-function hasImageExtension(pathLike: string): boolean {
-  const dot = pathLike.lastIndexOf(".");
-  return dot >= 0 && IMAGE_EXTENSIONS.has(pathLike.slice(dot).toLowerCase());
+function looksLikeImage(buf: Buffer): boolean {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true; // PNG
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true; // JPEG
+  if (buf.length >= 2 && buf[0] === 0x42 && buf[1] === 0x4d) return true; // BMP
+  if (buf.length >= 4 && buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0x01 && buf[3] === 0x00) return true; // ICO
+  const ascii = buf.toString("latin1");
+  if (ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a")) return true; // GIF
+  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") return true; // WebP
+  if (buf.length >= 12 && ascii.slice(4, 8) === "ftyp") return true; // AVIF / HEIF
+  const text = buf.toString("utf8").replace(/^﻿/, "").trimStart().toLowerCase();
+  return text.startsWith("<?xml") || text.startsWith("<svg") || text.startsWith("<!doctype svg"); // SVG
 }
 
 function destWithinImportAssets(dest: string, allowedIds: Set<string>): boolean {
@@ -159,6 +167,14 @@ async function copyImportedAsset(
     const stat = await fs.stat(absolute);
     if (!stat.isFile()) return "skipped-missing";
     if (stat.size > MAX_ASSET_BYTES || stat.size > budget.remaining) return "skipped-size";
+    const handle = await fs.open(absolute, "r");
+    try {
+      const head = Buffer.alloc(Math.min(IMAGE_SNIFF_BYTES, stat.size));
+      if (head.length > 0) await handle.read(head, 0, head.length, 0);
+      if (!looksLikeImage(head)) return "skipped-missing";
+    } finally {
+      await handle.close();
+    }
     await fs.mkdir(dirname(destination), { recursive: true });
     await fs.copyFile(absolute, destination);
     budget.remaining -= stat.size;
@@ -176,7 +192,7 @@ export async function importSpecs(batch: ImportBatch): Promise<ImportResult> {
   const budget = { remaining: MAX_TOTAL_ASSET_BYTES };
   let skippedAssets = 0;
   for (const op of batch.assets) {
-    if (!destWithinImportAssets(op.dest, allowedIds) || !hasImageExtension(op.url)) {
+    if (!destWithinImportAssets(op.dest, allowedIds)) {
       skippedAssets += 1;
       continue;
     }

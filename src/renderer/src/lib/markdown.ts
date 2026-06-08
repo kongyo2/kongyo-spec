@@ -61,6 +61,31 @@ function rehypeSanitizeScripts() {
   };
 }
 
+function toSpecAssetUrl(value: string): string | null {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//") || value.startsWith("/") || value.startsWith("#")) {
+    return null;
+  }
+  try {
+    return new URL(value, "specfile://spec/").href;
+  } catch {
+    return null;
+  }
+}
+
+function rewriteSrcsetAssets(value: string): string {
+  return value
+    .split(",")
+    .map((candidate) => {
+      const lead = /^\s*/.exec(candidate)?.[0] ?? "";
+      const rest = candidate.slice(lead.length);
+      const match = /^(\S+)(\s[\s\S]*)?$/.exec(rest);
+      if (!match) return candidate;
+      const resolved = toSpecAssetUrl(match[1] ?? "");
+      return resolved ? `${lead}${resolved}${match[2] ?? ""}` : candidate;
+    })
+    .join(",");
+}
+
 function rehypeSpecAssets() {
   return (tree: Root): void => {
     visit(tree, "element", (node: Element) => {
@@ -68,14 +93,13 @@ function rehypeSpecAssets() {
       const props = node.properties;
       if (!props) return;
       const src = props["src"];
-      if (typeof src !== "string" || src.length === 0) return;
-      if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("//") || src.startsWith("/") || src.startsWith("#")) {
-        return;
+      if (typeof src === "string" && src.length > 0) {
+        const resolved = toSpecAssetUrl(src);
+        if (resolved) props["src"] = resolved;
       }
-      try {
-        props["src"] = new URL(src, "specfile://spec/").href;
-      } catch {
-        // Leave an unresolvable relative reference as-authored.
+      const srcset = props["srcset"];
+      if (typeof srcset === "string" && srcset.length > 0) {
+        props["srcset"] = rewriteSrcsetAssets(srcset);
       }
     });
   };

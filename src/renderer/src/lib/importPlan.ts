@@ -62,7 +62,6 @@ interface BuildCtx {
 }
 
 const MD_EXT = /\.(?:md|markdown)$/i;
-const IMG_SRC_RE = /<img\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
 const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 const parser = unified().use(remarkParse).use(remarkGfm);
 
@@ -91,6 +90,15 @@ function decodeEntities(input: string): string {
     }
     return NAMED_ENTITIES[body.toLowerCase()] ?? match;
   });
+}
+
+function normalizeYamlScalar(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2 && trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1).replace(/''/g, "'");
+  }
+  if (/^[|>][+-]?\d*$/.test(trimmed)) return "";
+  return trimmed;
 }
 
 function isExternalUrl(url: string): boolean {
@@ -253,27 +261,79 @@ function resolveLinkTarget(prepared: Prepared, decoded: string, maps: LinkMaps):
   return key.includes("/") ? undefined : maps.idByName.get(key);
 }
 
+function findAttr(tag: string, name: string): { value: string; start: number; end: number } | null {
+  const match = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(tag);
+  if (!match) return null;
+  const value = match[1] ?? match[2] ?? match[3] ?? "";
+  if (value.length === 0) return null;
+  const index = match[0].lastIndexOf(value);
+  if (index < 0) return null;
+  return { value, start: match.index + index, end: match.index + index + value.length };
+}
+
+function rawAssetUrl(prepared: Prepared, rawValue: string, naming: AssetNaming, ctx: BuildCtx): string | null {
+  const { path, suffix } = splitSuffix(decodeEntities(rawValue));
+  const decoded = decodePath(path);
+  if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) return null;
+  const dest = assetDestFor(prepared, path, naming, ctx);
+  return dest ? `${dest.urlDest}${suffix}` : null;
+}
+
+function rawSrcset(prepared: Prepared, rawValue: string, naming: AssetNaming, ctx: BuildCtx): string | null {
+  let changed = false;
+  const out = decodeEntities(rawValue)
+    .split(",")
+    .map((candidate) => {
+      const lead = /^\s*/.exec(candidate)?.[0] ?? "";
+      const match = /^(\S+)(\s[\s\S]*)?$/.exec(candidate.slice(lead.length));
+      if (!match) return candidate;
+      const { path, suffix } = splitSuffix(match[1] ?? "");
+      const decoded = decodePath(path);
+      if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) return candidate;
+      const dest = assetDestFor(prepared, path, naming, ctx);
+      if (!dest) return candidate;
+      changed = true;
+      return `${lead}${dest.urlDest}${suffix}${match[2] ?? ""}`;
+    })
+    .join(",");
+  return changed ? out : null;
+}
+
+function rawLinkUrl(prepared: Prepared, rawValue: string, maps: LinkMaps): string | null {
+  const { path, suffix } = splitSuffix(decodeEntities(rawValue));
+  const target = resolveLinkTarget(prepared, decodePath(path), maps);
+  return target ? `${target}.md${suffix}` : null;
+}
+
 function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ctx: BuildCtx): Replacement[] {
   const start = offsetOf(node, "start");
   const raw = (node as { value?: unknown }).value;
   const value = typeof raw === "string" ? raw : "";
   if (start === null || value.length === 0 || prepared.file.path.length === 0) return [];
   const replacements: Replacement[] = [];
-  IMG_SRC_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = IMG_SRC_RE.exec(value)) !== null) {
-    const rawSrc = match[1] ?? match[2] ?? match[3] ?? "";
-    if (rawSrc.length === 0) continue;
-    const { path, suffix } = splitSuffix(decodeEntities(rawSrc));
-    const decoded = decodePath(path);
-    if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) continue;
-    const offsetInMatch = match[0].lastIndexOf(rawSrc);
-    if (offsetInMatch < 0) continue;
-    const dest = assetDestFor(prepared, path, naming, ctx);
-    if (!dest) continue;
-    const urlStart = start + match.index + offsetInMatch;
-    replacements.push({ start: urlStart, end: urlStart + rawSrc.length, value: `${dest.urlDest}${suffix}` });
+
+  for (const tag of value.matchAll(/<img\b[^>]*>/gi)) {
+    const tagStart = start + (tag.index ?? 0);
+    const src = findAttr(tag[0], "src");
+    if (src) {
+      const next = rawAssetUrl(prepared, src.value, naming, ctx);
+      if (next !== null) replacements.push({ start: tagStart + src.start, end: tagStart + src.end, value: next });
+    }
+    const srcset = findAttr(tag[0], "srcset");
+    if (srcset) {
+      const next = rawSrcset(prepared, srcset.value, naming, ctx);
+      if (next !== null) replacements.push({ start: tagStart + srcset.start, end: tagStart + srcset.end, value: next });
+    }
   }
+
+  for (const tag of value.matchAll(/<a\b[^>]*>/gi)) {
+    const tagStart = start + (tag.index ?? 0);
+    const href = findAttr(tag[0], "href");
+    if (!href) continue;
+    const next = rawLinkUrl(prepared, href.value, ctx.maps);
+    if (next !== null) replacements.push({ start: tagStart + href.start, end: tagStart + href.end, value: next });
+  }
+
   return replacements;
 }
 
@@ -333,7 +393,7 @@ function rewriteBody(prepared: Prepared, ctx: BuildCtx): string {
 export function buildImportPlan(files: DroppedFile[]): BuiltPlan {
   const prepared: Prepared[] = files.map((file) => {
     const parsed = parseFile(file.content);
-    const frontmatterTitle = typeof parsed.data["title"] === "string" ? parsed.data["title"].trim() : "";
+    const frontmatterTitle = typeof parsed.data["title"] === "string" ? normalizeYamlScalar(parsed.data["title"]) : "";
     const chosen = frontmatterTitle.length > 0 ? frontmatterTitle : deriveTitle(file.name);
     const extra = Object.keys(parsed.data).some((key) => !RESERVED_FRONTMATTER_KEYS.has(key));
     return {
