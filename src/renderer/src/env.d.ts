@@ -5,6 +5,8 @@ declare global {
   interface Window {
     api: KongyoApi;
   }
+
+  const __APP_VERSION__: string;
 }
 
 export {};

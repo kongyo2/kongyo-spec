@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
-import type { Settings } from "@shared/schemas/settings";
+import { DEFAULT_SETTINGS, type Settings } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
 import { Editor } from "./components/Editor";
@@ -8,8 +8,10 @@ import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
 import { Preview, type HeadingInfo } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
+import { Settings as SettingsScreen, type SettingChange } from "./components/Settings";
 import { SpecsSidebar } from "./components/SpecsSidebar";
 import { Toolbar, type EditorMode } from "./components/Toolbar";
+import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
 import { safeDecode } from "./lib/dom";
 import { errorMessage } from "./lib/errors";
 import { computePageHeadingIds } from "./lib/headings";
@@ -63,6 +65,13 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const [themePreference, setThemePreference] = useState<ThemePreference>(initialSettings.theme);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(initialSettings.theme));
+  const [appearance, setAppearance] = useState<AppearanceSettings>(() => ({
+    accent: initialSettings.accent,
+    editorFontSize: initialSettings.editorFontSize,
+    previewFontSize: initialSettings.previewFontSize,
+    readingWidth: initialSettings.readingWidth,
+  }));
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const loadedContentRef = useRef("");
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
@@ -105,6 +114,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     media.addEventListener("change", handleChange);
     return () => media.removeEventListener("change", handleChange);
   }, [themePreference]);
+
+  useEffect(() => {
+    applyAppearance(appearance, resolvedTheme);
+  }, [appearance, resolvedTheme]);
 
   useEffect(() => {
     if (activeId === null) return;
@@ -312,6 +325,18 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const mod = event.ctrlKey || event.metaKey;
+      if (mod && event.key === ",") {
+        event.preventDefault();
+        setSettingsOpen((prev) => !prev);
+        return;
+      }
+      if (settingsOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setSettingsOpen(false);
+        }
+        return;
+      }
       if (mod && event.key.toLowerCase() === "f") {
         event.preventDefault();
         openSearch();
@@ -324,7 +349,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openSearch, closeSearch, search.open]);
+  }, [openSearch, closeSearch, search.open, settingsOpen]);
 
   const stepMatch = (delta: number): void => {
     if (matches.length === 0) return;
@@ -436,6 +461,45 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     })();
   };
 
+  const handleSettingChange = useCallback((change: SettingChange): void => {
+    switch (change.key) {
+      case "theme":
+        setThemePreference(change.value);
+        return;
+      case "accent":
+        setAppearance((prev) => ({ ...prev, accent: change.value }));
+        void window.api.setSetting("accent", change.value).catch(() => undefined);
+        return;
+      case "editorFontSize":
+        setAppearance((prev) => ({ ...prev, editorFontSize: change.value }));
+        void window.api.setSetting("editorFontSize", change.value).catch(() => undefined);
+        return;
+      case "previewFontSize":
+        setAppearance((prev) => ({ ...prev, previewFontSize: change.value }));
+        void window.api.setSetting("previewFontSize", change.value).catch(() => undefined);
+        return;
+      case "readingWidth":
+        setAppearance((prev) => ({ ...prev, readingWidth: change.value }));
+        void window.api.setSetting("readingWidth", change.value).catch(() => undefined);
+        return;
+    }
+  }, []);
+
+  const handleResetSettings = useCallback((): void => {
+    setThemePreference(DEFAULT_SETTINGS.theme);
+    const defaults: AppearanceSettings = {
+      accent: DEFAULT_SETTINGS.accent,
+      editorFontSize: DEFAULT_SETTINGS.editorFontSize,
+      previewFontSize: DEFAULT_SETTINGS.previewFontSize,
+      readingWidth: DEFAULT_SETTINGS.readingWidth,
+    };
+    setAppearance(defaults);
+    void window.api.setSetting("accent", defaults.accent).catch(() => undefined);
+    void window.api.setSetting("editorFontSize", defaults.editorFontSize).catch(() => undefined);
+    void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
+    void window.api.setSetting("readingWidth", defaults.readingWidth).catch(() => undefined);
+  }, []);
+
   const currentMatch = matches[matchCursor];
   const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;
   const previewAnchor = pendingAnchor && doc && pendingAnchor.docId === doc.meta.id ? pendingAnchor.id : null;
@@ -484,6 +548,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onNext={() => setPageIndex((index) => Math.min(pages.length - 1, index + 1))}
           onSearch={openSearch}
           onCycleTheme={() => setThemePreference((prev) => nextPreference(prev))}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
         {search.open ? (
@@ -551,6 +616,17 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             else if (dialog.kind === "rename") handleRename(dialog.id, title);
           }}
           onConfirmDelete={(id) => handleDelete(id)}
+        />
+      ) : null}
+
+      {settingsOpen ? (
+        <SettingsScreen
+          theme={themePreference}
+          appearance={appearance}
+          resolvedTheme={resolvedTheme}
+          onChange={handleSettingChange}
+          onReset={handleResetSettings}
+          onClose={() => setSettingsOpen(false)}
         />
       ) : null}
 

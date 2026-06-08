@@ -6,6 +6,7 @@ import "@fontsource-variable/geist-mono/index.css";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 import { App } from "./App";
+import { applyAppearance } from "./lib/appearance";
 import { applyTheme, clearLegacyTheme, readLegacyTheme, resolveTheme, type ThemePreference } from "./lib/theme";
 
 function initialThemePreference(): ThemePreference {
@@ -49,7 +50,17 @@ async function bootstrap(): Promise<void> {
   const container = document.getElementById("root");
   if (!container) throw new Error("#root element not found");
   const settings = await loadInitialSettings();
-  applyTheme(resolveTheme(settings.theme));
+  const resolved = resolveTheme(settings.theme);
+  applyTheme(resolved);
+  applyAppearance(
+    {
+      accent: settings.accent,
+      editorFontSize: settings.editorFontSize,
+      previewFontSize: settings.previewFontSize,
+      readingWidth: settings.readingWidth,
+    },
+    resolved,
+  );
   createRoot(container).render(
     <StrictMode>
       <App initialSettings={settings} />
