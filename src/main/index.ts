@@ -33,17 +33,19 @@ function resolveSpecAsset(requestUrl: string): string | null {
   return absolute;
 }
 
-function isOnScreen(bounds: WindowBounds): boolean {
+function fitBoundsToScreen(bounds: WindowBounds): WindowBounds {
   const { x, y, width, height } = bounds;
-  if (x === null || y === null) return true;
-  return screen.getAllDisplays().some(({ workArea }) => {
-    return (
-      x < workArea.x + workArea.width &&
-      x + width > workArea.x &&
-      y < workArea.y + workArea.height &&
-      y + height > workArea.y
-    );
-  });
+  if (x === null || y === null) return bounds;
+  const { workArea } = screen.getDisplayMatching({ x, y, width, height });
+  const fittedWidth = Math.min(width, workArea.width);
+  const fittedHeight = Math.min(height, workArea.height);
+  return {
+    ...bounds,
+    width: fittedWidth,
+    height: fittedHeight,
+    x: Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - fittedWidth),
+    y: Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - fittedHeight),
+  };
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -56,7 +58,7 @@ function debounce(fn: () => void, ms: number): () => void {
 
 function createWindow(): void {
   const saved = readSettings().windowBounds;
-  const restored = saved && isOnScreen(saved) ? saved : null;
+  const restored = saved ? fitBoundsToScreen(saved) : null;
   const window = new BrowserWindow({
     width: restored?.width ?? 1320,
     height: restored?.height ?? 880,
@@ -81,13 +83,17 @@ function createWindow(): void {
   const captureBounds = (): void => {
     if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return;
     const bounds = window.getNormalBounds();
-    writeSetting("windowBounds", {
-      width: bounds.width,
-      height: bounds.height,
-      x: bounds.x,
-      y: bounds.y,
-      maximized: window.isMaximized(),
-    });
+    try {
+      writeSetting("windowBounds", {
+        width: bounds.width,
+        height: bounds.height,
+        x: bounds.x,
+        y: bounds.y,
+        maximized: window.isMaximized(),
+      });
+    } catch (err) {
+      console.warn("[main] failed to persist window bounds:", err);
+    }
   };
   const persistBounds = debounce(captureBounds, 400);
   window.on("resize", persistBounds);
