@@ -271,38 +271,70 @@ function findAttr(tag: string, name: string): { value: string; start: number; en
   return { value, start: match.index + index, end: match.index + index + value.length };
 }
 
+function htmlAttrEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function srcsetUrlTokens(value: string): { url: string; start: number; end: number }[] {
+  const tokens: { url: string; start: number; end: number }[] = [];
+  const n = value.length;
+  let i = 0;
+  while (i < n) {
+    while (i < n && (/\s/.test(value[i] ?? "") || value[i] === ",")) i++;
+    if (i >= n) break;
+    const start = i;
+    while (i < n && !/\s/.test(value[i] ?? "")) i++;
+    let end = i;
+    let endsWithComma = false;
+    while (end > start && value[end - 1] === ",") {
+      end--;
+      endsWithComma = true;
+    }
+    if (end > start) tokens.push({ url: value.slice(start, end), start, end });
+    if (!endsWithComma) {
+      while (i < n && /\s/.test(value[i] ?? "")) i++;
+      while (i < n && value[i] !== ",") i++;
+    }
+  }
+  return tokens;
+}
+
 function rawAssetUrl(prepared: Prepared, rawValue: string, naming: AssetNaming, ctx: BuildCtx): string | null {
   const { path, suffix } = splitSuffix(decodeEntities(rawValue));
   const decoded = decodePath(path);
   if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) return null;
   const dest = assetDestFor(prepared, path, naming, ctx);
-  return dest ? `${dest.urlDest}${suffix}` : null;
+  return dest ? htmlAttrEscape(`${dest.urlDest}${suffix}`) : null;
 }
 
 function rawSrcset(prepared: Prepared, rawValue: string, naming: AssetNaming, ctx: BuildCtx): string | null {
-  let changed = false;
-  const out = decodeEntities(rawValue)
-    .split(",")
-    .map((candidate) => {
-      const lead = /^\s*/.exec(candidate)?.[0] ?? "";
-      const match = /^(\S+)(\s[\s\S]*)?$/.exec(candidate.slice(lead.length));
-      if (!match) return candidate;
-      const { path, suffix } = splitSuffix(match[1] ?? "");
-      const decoded = decodePath(path);
-      if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) return candidate;
-      const dest = assetDestFor(prepared, path, naming, ctx);
-      if (!dest) return candidate;
-      changed = true;
-      return `${lead}${dest.urlDest}${suffix}${match[2] ?? ""}`;
-    })
-    .join(",");
-  return changed ? out : null;
+  const replacements: Replacement[] = [];
+  for (const token of srcsetUrlTokens(rawValue)) {
+    const { path, suffix } = splitSuffix(decodeEntities(token.url));
+    const decoded = decodePath(path);
+    if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) continue;
+    const dest = assetDestFor(prepared, path, naming, ctx);
+    if (!dest) continue;
+    replacements.push({ start: token.start, end: token.end, value: htmlAttrEscape(`${dest.urlDest}${suffix}`) });
+  }
+  if (replacements.length === 0) return null;
+  replacements.sort((a, b) => b.start - a.start);
+  let out = rawValue;
+  for (const replacement of replacements) {
+    out = out.slice(0, replacement.start) + replacement.value + out.slice(replacement.end);
+  }
+  return out;
 }
 
 function rawLinkUrl(prepared: Prepared, rawValue: string, maps: LinkMaps): string | null {
   const { path, suffix } = splitSuffix(decodeEntities(rawValue));
   const target = resolveLinkTarget(prepared, decodePath(path), maps);
-  return target ? `${target}.md${suffix}` : null;
+  return target ? htmlAttrEscape(`${target}.md${suffix}`) : null;
 }
 
 function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ctx: BuildCtx): Replacement[] {

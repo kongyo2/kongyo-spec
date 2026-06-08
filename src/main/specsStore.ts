@@ -124,6 +124,15 @@ function assetsDirFor(id: string): string {
   return join(getSpecsDir(), "assets", id);
 }
 
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const IMAGE_SNIFF_BYTES = 256;
 
 function looksLikeImage(buf: Buffer): boolean {
@@ -136,15 +145,15 @@ function looksLikeImage(buf: Buffer): boolean {
   if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") return true; // WebP
   if (buf.length >= 12 && ascii.slice(4, 8) === "ftyp") return true; // AVIF / HEIF
   const text = buf.toString("utf8").replace(/^﻿/, "").trimStart().toLowerCase();
-  return text.startsWith("<?xml") || text.startsWith("<svg") || text.startsWith("<!doctype svg"); // SVG
+  const xmlish =
+    text.startsWith("<?xml") || text.startsWith("<svg") || text.startsWith("<!--") || text.startsWith("<!doctype");
+  return xmlish && text.includes("<svg"); // SVG, possibly after an XML prolog or comment
 }
 
 function destWithinImportAssets(dest: string, allowedIds: Set<string>): boolean {
-  const match = /^assets\/([^/\\]+)\/(.+)$/.exec(dest);
-  if (!match) return false;
-  const [, id, rest] = match;
-  if (id === undefined || rest === undefined || !allowedIds.has(id)) return false;
-  return !rest.split(/[\\/]/).includes("..");
+  const segments = dest.split(/[\\/]/);
+  if (segments.length < 3 || segments[0] !== "assets" || !allowedIds.has(segments[1] ?? "")) return false;
+  return segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 type CopyOutcome = "copied" | "skipped-size" | "skipped-missing";
@@ -188,11 +197,36 @@ async function copyImportedAsset(
 export async function importSpecs(batch: ImportBatch): Promise<ImportResult> {
   await ensureDir();
   const specsDir = getSpecsDir();
-  const allowedIds = new Set(batch.specs.map((entry) => entry.id));
+  const stamp = nowIso();
+
+  const accepted: { content: string; meta: SpecMeta }[] = [];
+  const acceptedIds = new Set<string>();
+  for (const entry of batch.specs) {
+    if (!isSafeId(entry.id) || acceptedIds.has(entry.id)) {
+      console.warn(`[specsStore] skipping import with invalid or duplicate id: ${entry.id}`);
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop -- sequential existence checks avoid clobbering existing specs
+    if (await pathExists(fileFor(entry.id))) {
+      console.warn(`[specsStore] refusing to overwrite existing spec: ${entry.id}`);
+      continue;
+    }
+    acceptedIds.add(entry.id);
+    accepted.push({
+      content: entry.content,
+      meta: {
+        id: entry.id,
+        title: entry.title.length > 200 ? entry.title.slice(0, 200) : entry.title,
+        createdAt: stamp,
+        updatedAt: stamp,
+      },
+    });
+  }
+
   const budget = { remaining: MAX_TOTAL_ASSET_BYTES };
   let skippedAssets = 0;
   for (const op of batch.assets) {
-    if (!destWithinImportAssets(op.dest, allowedIds)) {
+    if (!destWithinImportAssets(op.dest, acceptedIds)) {
       skippedAssets += 1;
       continue;
     }
@@ -200,25 +234,17 @@ export async function importSpecs(batch: ImportBatch): Promise<ImportResult> {
     const outcome = await copyImportedAsset(specsDir, op, budget);
     if (outcome !== "copied") skippedAssets += 1;
   }
-  const stamp = nowIso();
+
   const metas: SpecMeta[] = [];
-  for (const entry of batch.specs) {
-    if (!isSafeId(entry.id)) {
-      console.warn(`[specsStore] skipping import with invalid id: ${entry.id}`);
-      continue;
-    }
-    const meta: SpecMeta = {
-      id: entry.id,
-      title: entry.title.length > 200 ? entry.title.slice(0, 200) : entry.title,
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
+  for (const { content, meta } of accepted) {
     try {
       // eslint-disable-next-line no-await-in-loop -- sequential writes keep the file-descriptor count bounded
-      await writeSpec(meta, entry.content);
+      await writeSpec(meta, content);
       metas.push(meta);
     } catch (err) {
-      console.warn(`[specsStore] failed to import ${entry.id}:`, err);
+      console.warn(`[specsStore] failed to import ${meta.id}:`, err);
+      // eslint-disable-next-line no-await-in-loop -- drop the orphaned assets for a spec that failed to write
+      await fs.rm(assetsDirFor(meta.id), { recursive: true, force: true }).catch(() => undefined);
     }
   }
   return { metas, skippedAssets };
