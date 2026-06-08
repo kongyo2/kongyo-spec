@@ -620,6 +620,10 @@ button:focus-visible {
   letter-spacing: -0.014em;
   color: var(--fg-strong);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 340px;
 }
 
 .crumb-sep {
@@ -670,7 +674,16 @@ button:focus-visible {
 .toolbar-controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+/* The shortcut hint is a nice-to-have; drop it before the controls crowd a narrow window. */
+@media (max-width: 1000px) {
+  .icon-button kbd {
+    display: none;
+  }
 }
 
 .seq-nav {
