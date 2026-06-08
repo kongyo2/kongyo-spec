@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { safeDecode, scrollToId } from "../lib/dom";
 import { renderCached } from "../lib/markdown";
 import { renderMermaidIn } from "../lib/mermaid";
 import { applyHighlights, clearHighlights } from "../lib/search";
@@ -22,14 +23,6 @@ interface PreviewProps {
   onHeadings: (headings: HeadingInfo[]) => void;
   onActiveHeading: (id: string | null) => void;
   onLinkActivate: (href: string) => void;
-}
-
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -191,11 +184,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     const container = containerRef.current;
     if (!container || pendingAnchor === null) return;
     if (renderedKeyRef.current !== renderKey) return;
-    const target = container.querySelector(`[id="${CSS.escape(pendingAnchor)}"]`);
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      anchorHandledRef.current();
-    }
+    if (scrollToId(container, pendingAnchor)) anchorHandledRef.current();
   }, [html, pendingAnchor, renderKey]);
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
@@ -206,13 +195,8 @@ export function Preview(props: PreviewProps): React.ReactElement {
     if (!href) return;
     event.preventDefault();
     if (href.startsWith("#")) {
-      const id = safeDecode(href.slice(1));
       const container = containerRef.current;
-      const element = container?.querySelector(`[id="${CSS.escape(id)}"]`);
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
+      if (container && scrollToId(container, safeDecode(href.slice(1)))) return;
     }
     linkRef.current(href);
   };

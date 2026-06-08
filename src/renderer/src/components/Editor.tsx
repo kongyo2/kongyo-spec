@@ -7,6 +7,17 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function plainCodeHtml(value: string): string {
+  return `<pre class="shiki"><code>${escapeHtml(value)}</code></pre>`;
+}
+
+function setSelectionSoon(textarea: HTMLTextAreaElement, start: number, end: number): void {
+  requestAnimationFrame(() => {
+    textarea.selectionStart = start;
+    textarea.selectionEnd = end;
+  });
+}
+
 interface EditorProps {
   value: string;
   onChange: (next: string) => void;
@@ -17,7 +28,7 @@ export function Editor({ value, onChange, theme }: EditorProps): React.ReactElem
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
-  const [html, setHtml] = useState<string>(() => `<pre class="shiki"><code>${escapeHtml(value)}</code></pre>`);
+  const [html, setHtml] = useState<string>(() => plainCodeHtml(value));
 
   useEffect(() => {
     let active = true;
@@ -31,13 +42,13 @@ export function Editor({ value, onChange, theme }: EditorProps): React.ReactElem
 
   useEffect(() => {
     if (!highlighter) {
-      setHtml(`<pre class="shiki"><code>${escapeHtml(value)}</code></pre>`);
+      setHtml(plainCodeHtml(value));
       return;
     }
     try {
       setHtml(highlighter.codeToHtml(value.length > 0 ? value : " ", { lang: "markdown", themes: SHIKI_THEMES }));
     } catch {
-      setHtml(`<pre class="shiki"><code>${escapeHtml(value)}</code></pre>`);
+      setHtml(plainCodeHtml(value));
     }
   }, [highlighter, value]);
 
@@ -58,10 +69,7 @@ export function Editor({ value, onChange, theme }: EditorProps): React.ReactElem
 
     if (start === end && !event.shiftKey) {
       onChange(`${value.slice(0, start)}  ${value.slice(end)}`);
-      requestAnimationFrame(() => {
-        textarea.selectionStart = start + 2;
-        textarea.selectionEnd = start + 2;
-      });
+      setSelectionSoon(textarea, start + 2, start + 2);
       return;
     }
 
@@ -74,10 +82,7 @@ export function Editor({ value, onChange, theme }: EditorProps): React.ReactElem
       const removed = line.length - dedented.length;
       onChange(value.slice(0, lineStart) + dedented + value.slice(lineEnd));
       const cursor = Math.max(lineStart, start - removed);
-      requestAnimationFrame(() => {
-        textarea.selectionStart = cursor;
-        textarea.selectionEnd = cursor;
-      });
+      setSelectionSoon(textarea, cursor, cursor);
       return;
     }
 
@@ -87,10 +92,7 @@ export function Editor({ value, onChange, theme }: EditorProps): React.ReactElem
     const block = value.slice(blockStart, blockEnd);
     const modified = event.shiftKey ? block.replace(/^ {1,2}/gm, "") : block.replace(/^/gm, "  ");
     onChange(value.slice(0, blockStart) + modified + value.slice(blockEnd));
-    requestAnimationFrame(() => {
-      textarea.selectionStart = blockStart;
-      textarea.selectionEnd = blockStart + modified.length;
-    });
+    setSelectionSoon(textarea, blockStart, blockStart + modified.length);
   };
 
   return (

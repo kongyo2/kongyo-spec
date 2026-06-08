@@ -1,4 +1,5 @@
 import mermaid from "mermaid";
+import { errorMessage } from "./errors";
 import type { ResolvedTheme } from "./theme";
 
 let initializedTheme: ResolvedTheme | null = null;
@@ -76,7 +77,7 @@ export async function renderMermaidIn(container: HTMLElement, theme: ResolvedThe
       target.classList.remove("mermaid-error");
     } catch (err) {
       if (gen !== generation) return;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       const target = findLiveBlock(container, source) ?? block;
       target.classList.add("mermaid-error");
       target.classList.remove("mermaid-rendered");

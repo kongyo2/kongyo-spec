@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
-import { parseFrontmatter, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
+import { byUpdatedDesc, parseFrontmatter, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { parseFile, stringifyFile } from "./frontmatter";
 
 let cachedDir: string | null = null;
@@ -76,7 +76,7 @@ export async function listSpecs(): Promise<SpecMeta[]> {
       console.warn(`[specsStore] skipping ${entry}:`, err);
     }
   }
-  metas.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+  metas.sort(byUpdatedDesc);
   return metas;
 }
 
