@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, type LucideIcon, Monitor, Moon, Search, Sun } from "lucide-react";
+import { ChevronLeft, ChevronRight, type LucideIcon, Monitor, Moon, Search, Settings, Sun } from "lucide-react";
 import type { ThemePreference } from "../lib/theme";
 
 export type EditorMode = "preview" | "source";
@@ -18,6 +18,7 @@ interface ToolbarProps {
   onNext: () => void;
   onSearch: () => void;
   onCycleTheme: () => void;
+  onOpenSettings: () => void;
 }
 
 const THEME_ICON: Record<ThemePreference, LucideIcon> = {
@@ -50,6 +51,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     onNext,
     onSearch,
     onCycleTheme,
+    onOpenSettings,
   } = props;
 
   const ThemeIcon = THEME_ICON[themePreference];
@@ -120,6 +122,15 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         >
           <ThemeIcon size={14} aria-hidden="true" />
           {THEME_TEXT[themePreference]}
+        </button>
+        <button
+          type="button"
+          className="icon-button square"
+          onClick={onOpenSettings}
+          aria-label="設定 (Ctrl/Cmd+,)"
+          title="設定"
+        >
+          <Settings size={15} aria-hidden="true" />
         </button>
       </div>
     </div>

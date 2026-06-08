@@ -9,6 +9,7 @@
   },
   "rules": {
     "no-console": "off",
+    "no-underscore-dangle": ["warn", { "allow": ["__APP_VERSION__"] }],
     "promise/always-return": ["warn", { "ignoreLastCallback": true }],
     "import/no-unassigned-import": ["warn", { "allow": ["**/*.css"] }]
   },
