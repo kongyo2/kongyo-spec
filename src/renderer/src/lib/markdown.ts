@@ -91,13 +91,15 @@ function rewriteSrcsetAssets(value: string): string {
 function rehypeSpecAssets() {
   return (tree: Root): void => {
     visit(tree, "element", (node: Element) => {
-      if (node.tagName !== "img") return;
+      if (node.tagName !== "img" && node.tagName !== "source") return;
       const props = node.properties;
       if (!props) return;
-      const src = props["src"];
-      if (typeof src === "string" && src.length > 0) {
-        const resolved = toSpecAssetUrl(src);
-        if (resolved) props["src"] = resolved;
+      if (node.tagName === "img") {
+        const src = props["src"];
+        if (typeof src === "string" && src.length > 0) {
+          const resolved = toSpecAssetUrl(src);
+          if (resolved) props["src"] = resolved;
+        }
       }
       const srcset = props["srcset"];
       if (typeof srcset === "string" && srcset.length > 0) {

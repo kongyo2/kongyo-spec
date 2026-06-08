@@ -408,6 +408,14 @@ function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ctx
     }
   }
 
+  for (const tag of value.matchAll(/<source\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
+    const tagStart = start + (tag.index ?? 0);
+    const srcset = findAttr(tag[0], "srcset");
+    if (!srcset) continue;
+    const next = rawSrcset(prepared, srcset.value, naming, ctx);
+    if (next !== null) replacements.push({ start: tagStart + srcset.start, end: tagStart + srcset.end, value: next });
+  }
+
   for (const tag of value.matchAll(/<a\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
     const tagStart = start + (tag.index ?? 0);
     const href = findAttr(tag[0], "href");

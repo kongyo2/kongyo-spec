@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { app } from "electron";
 import { parseFile, stringifyFile } from "@shared/frontmatter";
@@ -134,6 +135,28 @@ async function pathExists(target: string): Promise<boolean> {
 }
 
 const IMAGE_SNIFF_BYTES = 8192;
+const ISO_IMAGE_BRANDS = new Set([
+  "avif",
+  "avis",
+  "heic",
+  "heix",
+  "hevc",
+  "hevx",
+  "heim",
+  "heis",
+  "hevm",
+  "hevs",
+  "mif1",
+  "msf1",
+]);
+
+function hasImageBrand(ascii: string): boolean {
+  if (ISO_IMAGE_BRANDS.has(ascii.slice(8, 12))) return true; // major brand
+  for (let offset = 16; offset + 4 <= ascii.length && offset < 64; offset += 4) {
+    if (ISO_IMAGE_BRANDS.has(ascii.slice(offset, offset + 4))) return true; // compatible brand
+  }
+  return false;
+}
 
 function looksLikeImage(buf: Buffer): boolean {
   if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true; // PNG
@@ -143,11 +166,33 @@ function looksLikeImage(buf: Buffer): boolean {
   const ascii = buf.toString("latin1");
   if (ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a")) return true; // GIF
   if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") return true; // WebP
-  if (buf.length >= 12 && ascii.slice(4, 8) === "ftyp") return true; // AVIF / HEIF
+  if (buf.length >= 12 && ascii.slice(4, 8) === "ftyp") return hasImageBrand(ascii); // AVIF / HEIF (brand-checked)
   const text = buf.toString("utf8").replace(/^﻿/, "").trimStart().toLowerCase();
   const xmlish =
     text.startsWith("<?xml") || text.startsWith("<svg") || text.startsWith("<!--") || text.startsWith("<!doctype");
   return xmlish && text.includes("<svg"); // SVG, possibly after an XML prolog or comment
+}
+
+async function copyFromHandle(handle: FileHandle, destination: string, limit: number): Promise<number | null> {
+  const dest = await fs.open(destination, "w");
+  try {
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let copied = 0;
+    let position = 0;
+    for (;;) {
+      // eslint-disable-next-line no-await-in-loop -- streams the source in bounded chunks
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      if (copied + bytesRead > limit) return null;
+      // eslint-disable-next-line no-await-in-loop -- paired with the chunked read above
+      await dest.write(buffer, 0, bytesRead);
+      copied += bytesRead;
+      position += bytesRead;
+    }
+    return copied;
+  } finally {
+    await dest.close();
+  }
 }
 
 function destWithinImportAssets(dest: string, allowedIds: Set<string>): boolean {
@@ -181,13 +226,17 @@ async function copyImportedAsset(
       const head = Buffer.alloc(Math.min(IMAGE_SNIFF_BYTES, stat.size));
       if (head.length > 0) await handle.read(head, 0, head.length, 0);
       if (!looksLikeImage(head)) return "skipped-missing";
+      await fs.mkdir(dirname(destination), { recursive: true });
+      const copied = await copyFromHandle(handle, destination, Math.min(MAX_ASSET_BYTES, budget.remaining));
+      if (copied === null) {
+        await fs.rm(destination, { force: true }).catch(() => undefined);
+        return "skipped-size";
+      }
+      budget.remaining -= copied;
+      return "copied";
     } finally {
       await handle.close();
     }
-    await fs.mkdir(dirname(destination), { recursive: true });
-    await fs.copyFile(absolute, destination);
-    budget.remaining -= stat.size;
-    return "copied";
   } catch (err) {
     console.warn(`[specsStore] skipping asset ${op.url}:`, err);
     return "skipped-missing";
