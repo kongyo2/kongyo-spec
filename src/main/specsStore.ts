@@ -123,9 +123,10 @@ export async function deleteSpec(id: string): Promise<void> {
 }
 
 const MARKDOWN_RE = /\.(?:md|markdown|mdx)$/i;
-const SKIP_DIRS = new Set(["node_modules"]);
+const SKIP_DIRS = new Set(["node_modules", ".git"]);
 const MAX_IMPORT_FILES = 500;
 const MAX_IMPORT_DEPTH = 8;
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
 function byName(a: { name: string }, b: { name: string }): number {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
@@ -135,10 +136,30 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function firstHeadingTitle(content: string): string | null {
+  let open: { char: string; len: number } | null = null;
+  for (const line of content.split(/\r?\n/)) {
+    if (open) {
+      const marker = /^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1];
+      if (marker && marker[0] === open.char && marker.length >= open.len) open = null;
+      continue;
+    }
+    const fence = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      const char = fence[0];
+      if (char) open = { char, len: fence.length };
+      continue;
+    }
+    const heading = /^[ \t]{0,3}#[ \t]+(.+?)[ \t]*#*[ \t]*$/.exec(line);
+    if (isNonEmptyString(heading?.[1])) return heading[1].trim();
+  }
+  return null;
+}
+
 function resolveImportTitle(data: Record<string, unknown>, content: string, filePath: string): string {
   if (isNonEmptyString(data["title"])) return data["title"].trim();
-  const heading = /^[ \t]{0,3}#[ \t]+(.+?)[ \t]*#*[ \t]*$/m.exec(content);
-  if (isNonEmptyString(heading?.[1])) return heading[1].trim();
+  const heading = firstHeadingTitle(content);
+  if (heading) return heading;
   const name = basename(filePath).replace(MARKDOWN_RE, "");
   return name.length > 0 ? name : "Untitled";
 }
@@ -163,7 +184,6 @@ async function collectMarkdownFiles(dir: string, depth: number, seen: Set<string
   entries.sort(byName);
   for (const entry of entries) {
     if (out.length >= MAX_IMPORT_FILES) break;
-    if (entry.name.startsWith(".")) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (depth < MAX_IMPORT_DEPTH && !SKIP_DIRS.has(entry.name)) {
@@ -182,6 +202,7 @@ export async function importSpecs(paths: string[]): Promise<SpecMeta[]> {
   const seen = new Set<string>();
   const files: string[] = [];
   for (const path of paths) {
+    if (files.length >= MAX_IMPORT_FILES) break;
     let stats;
     try {
       // eslint-disable-next-line no-await-in-loop -- sequential stats avoid exhausting the file-descriptor limit
@@ -203,6 +224,12 @@ export async function importSpecs(paths: string[]): Promise<SpecMeta[]> {
   for (const file of files) {
     let raw: string;
     try {
+      // eslint-disable-next-line no-await-in-loop -- sequential stats avoid exhausting the file-descriptor limit
+      const stats = await fs.stat(file);
+      if (stats.size > MAX_IMPORT_BYTES) {
+        console.warn(`[specsStore] skipping ${file}: exceeds ${MAX_IMPORT_BYTES} byte import limit`);
+        continue;
+      }
       // eslint-disable-next-line no-await-in-loop -- sequential reads avoid exhausting the file-descriptor limit
       raw = await fs.readFile(file, "utf8");
     } catch (err) {
