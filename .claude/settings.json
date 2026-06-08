@@ -1,4 +1,5 @@
-{ "env": {
+{
+  "env": {
     "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY": "100",
     "CLAUDE_CODE_MAX_RETRIES": "100"
   },

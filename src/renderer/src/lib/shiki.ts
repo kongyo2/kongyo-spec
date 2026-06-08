@@ -1,6 +1,6 @@
 import { createHighlighter, createJavaScriptRegexEngine, type Highlighter } from "shiki";
 
-export const SHIKI_THEMES = { light: "github-light", dark: "github-dark" } as const;
+export const SHIKI_THEMES = { light: "vitesse-light", dark: "vitesse-dark" } as const;
 
 const INITIAL_LANGS = [
   "markdown",

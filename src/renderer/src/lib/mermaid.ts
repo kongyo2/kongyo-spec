@@ -7,13 +7,45 @@ let counter = 0;
 let generation = 0;
 const svgCache = new Map<string, string>();
 
+function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function ensureInit(theme: ResolvedTheme): void {
   if (initializedTheme === theme) return;
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
-    theme: theme === "dark" ? "dark" : "default",
+    theme: "base",
     fontFamily: "inherit",
+    flowchart: { curve: "basis" },
+    themeVariables: {
+      darkMode: theme === "dark",
+      background: "transparent",
+      primaryColor: cssVar("--surface-2"),
+      primaryBorderColor: cssVar("--accent"),
+      primaryTextColor: cssVar("--fg"),
+      secondaryColor: cssVar("--surface-3"),
+      tertiaryColor: cssVar("--code-bg"),
+      lineColor: cssVar("--muted-2"),
+      arrowheadColor: cssVar("--muted-2"),
+      textColor: cssVar("--fg"),
+      mainBkg: cssVar("--surface-2"),
+      nodeBorder: cssVar("--accent"),
+      nodeTextColor: cssVar("--fg"),
+      clusterBkg: cssVar("--surface-1"),
+      clusterBorder: cssVar("--border-strong"),
+      titleColor: cssVar("--fg"),
+      edgeLabelBackground: cssVar("--bg"),
+      actorBkg: cssVar("--surface-2"),
+      actorBorder: cssVar("--accent"),
+      actorTextColor: cssVar("--fg"),
+      signalColor: cssVar("--muted-2"),
+      signalTextColor: cssVar("--fg"),
+      noteBkgColor: cssVar("--code-bg"),
+      noteTextColor: cssVar("--fg"),
+      noteBorderColor: cssVar("--border-strong"),
+    },
   });
   if (initializedTheme !== null) {
     svgCache.clear();
@@ -36,6 +68,7 @@ function findLiveBlock(container: HTMLElement, source: string): HTMLElement | nu
 }
 
 export async function renderMermaidIn(container: HTMLElement, theme: ResolvedTheme): Promise<void> {
+  if (document.fonts?.ready) await document.fonts.ready;
   const themeChanged = initializedTheme !== null && initializedTheme !== theme;
   ensureInit(theme);
   const gen = generation;

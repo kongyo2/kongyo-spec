@@ -67,7 +67,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: startDark ? "#0d1117" : "#ffffff",
+    backgroundColor: startDark ? "#0a0a0a" : "#ffffff",
     title: "Kongyo Spec",
     autoHideMenuBar: true,
     webPreferences: {
