@@ -69,6 +69,7 @@ export async function listSpecs(): Promise<SpecMeta[]> {
     const id = entry.replace(/\.md$/, "");
     if (!isSafeId(id)) continue;
     try {
+      // eslint-disable-next-line no-await-in-loop -- sequential reads avoid exhausting the file-descriptor limit
       const raw = await fs.readFile(join(getSpecsDir(), entry), "utf8");
       metas.push({ ...parseFrontmatter(parseFile(raw).data), id });
     } catch (err) {
