@@ -78,6 +78,9 @@ button {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 14px 16px;
   font-weight: 700;
   font-size: 15px;
@@ -125,6 +128,9 @@ button {
 }
 
 .new-spec-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--accent);
@@ -208,6 +214,9 @@ button {
 }
 
 .spec-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -296,6 +305,7 @@ button {
 }
 
 .crumb-sep {
+  flex-shrink: 0;
   color: var(--muted);
 }
 
@@ -336,6 +346,9 @@ button {
 
 .seq-nav button,
 .mode-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 0;
   background: var(--bg);
   color: var(--fg);
@@ -366,6 +379,9 @@ button {
 }
 
 .icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--fg);
@@ -415,6 +431,9 @@ button {
 }
 
 .search-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--fg);

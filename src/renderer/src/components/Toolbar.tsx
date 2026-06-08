@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight, type LucideIcon, Monitor, Moon, Search, Sun } from "lucide-react";
 import type { ThemePreference } from "../lib/theme";
 
 export type EditorMode = "preview" | "source";
@@ -19,10 +20,16 @@ interface ToolbarProps {
   onCycleTheme: () => void;
 }
 
-const THEME_LABEL: Record<ThemePreference, string> = {
-  system: "🖥 System",
-  light: "☀ Light",
-  dark: "🌙 Dark",
+const THEME_ICON: Record<ThemePreference, LucideIcon> = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+};
+
+const THEME_TEXT: Record<ThemePreference, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
 };
 
 export function Toolbar(props: ToolbarProps): React.ReactElement {
@@ -43,11 +50,13 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     onCycleTheme,
   } = props;
 
+  const ThemeIcon = THEME_ICON[themePreference];
+
   return (
     <div className="toolbar">
       <div className="toolbar-breadcrumb">
         <span className="crumb-spec">{specTitle || "Untitled"}</span>
-        <span className="crumb-sep">›</span>
+        <ChevronRight className="crumb-sep" size={14} aria-hidden="true" />
         <span className="crumb-page">{pageTitle}</span>
         <span className="crumb-count">{pageCount > 0 ? `${pageIndex + 1} / ${pageCount}` : "0 / 0"}</span>
         {saving ? <span className="saving-indicator">保存中…</span> : null}
@@ -62,7 +71,8 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
             title={prevTitle ?? ""}
             aria-label="前のページ"
           >
-            ‹ Prev
+            <ChevronLeft size={14} aria-hidden="true" />
+            Prev
           </button>
           <button
             type="button"
@@ -71,7 +81,8 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
             title={nextTitle ?? ""}
             aria-label="次のページ"
           >
-            Next ›
+            Next
+            <ChevronRight size={14} aria-hidden="true" />
           </button>
         </div>
 
@@ -95,7 +106,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         </div>
 
         <button type="button" className="icon-button" onClick={onSearch} aria-label="検索 (Ctrl/Cmd+F)" title="検索">
-          🔍
+          <Search size={14} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -104,7 +115,8 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
           aria-label={`テーマ: ${themePreference}`}
           title="テーマ切り替え"
         >
-          {THEME_LABEL[themePreference]}
+          <ThemeIcon size={14} aria-hidden="true" />
+          {THEME_TEXT[themePreference]}
         </button>
       </div>
     </div>

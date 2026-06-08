@@ -1,3 +1,4 @@
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import type { SpecMeta } from "@shared/schemas/spec";
 
 interface SpecsSidebarProps {
@@ -33,7 +34,8 @@ export function SpecsSidebar({
       <div className="specs-header">
         <span className="sidebar-heading">仕様書一覧</span>
         <button type="button" className="new-spec-button" onClick={onNew} aria-label="新規作成">
-          + 新規作成
+          <Plus size={14} aria-hidden="true" />
+          新規作成
         </button>
       </div>
       {specs.length === 0 ? (
@@ -54,7 +56,7 @@ export function SpecsSidebar({
                   aria-label="名前を変更"
                   onClick={() => onRename(spec.id)}
                 >
-                  ✎
+                  <Pencil size={14} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -63,7 +65,7 @@ export function SpecsSidebar({
                   aria-label="削除"
                   onClick={() => onDelete(spec.id)}
                 >
-                  🗑
+                  <Trash2 size={14} aria-hidden="true" />
                 </button>
               </span>
             </li>
