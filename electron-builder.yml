@@ -1,0 +1,28 @@
+appId: com.kongyo2.kongyo-spec
+productName: Kongyo Spec
+copyright: Copyright © 2026 kongyo2
+directories:
+  output: dist
+files:
+  - out/**/*
+  - package.json
+  - "!node_modules/**/*"
+  - node_modules/zod/**/*
+win:
+  executableName: kongyo-spec
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+portable:
+  artifactName: ${name}-${version}-portable.${ext}
+npmRebuild: false
