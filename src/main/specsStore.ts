@@ -22,7 +22,13 @@ export interface ImportBatch {
   assets: ImportAssetOp[];
 }
 
+export interface ImportResult {
+  metas: SpecMeta[];
+  skippedAssets: number;
+}
+
 const MAX_ASSET_BYTES = 25 * 1024 * 1024;
+const MAX_TOTAL_ASSET_BYTES = 128 * 1024 * 1024;
 
 let cachedDir: string | null = null;
 
@@ -118,9 +124,15 @@ function assetsDirFor(id: string): string {
   return join(getSpecsDir(), "assets", id);
 }
 
-async function copyImportedAsset(specsDir: string, op: ImportAssetOp): Promise<void> {
+type CopyOutcome = "copied" | "skipped-size" | "skipped-missing";
+
+async function copyImportedAsset(
+  specsDir: string,
+  op: ImportAssetOp,
+  budget: { remaining: number },
+): Promise<CopyOutcome> {
   const destination = join(specsDir, op.dest);
-  if (destination !== specsDir && !destination.startsWith(specsDir + sep)) return;
+  if (destination !== specsDir && !destination.startsWith(specsDir + sep)) return "skipped-missing";
   let source: string;
   try {
     source = decodeURIComponent(op.url);
@@ -130,36 +142,50 @@ async function copyImportedAsset(specsDir: string, op: ImportAssetOp): Promise<v
   const absolute = resolve(dirname(op.srcFile), source);
   try {
     const stat = await fs.stat(absolute);
-    if (!stat.isFile() || stat.size > MAX_ASSET_BYTES) return;
+    if (!stat.isFile()) return "skipped-missing";
+    if (stat.size > MAX_ASSET_BYTES || stat.size > budget.remaining) return "skipped-size";
     await fs.mkdir(dirname(destination), { recursive: true });
     await fs.copyFile(absolute, destination);
+    budget.remaining -= stat.size;
+    return "copied";
   } catch (err) {
     console.warn(`[specsStore] skipping asset ${op.url}:`, err);
+    return "skipped-missing";
   }
 }
 
-export async function importSpecs(batch: ImportBatch): Promise<SpecMeta[]> {
+export async function importSpecs(batch: ImportBatch): Promise<ImportResult> {
   await ensureDir();
   const specsDir = getSpecsDir();
+  const budget = { remaining: MAX_TOTAL_ASSET_BYTES };
+  let skippedAssets = 0;
   for (const op of batch.assets) {
     // eslint-disable-next-line no-await-in-loop -- sequential copies keep the file-descriptor count bounded
-    await copyImportedAsset(specsDir, op);
+    const outcome = await copyImportedAsset(specsDir, op, budget);
+    if (outcome === "skipped-size") skippedAssets += 1;
   }
   const stamp = nowIso();
   const metas: SpecMeta[] = [];
   for (const entry of batch.specs) {
-    if (!isSafeId(entry.id)) throw new Error(`invalid import id: ${entry.id}`);
+    if (!isSafeId(entry.id)) {
+      console.warn(`[specsStore] skipping import with invalid id: ${entry.id}`);
+      continue;
+    }
     const meta: SpecMeta = {
       id: entry.id,
       title: entry.title.length > 200 ? entry.title.slice(0, 200) : entry.title,
       createdAt: stamp,
       updatedAt: stamp,
     };
-    // eslint-disable-next-line no-await-in-loop -- sequential writes keep the file-descriptor count bounded
-    await writeSpec(meta, entry.content);
-    metas.push(meta);
+    try {
+      // eslint-disable-next-line no-await-in-loop -- sequential writes keep the file-descriptor count bounded
+      await writeSpec(meta, entry.content);
+      metas.push(meta);
+    } catch (err) {
+      console.warn(`[specsStore] failed to import ${entry.id}:`, err);
+    }
   }
-  return metas;
+  return { metas, skippedAssets };
 }
 
 export async function saveSpec(id: string, content: string): Promise<SpecMeta> {

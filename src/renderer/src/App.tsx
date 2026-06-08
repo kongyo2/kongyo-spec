@@ -477,10 +477,11 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       const intent = (importIntentRef.current += 1);
       const navToken = openRequestRef.current;
       void (async () => {
+        const notes: string[] = [];
         const dropped: DroppedFile[] = [];
         for (const file of markdownFiles) {
           if (file.size > MAX_IMPORT_BYTES) {
-            setToast(`ファイルが大きすぎます: ${file.name}`);
+            notes.push(`「${file.name}」は大きすぎます`);
             continue;
           }
           try {
@@ -488,22 +489,26 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             const content = await file.text();
             dropped.push({ name: file.name, path: window.api.getFilePath(file), content });
           } catch (err) {
-            setToast(`「${file.name}」の読み込みに失敗しました: ${errorMessage(err)}`);
+            notes.push(`「${file.name}」を読み込めません: ${errorMessage(err)}`);
           }
         }
-        if (dropped.length === 0) return;
-        let metas: SpecMeta[];
-        let strippedMeta: boolean;
-        try {
-          const plan = buildImportPlan(dropped);
-          strippedMeta = plan.strippedMeta;
-          metas = await window.api.importSpecs({ specs: plan.specs, assets: plan.assets });
-        } catch (err) {
-          setToast(`読み込みに失敗しました: ${errorMessage(err)}`);
-          return;
+        let metas: SpecMeta[] = [];
+        let strippedMeta = false;
+        if (dropped.length > 0) {
+          try {
+            const plan = buildImportPlan(dropped);
+            strippedMeta = plan.strippedMeta;
+            const result = await window.api.importSpecs({ specs: plan.specs, assets: plan.assets });
+            metas = result.metas;
+            if (result.skippedAssets > 0)
+              notes.push(`大きすぎる ${result.skippedAssets} 件のアセットは取り込まれません`);
+            const failed = plan.specs.length - metas.length;
+            if (failed > 0) notes.push(`${failed} 件の取り込みに失敗しました`);
+          } catch (err) {
+            notes.push(`読み込みに失敗しました: ${errorMessage(err)}`);
+          }
         }
-        setSpecs((prev) => [...metas, ...prev].sort(byUpdatedDesc));
-        const notes: string[] = [];
+        if (metas.length > 0) setSpecs((prev) => [...metas, ...prev].sort(byUpdatedDesc));
         if (skipped > 0) notes.push(`Markdown 以外の ${skipped} 件をスキップ`);
         if (strippedMeta) notes.push("一部のフロントマターは取り込まれません");
         if (notes.length > 0) setToast(notes.join(" ／ "));

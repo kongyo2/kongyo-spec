@@ -18,11 +18,16 @@ export interface ImportPlan {
   assets: ImportAssetOp[];
 }
 
+export interface ImportResult {
+  metas: SpecMeta[];
+  skippedAssets: number;
+}
+
 export interface KongyoApi {
   listSpecs(): Promise<SpecMeta[]>;
   readSpec(id: string): Promise<SpecDocument>;
   createSpec(title: string): Promise<SpecMeta>;
-  importSpecs(plan: ImportPlan): Promise<SpecMeta[]>;
+  importSpecs(plan: ImportPlan): Promise<ImportResult>;
   getFilePath(file: File): string;
   saveSpec(id: string, content: string): Promise<SpecMeta>;
   renameSpec(id: string, title: string): Promise<SpecMeta>;
