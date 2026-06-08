@@ -162,7 +162,7 @@ export async function importSpecs(batch: ImportBatch): Promise<ImportResult> {
   for (const op of batch.assets) {
     // eslint-disable-next-line no-await-in-loop -- sequential copies keep the file-descriptor count bounded
     const outcome = await copyImportedAsset(specsDir, op, budget);
-    if (outcome === "skipped-size") skippedAssets += 1;
+    if (outcome !== "copied") skippedAssets += 1;
   }
   const stamp = nowIso();
   const metas: SpecMeta[] = [];

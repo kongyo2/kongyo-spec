@@ -20,6 +20,7 @@ export interface BuiltPlan extends ImportPlan {
 interface UrlNode extends Node {
   type: "link" | "image" | "definition";
   url: string;
+  identifier?: string;
   children?: Node[];
 }
 
@@ -37,8 +38,13 @@ interface Replacement {
   value: string;
 }
 
+interface AssetDest {
+  fileDest: string;
+  urlDest: string;
+}
+
 interface AssetNaming {
-  destByUrl: Map<string, string>;
+  destByUrl: Map<string, AssetDest>;
   usedNames: Set<string>;
 }
 
@@ -167,7 +173,11 @@ function isUrlNode(node: Node): node is UrlNode {
   );
 }
 
-function assetDestFor(prepared: Prepared, rawPath: string, naming: AssetNaming, assets: ImportAssetOp[]): string {
+function encodeDestUrl(id: string, candidate: string): string {
+  return `assets/${id}/${encodeURIComponent(candidate)}`;
+}
+
+function assetDestFor(prepared: Prepared, rawPath: string, naming: AssetNaming, assets: ImportAssetOp[]): AssetDest {
   const existing = naming.destByUrl.get(rawPath);
   if (existing !== undefined) return existing;
   const base = basename(decodePath(rawPath)) || "asset";
@@ -179,9 +189,12 @@ function assetDestFor(prepared: Prepared, rawPath: string, naming: AssetNaming, 
     counter++;
   }
   naming.usedNames.add(candidate.toLowerCase());
-  const dest = `assets/${prepared.id}/${candidate}`;
+  const dest: AssetDest = {
+    fileDest: `assets/${prepared.id}/${candidate}`,
+    urlDest: encodeDestUrl(prepared.id, candidate),
+  };
   naming.destByUrl.set(rawPath, dest);
-  assets.push({ srcFile: prepared.file.path, url: rawPath, dest });
+  assets.push({ srcFile: prepared.file.path, url: rawPath, dest: dest.fileDest });
   return dest;
 }
 
@@ -191,11 +204,13 @@ function resolveLinkTarget(
   idByName: Map<string, string>,
   idByPath: Map<string, string>,
 ): string | undefined {
+  if (prepared.file.path.length > 0) {
+    const resolved = normalizePath(`${dirOf(prepared.file.path)}/${decoded}`).toLowerCase();
+    const byPath = idByPath.get(resolved) ?? idByPath.get(resolved.replace(MD_EXT, ""));
+    if (byPath) return byPath;
+  }
   const key = decoded.replace(/^\.\//, "").toLowerCase();
-  if (!key.includes("/")) return idByName.get(key);
-  if (prepared.file.path.length === 0) return undefined;
-  const resolved = normalizePath(`${dirOf(prepared.file.path)}/${decoded}`).toLowerCase();
-  return idByPath.get(resolved) ?? idByPath.get(resolved.replace(MD_EXT, ""));
+  return key.includes("/") ? undefined : idByName.get(key);
 }
 
 function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, assets: ImportAssetOp[]): Replacement[] {
@@ -209,16 +224,26 @@ function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ass
   while ((match = IMG_SRC_RE.exec(value)) !== null) {
     const rawUrl = match[1] ?? match[2] ?? match[3] ?? "";
     if (rawUrl.length === 0) continue;
-    const { path } = splitSuffix(rawUrl);
+    const { path, suffix } = splitSuffix(rawUrl);
     const decoded = decodePath(path);
     if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) continue;
     const offsetInMatch = match[0].lastIndexOf(rawUrl);
     if (offsetInMatch < 0) continue;
     const urlStart = start + match.index + offsetInMatch;
     const dest = assetDestFor(prepared, path, naming, assets);
-    replacements.push({ start: urlStart, end: urlStart + rawUrl.length, value: `${dest}${rawUrl.slice(path.length)}` });
+    replacements.push({ start: urlStart, end: urlStart + rawUrl.length, value: `${dest.urlDest}${suffix}` });
   }
   return replacements;
+}
+
+function collectImageRefIds(tree: Node): Set<string> {
+  const ids = new Set<string>();
+  visit(tree, (node: Node) => {
+    if (node.type !== "imageReference") return;
+    const identifier = (node as { identifier?: unknown }).identifier;
+    if (typeof identifier === "string") ids.add(identifier.toLowerCase());
+  });
+  return ids;
 }
 
 function rewriteBody(
@@ -229,6 +254,7 @@ function rewriteBody(
 ): string {
   const body = prepared.body;
   const tree = parser.parse(body);
+  const imageRefIds = collectImageRefIds(tree);
   const replacements: Replacement[] = [];
   const naming: AssetNaming = { destByUrl: new Map(), usedNames: new Set() };
 
@@ -243,7 +269,7 @@ function rewriteBody(
     const { path, suffix } = splitSuffix(node.url);
     const decoded = decodePath(path);
 
-    if (node.type !== "image") {
+    if (node.type === "link" || node.type === "definition") {
       const target = resolveLinkTarget(prepared, decoded, idByName, idByPath);
       if (target) {
         replacements.push({ start: span.start, end: span.end, value: `${target}.md${suffix}` });
@@ -251,9 +277,16 @@ function rewriteBody(
       }
     }
 
-    if (node.type === "image" && prepared.file.path.length > 0 && !isExternalUrl(path) && !MD_EXT.test(decoded)) {
+    const isImageDefinition =
+      node.type === "definition" && node.identifier !== undefined && imageRefIds.has(node.identifier.toLowerCase());
+    if (
+      (node.type === "image" || isImageDefinition) &&
+      prepared.file.path.length > 0 &&
+      !isExternalUrl(path) &&
+      !MD_EXT.test(decoded)
+    ) {
       const dest = assetDestFor(prepared, path, naming, assets);
-      replacements.push({ start: span.start, end: span.end, value: `${dest}${suffix}` });
+      replacements.push({ start: span.start, end: span.end, value: `${dest.urlDest}${suffix}` });
     }
   });
 
@@ -284,8 +317,9 @@ export function buildImportPlan(files: DroppedFile[]): BuiltPlan {
   const idByPath = new Map<string, string>();
   for (const item of prepared) {
     const lower = item.file.name.toLowerCase();
-    idByName.set(lower, item.id);
-    idByName.set(lower.replace(MD_EXT, ""), item.id);
+    if (!idByName.has(lower)) idByName.set(lower, item.id);
+    const stem = lower.replace(MD_EXT, "");
+    if (!idByName.has(stem)) idByName.set(stem, item.id);
     if (item.file.path.length > 0) {
       const normalized = normalizePath(item.file.path).toLowerCase();
       idByPath.set(normalized, item.id);

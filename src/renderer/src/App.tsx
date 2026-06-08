@@ -16,7 +16,7 @@ import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
 import { safeDecode } from "./lib/dom";
 import { errorMessage } from "./lib/errors";
 import { computePageHeadingIds } from "./lib/headings";
-import { isMarkdownFile, MAX_IMPORT_BYTES } from "./lib/import";
+import { isMarkdownFile, MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_TOTAL_IMPORT_BYTES } from "./lib/import";
 import { buildImportPlan, type DroppedFile } from "./lib/importPlan";
 import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
@@ -479,19 +479,27 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       void (async () => {
         const notes: string[] = [];
         const dropped: DroppedFile[] = [];
+        let totalBytes = 0;
+        let capped = false;
         for (const file of markdownFiles) {
           if (file.size > MAX_IMPORT_BYTES) {
             notes.push(`「${file.name}」は大きすぎます`);
             continue;
           }
+          if (dropped.length >= MAX_IMPORT_FILES || totalBytes + file.size > MAX_TOTAL_IMPORT_BYTES) {
+            capped = true;
+            break;
+          }
           try {
             // eslint-disable-next-line no-await-in-loop -- sequential reads keep ordering stable and bound memory
             const content = await file.text();
+            totalBytes += file.size;
             dropped.push({ name: file.name, path: window.api.getFilePath(file), content });
           } catch (err) {
             notes.push(`「${file.name}」を読み込めません: ${errorMessage(err)}`);
           }
         }
+        if (capped) notes.push("一度に取り込める上限を超えたため一部のみ取り込みました");
         let metas: SpecMeta[] = [];
         let strippedMeta = false;
         if (dropped.length > 0) {
@@ -500,8 +508,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             strippedMeta = plan.strippedMeta;
             const result = await window.api.importSpecs({ specs: plan.specs, assets: plan.assets });
             metas = result.metas;
-            if (result.skippedAssets > 0)
-              notes.push(`大きすぎる ${result.skippedAssets} 件のアセットは取り込まれません`);
+            if (result.skippedAssets > 0) notes.push(`${result.skippedAssets} 件のアセットを取り込めません`);
             const failed = plan.specs.length - metas.length;
             if (failed > 0) notes.push(`${failed} 件の取り込みに失敗しました`);
           } catch (err) {
