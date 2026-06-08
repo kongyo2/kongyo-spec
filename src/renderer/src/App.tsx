@@ -3,6 +3,7 @@ import { FileText, Plus } from "lucide-react";
 import { DEFAULT_SETTINGS, type Settings } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
+import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
 import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
@@ -15,6 +16,8 @@ import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
 import { safeDecode } from "./lib/dom";
 import { errorMessage } from "./lib/errors";
 import { computePageHeadingIds } from "./lib/headings";
+import { isMarkdownFile, MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_TOTAL_IMPORT_BYTES } from "./lib/import";
+import { buildImportPlan, type DroppedFile } from "./lib/importPlan";
 import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
@@ -27,6 +30,7 @@ import {
   type ResolvedTheme,
   type ThemePreference,
 } from "./lib/theme";
+import { useFileDrop } from "./lib/useFileDrop";
 
 interface SearchUiState {
   open: boolean;
@@ -87,6 +91,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   specsRef.current = specs;
   const deletingIdsRef = useRef<Set<string>>(new Set());
   const createIntentRef = useRef(0);
+  const importIntentRef = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const pages = useMemo(() => splitPages(doc?.content ?? ""), [doc?.content]);
@@ -461,6 +466,69 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     })();
   };
 
+  const importFiles = useCallback(
+    (files: File[]): void => {
+      const markdownFiles = files.filter(isMarkdownFile);
+      if (markdownFiles.length === 0) {
+        setToast("Markdown（.md）ファイルのみ読み込めます");
+        return;
+      }
+      const skipped = files.length - markdownFiles.length;
+      const intent = (importIntentRef.current += 1);
+      const navToken = openRequestRef.current;
+      void (async () => {
+        const notes: string[] = [];
+        const dropped: DroppedFile[] = [];
+        let totalBytes = 0;
+        let capped = false;
+        for (const file of markdownFiles) {
+          if (file.size > MAX_IMPORT_BYTES) {
+            notes.push(`「${file.name}」は大きすぎます`);
+            continue;
+          }
+          if (dropped.length >= MAX_IMPORT_FILES || totalBytes + file.size > MAX_TOTAL_IMPORT_BYTES) {
+            capped = true;
+            break;
+          }
+          try {
+            // eslint-disable-next-line no-await-in-loop -- sequential reads keep ordering stable and bound memory
+            const content = await file.text();
+            totalBytes += file.size;
+            dropped.push({ name: file.name, path: window.api.getFilePath(file), content });
+          } catch (err) {
+            notes.push(`「${file.name}」を読み込めません: ${errorMessage(err)}`);
+          }
+        }
+        if (capped) notes.push("一度に取り込める上限を超えたため一部のみ取り込みました");
+        let metas: SpecMeta[] = [];
+        let strippedMeta = false;
+        if (dropped.length > 0) {
+          try {
+            const plan = buildImportPlan(dropped);
+            strippedMeta = plan.strippedMeta;
+            if (plan.assetsCapped) notes.push("画像が多すぎるため一部のアセットは取り込まれません");
+            const result = await window.api.importSpecs({ specs: plan.specs, assets: plan.assets });
+            metas = result.metas;
+            if (result.skippedAssets > 0) notes.push(`${result.skippedAssets} 件のアセットを取り込めません`);
+            const failed = plan.specs.length - metas.length;
+            if (failed > 0) notes.push(`${failed} 件の取り込みに失敗しました`);
+          } catch (err) {
+            notes.push(`読み込みに失敗しました: ${errorMessage(err)}`);
+          }
+        }
+        if (metas.length > 0) setSpecs((prev) => [...metas, ...prev].sort(byUpdatedDesc));
+        if (skipped > 0) notes.push(`Markdown 以外の ${skipped} 件をスキップ`);
+        if (strippedMeta) notes.push("一部のフロントマターは取り込まれません");
+        if (notes.length > 0) setToast(notes.join(" ／ "));
+        const last = metas[metas.length - 1];
+        if (last && importIntentRef.current === intent && openRequestRef.current === navToken) await openSpec(last.id);
+      })();
+    },
+    [openSpec],
+  );
+
+  const dragActive = useFileDrop(importFiles);
+
   const handleSettingChange = useCallback((change: SettingChange): void => {
     switch (change.key) {
       case "theme":
@@ -629,6 +697,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
+
+      {dragActive ? <DropOverlay /> : null}
 
       {toast ? <div className="toast">{toast}</div> : null}
     </div>

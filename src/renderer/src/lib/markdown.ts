@@ -9,6 +9,7 @@ import { SKIP, visit } from "unist-util-visit";
 import type { Element, Root } from "hast";
 import { mdastToHast, remarkBase } from "./remark";
 import { getShikiHighlighter, SHIKI_THEMES } from "./shiki";
+import { srcsetUrlTokens } from "./srcset";
 
 function rehypeMermaid() {
   return (tree: Root): void => {
@@ -61,21 +62,48 @@ function rehypeSanitizeScripts() {
   };
 }
 
+function toSpecAssetUrl(value: string): string | null {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//") || value.startsWith("/") || value.startsWith("#")) {
+    return null;
+  }
+  try {
+    return new URL(value, "specfile://spec/").href;
+  } catch {
+    return null;
+  }
+}
+
+function rewriteSrcsetAssets(value: string): string {
+  const replacements: { start: number; end: number; value: string }[] = [];
+  for (const token of srcsetUrlTokens(value)) {
+    const resolved = toSpecAssetUrl(token.url);
+    if (resolved) replacements.push({ start: token.start, end: token.end, value: resolved });
+  }
+  if (replacements.length === 0) return value;
+  replacements.sort((a, b) => b.start - a.start);
+  let out = value;
+  for (const replacement of replacements) {
+    out = out.slice(0, replacement.start) + replacement.value + out.slice(replacement.end);
+  }
+  return out;
+}
+
 function rehypeSpecAssets() {
   return (tree: Root): void => {
     visit(tree, "element", (node: Element) => {
-      if (node.tagName !== "img") return;
+      if (node.tagName !== "img" && node.tagName !== "source") return;
       const props = node.properties;
       if (!props) return;
-      const src = props["src"];
-      if (typeof src !== "string" || src.length === 0) return;
-      if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("//") || src.startsWith("/") || src.startsWith("#")) {
-        return;
+      if (node.tagName === "img") {
+        const src = props["src"];
+        if (typeof src === "string" && src.length > 0) {
+          const resolved = toSpecAssetUrl(src);
+          if (resolved) props["src"] = resolved;
+        }
       }
-      try {
-        props["src"] = new URL(src, "specfile://spec/").href;
-      } catch {
-        // Leave an unresolvable relative reference as-authored.
+      const srcset = props["srcset"];
+      if (typeof srcset === "string" && srcset.length > 0) {
+        props["srcset"] = rewriteSrcsetAssets(srcset);
       }
     });
   };
