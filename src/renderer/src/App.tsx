@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileText } from "lucide-react";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
 import { Editor } from "./components/Editor";
@@ -425,7 +426,10 @@ export function App(): React.ReactElement {
   return (
     <div className="app">
       <aside className="left-pane">
-        <div className="brand">🗎 Kongyo Spec</div>
+        <div className="brand">
+          <FileText size={16} aria-hidden="true" />
+          Kongyo Spec
+        </div>
         <SpecsSidebar
           specs={specs}
           activeId={activeId}

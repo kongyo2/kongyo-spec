@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp, X } from "lucide-react";
 import type { RefObject } from "react";
 
 interface SearchBarProps {
@@ -48,13 +49,13 @@ export function SearchBar({
       />
       <span className="search-status">{status}</span>
       <button type="button" onClick={onPrev} disabled={matchCount === 0} aria-label="前のマッチ">
-        ↑
+        <ChevronUp size={14} aria-hidden="true" />
       </button>
       <button type="button" onClick={onNext} disabled={matchCount === 0} aria-label="次のマッチ">
-        ↓
+        <ChevronDown size={14} aria-hidden="true" />
       </button>
       <button type="button" onClick={onClose} aria-label="検索を閉じる">
-        ✕
+        <X size={14} aria-hidden="true" />
       </button>
     </div>
   );
