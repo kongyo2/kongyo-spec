@@ -32,6 +32,8 @@ const THEME_TEXT: Record<ThemePreference, string> = {
   dark: "Dark",
 };
 
+const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl ";
+
 export function Toolbar(props: ToolbarProps): React.ReactElement {
   const {
     specTitle,
@@ -107,6 +109,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
 
         <button type="button" className="icon-button" onClick={onSearch} aria-label="検索 (Ctrl/Cmd+F)" title="検索">
           <Search size={14} aria-hidden="true" />
+          <kbd>{MOD}F</kbd>
         </button>
         <button
           type="button"

@@ -444,8 +444,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     <div className="app">
       <aside className="left-pane">
         <div className="brand">
-          <FileText size={16} aria-hidden="true" />
-          Kongyo Spec
+          <span className="brand-mark">
+            <FileText size={15} aria-hidden="true" />
+          </span>
+          <span className="brand-word">
+            Kongyo <span className="brand-word-accent">Spec</span>
+          </span>
         </div>
         <SpecsSidebar
           specs={specs}
