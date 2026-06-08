@@ -93,13 +93,53 @@ function decodeEntities(input: string): string {
   });
 }
 
+const FRONTMATTER_BLOCK = /^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+
+function isBlockScalarIndicator(value: string): boolean {
+  return /^[|>][+-]?\d*$/.test(value.trim());
+}
+
 function normalizeYamlScalar(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length >= 2 && trimmed.startsWith("'") && trimmed.endsWith("'")) {
     return trimmed.slice(1, -1).replace(/''/g, "'");
   }
-  if (/^[|>][+-]?\d*$/.test(trimmed)) return "";
+  if (isBlockScalarIndicator(trimmed)) return "";
   return trimmed;
+}
+
+function extractBlockScalar(content: string, key: string): string {
+  const match = FRONTMATTER_BLOCK.exec(content);
+  if (!match) return "";
+  const lines = (match[1] ?? "").split(/\r?\n/);
+  const header = new RegExp(`^${key}\\s*:\\s*([|>])[+-]?\\d*\\s*$`);
+  let index = -1;
+  let folded = false;
+  for (let i = 0; i < lines.length; i++) {
+    const headerMatch = header.exec(lines[i] ?? "");
+    if (headerMatch) {
+      index = i;
+      folded = headerMatch[1] === ">";
+      break;
+    }
+  }
+  if (index < 0) return "";
+  const collected: string[] = [];
+  for (let i = index + 1; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (line.trim() === "") {
+      collected.push("");
+      continue;
+    }
+    if (!/^\s/.test(line)) break;
+    collected.push(line);
+  }
+  while (collected.length > 0 && (collected[collected.length - 1] ?? "").trim() === "") collected.pop();
+  const nonBlank = collected.filter((line) => line.trim() !== "");
+  if (nonBlank.length === 0) return "";
+  const indent = Math.min(...nonBlank.map((line) => /^\s*/.exec(line)?.[0].length ?? 0));
+  const dedented = collected.map((line) => line.slice(indent));
+  return folded ? dedented.join(" ").replace(/\s+/g, " ").trim() : dedented.join("\n").trim();
 }
 
 function isExternalUrl(url: string): boolean {
@@ -156,28 +196,57 @@ function offsetOf(node: Node, which: "start" | "end"): number | null {
   return typeof point?.offset === "number" ? point.offset : null;
 }
 
-function urlSpan(node: UrlNode, source: string): { start: number; end: number } | null {
+function matchBracketClose(sub: string, from: number): number {
+  let depth = 0;
+  for (let k = from; k < sub.length; k++) {
+    const ch = sub[k];
+    if (ch === "\\") {
+      k++;
+      continue;
+    }
+    if (ch === "[") depth++;
+    else if (ch === "]") {
+      if (depth === 0) return k;
+      depth--;
+    }
+  }
+  return -1;
+}
+
+function urlSpan(node: UrlNode, source: string): { start: number; end: number; bracketed: boolean } | null {
   const start = offsetOf(node, "start");
   const end = offsetOf(node, "end");
   if (start === null || end === null) return null;
   const sub = source.slice(start, end);
 
-  let searchFrom = 0;
-  if (node.type === "link" && node.children && node.children.length > 0) {
-    const childEnd = offsetOf(node.children[node.children.length - 1] as Node, "end");
-    if (childEnd !== null) searchFrom = Math.max(0, childEnd - start);
+  let markerEnd: number;
+  if (node.type === "image") {
+    const close = matchBracketClose(sub, 2);
+    if (close < 0 || sub[close + 1] !== "(") return null;
+    markerEnd = close + 2;
+  } else if (node.type === "definition") {
+    const markerIndex = sub.indexOf("]:");
+    if (markerIndex < 0) return null;
+    markerEnd = markerIndex + 2;
+  } else {
+    let searchFrom = 0;
+    if (node.children && node.children.length > 0) {
+      const childEnd = offsetOf(node.children[node.children.length - 1] as Node, "end");
+      if (childEnd !== null) searchFrom = Math.max(0, childEnd - start);
+    }
+    const markerIndex = sub.indexOf("](", searchFrom);
+    if (markerIndex < 0) return null;
+    markerEnd = markerIndex + 2;
   }
 
-  const marker = node.type === "definition" ? "]:" : "](";
-  const markerIndex = sub.indexOf(marker, searchFrom);
-  if (markerIndex < 0) return null;
-
-  let i = markerIndex + marker.length;
+  let i = markerEnd;
   while (i < sub.length && /\s/.test(sub[i] ?? "")) i++;
 
   let urlStart: number;
   let urlEnd: number;
+  let bracketed = false;
   if (sub[i] === "<") {
+    bracketed = true;
     urlStart = i + 1;
     const close = sub.indexOf(">", urlStart);
     if (close < 0) return null;
@@ -208,7 +277,7 @@ function urlSpan(node: UrlNode, source: string): { start: number; end: number } 
   }
 
   if (urlEnd <= urlStart) return null;
-  return { start: start + urlStart, end: start + urlEnd };
+  return { start: start + urlStart, end: start + urlEnd, bracketed };
 }
 
 function isUrlNode(node: Node): node is UrlNode {
@@ -279,6 +348,10 @@ function htmlAttrEscape(value: string): string {
     .replace(/'/g, "&#39;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function mdUrlEscape(value: string): string {
+  return value.replace(/[\\()]/g, "\\$&");
 }
 
 function rawAssetUrl(prepared: Prepared, rawValue: string, naming: AssetNaming, ctx: BuildCtx): string | null {
@@ -369,11 +442,12 @@ function rewriteBody(prepared: Prepared, ctx: BuildCtx): string {
     if (!span) return;
     const { path, suffix } = splitSuffix(node.url);
     const decoded = decodePath(path);
+    const outSuffix = span.bracketed ? suffix : mdUrlEscape(suffix);
 
     if (node.type === "link" || node.type === "definition") {
       const target = resolveLinkTarget(prepared, decoded, ctx.maps);
       if (target) {
-        replacements.push({ start: span.start, end: span.end, value: `${target}.md${suffix}` });
+        replacements.push({ start: span.start, end: span.end, value: `${target}.md${outSuffix}` });
         return;
       }
     }
@@ -387,7 +461,7 @@ function rewriteBody(prepared: Prepared, ctx: BuildCtx): string {
       !MD_EXT.test(decoded)
     ) {
       const dest = assetDestFor(prepared, path, naming, ctx);
-      if (dest) replacements.push({ start: span.start, end: span.end, value: `${dest.urlDest}${suffix}` });
+      if (dest) replacements.push({ start: span.start, end: span.end, value: `${dest.urlDest}${outSuffix}` });
     }
   });
 
@@ -402,7 +476,13 @@ function rewriteBody(prepared: Prepared, ctx: BuildCtx): string {
 export function buildImportPlan(files: DroppedFile[]): BuiltPlan {
   const prepared: Prepared[] = files.map((file) => {
     const parsed = parseFile(file.content);
-    const frontmatterTitle = typeof parsed.data["title"] === "string" ? normalizeYamlScalar(parsed.data["title"]) : "";
+    const rawTitle = parsed.data["title"];
+    const frontmatterTitle =
+      typeof rawTitle === "string"
+        ? isBlockScalarIndicator(rawTitle)
+          ? extractBlockScalar(file.content, "title")
+          : normalizeYamlScalar(rawTitle)
+        : "";
     const chosen = frontmatterTitle.length > 0 ? frontmatterTitle : deriveTitle(file.name);
     const extra = Object.keys(parsed.data).some((key) => !RESERVED_FRONTMATTER_KEYS.has(key));
     return {

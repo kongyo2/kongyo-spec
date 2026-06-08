@@ -133,7 +133,7 @@ async function pathExists(target: string): Promise<boolean> {
   }
 }
 
-const IMAGE_SNIFF_BYTES = 256;
+const IMAGE_SNIFF_BYTES = 8192;
 
 function looksLikeImage(buf: Buffer): boolean {
   if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true; // PNG
