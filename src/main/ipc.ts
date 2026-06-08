@@ -33,7 +33,7 @@ export function registerIpc(): void {
 
   ipcMain.handle("settings:set", (_event, raw: unknown) => {
     const input = parseSetSettingInput(raw);
-    writeSetting(input.key, input.value);
+    return writeSetting(input.key, input.value);
   });
 
   ipcMain.handle("shell:openExternal", async (_event, raw: unknown) => {

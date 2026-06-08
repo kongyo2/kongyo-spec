@@ -83,17 +83,13 @@ function createWindow(): void {
   const captureBounds = (): void => {
     if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return;
     const bounds = window.getNormalBounds();
-    try {
-      writeSetting("windowBounds", {
-        width: bounds.width,
-        height: bounds.height,
-        x: bounds.x,
-        y: bounds.y,
-        maximized: window.isMaximized(),
-      });
-    } catch (err) {
-      console.warn("[main] failed to persist window bounds:", err);
-    }
+    writeSetting("windowBounds", {
+      width: bounds.width,
+      height: bounds.height,
+      x: bounds.x,
+      y: bounds.y,
+      maximized: window.isMaximized(),
+    });
   };
   const persistBounds = debounce(captureBounds, 400);
   window.on("resize", persistBounds);

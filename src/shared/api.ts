@@ -9,7 +9,7 @@ export interface KongyoApi {
   renameSpec(id: string, title: string): Promise<SpecMeta>;
   deleteSpec(id: string): Promise<void>;
   getSettings(): Promise<Settings>;
-  setSetting<K extends SettingKey>(key: K, value: Settings[K]): Promise<void>;
+  setSetting<K extends SettingKey>(key: K, value: Settings[K]): Promise<boolean>;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;

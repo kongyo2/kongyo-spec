@@ -13,12 +13,13 @@ async function loadInitialSettings(): Promise<Settings> {
     const settings = await window.api.getSettings();
     const legacy = localStorage.getItem(LEGACY_THEME_KEY);
     if (legacy === "system" || legacy === "light" || legacy === "dark") {
-      if (legacy !== settings.theme) {
-        await window.api.setSetting("theme", legacy);
+      if (legacy === settings.theme) {
         localStorage.removeItem(LEGACY_THEME_KEY);
-        return { ...settings, theme: legacy };
+        return settings;
       }
-      localStorage.removeItem(LEGACY_THEME_KEY);
+      const persisted = await window.api.setSetting("theme", legacy);
+      if (persisted) localStorage.removeItem(LEGACY_THEME_KEY);
+      return { ...settings, theme: legacy };
     }
     return settings;
   } catch {
