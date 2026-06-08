@@ -4,26 +4,38 @@ import { DEFAULT_SETTINGS, type Settings } from "@shared/schemas/settings";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 import { App } from "./App";
-import { applyTheme, resolveTheme } from "./lib/theme";
+import { applyTheme, clearLegacyTheme, readLegacyTheme, resolveTheme, type ThemePreference } from "./lib/theme";
 
-const LEGACY_THEME_KEY = "kongyo-spec.theme";
+function initialThemePreference(): ThemePreference {
+  try {
+    const theme = window.api.getInitialTheme();
+    if (theme === "system" || theme === "light" || theme === "dark") return theme;
+  } catch {
+    // fall through to the default
+  }
+  return "system";
+}
+
+// Apply the persisted theme synchronously — before the async settings load and
+// before the window is shown — so a dark startup never flashes the light theme.
+applyTheme(resolveTheme(initialThemePreference()));
 
 async function loadInitialSettings(): Promise<Settings> {
   try {
     const settings = await window.api.getSettings();
-    const legacy = localStorage.getItem(LEGACY_THEME_KEY);
-    if (legacy === "system" || legacy === "light" || legacy === "dark") {
+    const legacy = readLegacyTheme();
+    if (legacy !== null) {
       if (legacy === settings.theme) {
-        localStorage.removeItem(LEGACY_THEME_KEY);
+        clearLegacyTheme();
         return settings;
       }
       const persisted = await window.api.setSetting("theme", legacy);
-      if (persisted) localStorage.removeItem(LEGACY_THEME_KEY);
+      if (persisted) clearLegacyTheme();
       return { ...settings, theme: legacy };
     }
     return settings;
   } catch {
-    return DEFAULT_SETTINGS;
+    return { ...DEFAULT_SETTINGS };
   }
 }
 

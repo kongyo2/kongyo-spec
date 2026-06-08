@@ -1,6 +1,6 @@
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, ipcMain, net, protocol, screen, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol, screen, shell } from "electron";
 import type { WindowBounds } from "@shared/schemas/settings";
 import { registerIpc } from "./ipc";
 import { closeSettingsStore, initSettingsStore, readSettings, writeSetting } from "./settingsStore";
@@ -57,8 +57,9 @@ function debounce(fn: () => void, ms: number): () => void {
 }
 
 function createWindow(): void {
-  const saved = readSettings().windowBounds;
-  const restored = saved ? fitBoundsToScreen(saved) : null;
+  const settings = readSettings();
+  const restored = settings.windowBounds ? fitBoundsToScreen(settings.windowBounds) : null;
+  const startDark = settings.theme === "dark" || (settings.theme === "system" && nativeTheme.shouldUseDarkColors);
   const window = new BrowserWindow({
     width: restored?.width ?? 1320,
     height: restored?.height ?? 880,
@@ -66,7 +67,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: "#ffffff",
+    backgroundColor: startDark ? "#0d1117" : "#ffffff",
     title: "Kongyo Spec",
     autoHideMenuBar: true,
     webPreferences: {
@@ -77,8 +78,6 @@ function createWindow(): void {
       spellcheck: false,
     },
   });
-
-  if (restored?.maximized) window.maximize();
 
   const captureBounds = (): void => {
     if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return;
@@ -97,7 +96,10 @@ function createWindow(): void {
   window.on("maximize", persistBounds);
   window.on("unmaximize", persistBounds);
 
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    if (restored?.maximized) window.maximize();
+    window.show();
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);

@@ -18,6 +18,7 @@ import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
 import {
   applyTheme,
+  clearLegacyTheme,
   nextPreference,
   resolveTheme,
   systemTheme,
@@ -86,7 +87,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     const resolved = resolveTheme(themePreference);
     setResolvedTheme(resolved);
     applyTheme(resolved);
-    void window.api.setSetting("theme", themePreference).catch(() => undefined);
+    void window.api
+      .setSetting("theme", themePreference)
+      .then((persisted) => {
+        if (persisted) clearLegacyTheme();
+      })
+      .catch(() => undefined);
     if (themePreference !== "system") return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const handleChange = (): void => {

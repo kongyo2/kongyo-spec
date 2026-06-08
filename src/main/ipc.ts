@@ -31,6 +31,10 @@ export function registerIpc(): void {
 
   ipcMain.handle("settings:get", () => readSettings());
 
+  ipcMain.on("settings:get-theme", (event) => {
+    event.returnValue = readSettings().theme;
+  });
+
   ipcMain.handle("settings:set", (_event, raw: unknown) => {
     const input = parseSetSettingInput(raw);
     return writeSetting(input.key, input.value);

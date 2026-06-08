@@ -19,3 +19,14 @@ export function applyTheme(resolved: ResolvedTheme): void {
 export function nextPreference(current: ThemePreference): ThemePreference {
   return current === "system" ? "light" : current === "light" ? "dark" : "system";
 }
+
+const LEGACY_STORAGE_KEY = "kongyo-spec.theme";
+
+export function readLegacyTheme(): ThemePreference | null {
+  const value = localStorage.getItem(LEGACY_STORAGE_KEY);
+  return value === "system" || value === "light" || value === "dark" ? value : null;
+}
+
+export function clearLegacyTheme(): void {
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+}
