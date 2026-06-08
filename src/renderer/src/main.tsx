@@ -7,6 +7,10 @@ import { App } from "./App";
 import { applyTheme, clearLegacyTheme, readLegacyTheme, resolveTheme, type ThemePreference } from "./lib/theme";
 
 function initialThemePreference(): ThemePreference {
+  // A not-yet-migrated legacy preference is the authoritative durable value at
+  // this point (SQLite still reports the default), so honor it synchronously.
+  const legacy = readLegacyTheme();
+  if (legacy !== null) return legacy;
   try {
     const theme = window.api.getInitialTheme();
     if (theme === "system" || theme === "light" || theme === "dark") return theme;
