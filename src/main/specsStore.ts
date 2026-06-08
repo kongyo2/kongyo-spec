@@ -4,8 +4,6 @@ import { join } from "node:path";
 import { app } from "electron";
 import { parseFrontmatter, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { parseFile, stringifyFile } from "./frontmatter";
-import mdxgSeed from "./seeds/mdxg-notes.md?raw";
-import welcomeSeed from "./seeds/welcome.md?raw";
 
 let cachedDir: string | null = null;
 
@@ -58,29 +56,8 @@ async function writeSpec(meta: SpecMeta, content: string): Promise<void> {
   await fs.rename(temporary, destination);
 }
 
-async function seedIfEmpty(): Promise<void> {
-  const markerPath = join(getSpecsDir(), ".seeded");
-  try {
-    await fs.access(markerPath);
-    return;
-  } catch {
-    // The store has not been initialized yet.
-  }
-  const entries = await fs.readdir(getSpecsDir());
-  if (!entries.some((entry) => entry.endsWith(".md"))) {
-    const stamp = nowIso();
-    await writeSpec(
-      { id: "welcome", title: "Kongyo Spec へようこそ", createdAt: stamp, updatedAt: stamp },
-      welcomeSeed,
-    );
-    await writeSpec({ id: "mdxg-notes", title: "MDXG 準拠ノート", createdAt: stamp, updatedAt: stamp }, mdxgSeed);
-  }
-  await fs.writeFile(markerPath, new Date().toISOString(), "utf8");
-}
-
 export async function initStore(): Promise<void> {
   await ensureDir();
-  await seedIfEmpty();
 }
 
 export async function listSpecs(): Promise<SpecMeta[]> {

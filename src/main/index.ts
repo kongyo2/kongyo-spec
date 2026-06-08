@@ -2,7 +2,6 @@ import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron";
 import { registerIpc } from "./ipc";
-import { registerSmokeTest } from "./smoke";
 import { getSpecsDir, initStore } from "./specsStore";
 
 protocol.registerSchemesAsPrivileged([
@@ -103,8 +102,6 @@ function createWindow(): void {
     });
     window.webContents.send("app:flush-before-close");
   });
-
-  if (process.env["KONGYO_SMOKE"] === "1") registerSmokeTest(window);
 
   const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
   if (devServerUrl) {
