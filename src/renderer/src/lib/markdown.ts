@@ -1,17 +1,13 @@
 import { toText } from "hast-util-to-text";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeKatex from "rehype-katex";
-import rehypeRaw from "rehype-raw";
 import rehypeShikiFromHighlighter, { type RehypeShikiCoreOptions } from "@shikijs/rehype/core";
 import GithubSlugger from "github-slugger";
 import rehypeStringify from "rehype-stringify";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import remarkParse from "remark-parse";
-import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { SKIP, visit } from "unist-util-visit";
 import type { Element, Root } from "hast";
+import { mdastToHast, remarkBase } from "./remark";
 import { getShikiHighlighter, SHIKI_THEMES } from "./shiki";
 
 function rehypeMermaid() {
@@ -114,11 +110,8 @@ export async function renderMarkdownToHtml(markdown: string, headingIds: string[
     onError: (err: unknown) => console.warn("[shiki]", err),
   };
   const file = await unified()
-    .use(remarkParse)
-    .use(remarkGfm)
-    .use(remarkMath)
-    .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeRaw)
+    .use(remarkBase)
+    .use(mdastToHast)
     .use(rehypeSanitizeScripts)
     .use(rehypeSpecAssets)
     .use(rehypeAssignIds, headingIds)

@@ -1,10 +1,8 @@
 import { toString } from "mdast-util-to-string";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import type { Root as MdastRoot } from "mdast";
+import { remarkBase } from "./remark";
 
 export interface VirtualPage {
   id: string;
@@ -32,7 +30,7 @@ export function slugify(input: string): string {
   return base.length > 0 ? base : "section";
 }
 
-const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
+const parser = unified().use(remarkBase);
 
 function findBoundaries(markdown: string): Boundary[] {
   const tree = parser.parse(markdown) as MdastRoot;

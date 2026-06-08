@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SpecDocument, SpecMeta } from "@shared/schemas/spec";
+import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
 import { Editor } from "./components/Editor";
 import { Outline } from "./components/Outline";
@@ -8,6 +8,8 @@ import { Preview, type HeadingInfo } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
 import { SpecsSidebar } from "./components/SpecsSidebar";
 import { Toolbar, type EditorMode } from "./components/Toolbar";
+import { safeDecode } from "./lib/dom";
+import { errorMessage } from "./lib/errors";
 import { computePageHeadingIds } from "./lib/headings";
 import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
@@ -31,18 +33,6 @@ interface SearchUiState {
 interface PendingAnchor {
   docId: string;
   id: string;
-}
-
-function byUpdatedDesc(a: SpecMeta, b: SpecMeta): number {
-  return a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0;
-}
-
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
 }
 
 export function App(): React.ReactElement {
@@ -126,7 +116,7 @@ export function App(): React.ReactElement {
           } catch (err) {
             if (!saveFailedRef.current) {
               saveFailedRef.current = true;
-              setToast(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+              setToast(`保存に失敗しました: ${errorMessage(err)}`);
             }
             if (retryTimerRef.current === null) {
               retryTimerRef.current = window.setTimeout(() => {
@@ -160,7 +150,7 @@ export function App(): React.ReactElement {
         try {
           document = await window.api.readSpec(id);
         } catch (err) {
-          setToast(`仕様書の読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+          setToast(`仕様書の読み込みに失敗しました: ${errorMessage(err)}`);
           return false;
         }
         if (token !== openRequestRef.current) return false;
@@ -199,7 +189,7 @@ export function App(): React.ReactElement {
         const first = list[0];
         if (first && docRef.current === null && pendingOpenIdRef.current === null) await openSpec(first.id);
       } catch (err) {
-        setToast(`仕様書の読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+        setToast(`仕様書の読み込みに失敗しました: ${errorMessage(err)}`);
       }
     })();
   }, [openSpec]);
@@ -329,7 +319,7 @@ export function App(): React.ReactElement {
   const handleLinkActivate = useCallback(
     (href: string): void => {
       const reportLaunchFailure = (err: unknown): void => {
-        setToast(`リンクを開けませんでした: ${err instanceof Error ? err.message : String(err)}`);
+        setToast(`リンクを開けませんでした: ${errorMessage(err)}`);
       };
       if (href.startsWith("//")) {
         void window.api.openExternal(`https:${href}`).catch(reportLaunchFailure);
@@ -377,7 +367,7 @@ export function App(): React.ReactElement {
         const opened = await openSpec(meta.id);
         if (opened) setMode("source");
       } catch (err) {
-        setToast(`作成に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+        setToast(`作成に失敗しました: ${errorMessage(err)}`);
       }
     })();
   };
@@ -390,7 +380,7 @@ export function App(): React.ReactElement {
         setSpecs((prev) => prev.map((spec) => (spec.id === id ? meta : spec)).sort(byUpdatedDesc));
         setDoc((prev) => (prev && prev.meta.id === id ? { ...prev, meta } : prev));
       } catch (err) {
-        setToast(`変更に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+        setToast(`変更に失敗しました: ${errorMessage(err)}`);
       }
     })();
   };
@@ -416,7 +406,7 @@ export function App(): React.ReactElement {
           }
         }
       } catch (err) {
-        setToast(`削除に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+        setToast(`削除に失敗しました: ${errorMessage(err)}`);
         const current = docRef.current;
         if (current && current.content !== loadedContentRef.current) {
           pendingSaveRef.current = { id: current.meta.id, content: current.content };
