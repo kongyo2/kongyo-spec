@@ -1,0 +1,75 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (blank = auto: v<version>-build.<run#>)"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as a pre-release"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows x64 exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build installer + portable exe
+        run: npm run build:win
+
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            ver="$(node -p "require('./package.json').version")"
+            tag="v${ver}-build.${{ github.run_number }}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: $tag"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kongyo-spec-windows-x64
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Publish exe to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists — replacing assets."
+            gh release upload "$tag" dist/*.exe --clobber
+          else
+            flags=()
+            if [ "${{ inputs.prerelease }}" = "true" ]; then flags+=(--prerelease); fi
+            gh release create "$tag" dist/*.exe \
+              --target "${{ github.sha }}" \
+              --title "$tag" \
+              --notes "Manual Windows x64 verification build from \`${{ github.ref_name }}\` (\`${GITHUB_SHA:0:7}\`)." \
+              "${flags[@]}"
+          fi
+          echo "### Windows build published" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
