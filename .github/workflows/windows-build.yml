@@ -36,12 +36,18 @@ jobs:
       - name: Resolve release tag
         id: meta
         shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [ -n "${{ inputs.tag }}" ]; then
-            tag="${{ inputs.tag }}"
+          if [ -n "$INPUT_TAG" ]; then
+            if ! printf '%s' "$INPUT_TAG" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._/-]*$'; then
+              echo "::error::Invalid tag '$INPUT_TAG' — allowed characters: letters, digits, and . _ / -"
+              exit 1
+            fi
+            tag="$INPUT_TAG"
           else
             ver="$(node -p "require('./package.json').version")"
-            tag="v${ver}-build.${{ github.run_number }}"
+            tag="v${ver}-build.${GITHUB_RUN_NUMBER}"
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Resolved release tag: $tag"
@@ -57,19 +63,22 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          tag="${{ steps.meta.outputs.tag }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag already exists — replacing assets."
-            gh release upload "$tag" dist/*.exe --clobber
-          else
-            flags=()
-            if [ "${{ inputs.prerelease }}" = "true" ]; then flags+=(--prerelease); fi
-            gh release create "$tag" dist/*.exe \
-              --target "${{ github.sha }}" \
-              --title "$tag" \
-              --notes "Manual Windows x64 verification build from \`${{ github.ref_name }}\` (\`${GITHUB_SHA:0:7}\`)." \
-              "${flags[@]}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::A release for tag '$TAG' already exists. Re-run with a different tag, or delete the existing release and its tag first."
+            exit 1
           fi
-          echo "### Windows build published" >> "$GITHUB_STEP_SUMMARY"
-          echo "Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" dist/*.exe \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes "Manual Windows x64 verification build from \`$REF_NAME\` (\`${GITHUB_SHA:0:7}\`)." \
+            "${flags[@]}"
+          {
+            echo "### Windows build published"
+            echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"
+          } >> "$GITHUB_STEP_SUMMARY"
