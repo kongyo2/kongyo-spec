@@ -1,0 +1,58 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tile" x1="180" y1="120" x2="900" y2="980" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#15161f" />
+      <stop offset="0.55" stop-color="#0b0c11" />
+      <stop offset="1" stop-color="#070709" />
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.26" r="0.7">
+      <stop offset="0" stop-color="#7c84f0" stop-opacity="0.34" />
+      <stop offset="0.5" stop-color="#5b62d6" stop-opacity="0.11" />
+      <stop offset="1" stop-color="#5b62d6" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="sheet" x1="0.08" y1="0" x2="0.92" y2="1">
+      <stop offset="0" stop-color="#a6abff" />
+      <stop offset="0.5" stop-color="#737bea" />
+      <stop offset="1" stop-color="#535bd2" />
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.38" />
+      <stop offset="0.4" stop-color="#ffffff" stop-opacity="0.06" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
+      <feColorMatrix type="saturate" values="0" />
+    </filter>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="30" />
+    </filter>
+    <clipPath id="tileclip">
+      <rect x="48" y="48" width="928" height="928" rx="208" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tileclip)">
+    <rect x="48" y="48" width="928" height="928" fill="url(#tile)" />
+    <rect x="48" y="48" width="928" height="928" fill="url(#glow)" />
+    <rect x="48" y="48" width="928" height="928" filter="url(#grain)" opacity="0.05" />
+  </g>
+  <rect x="49.5" y="49.5" width="925" height="925" rx="206.5" stroke="#ffffff" stroke-opacity="0.09" stroke-width="3" />
+
+  <rect x="294" y="276" width="424" height="524" rx="48" fill="#000000" fill-opacity="0.5" filter="url(#blur)" />
+
+  <rect x="328" y="224" width="424" height="524" rx="48" fill="#20222c" stroke="#ffffff" stroke-opacity="0.07" stroke-width="2" />
+
+  <g>
+    <rect x="294" y="258" width="424" height="524" rx="48" fill="url(#sheet)" />
+    <rect x="294" y="258" width="424" height="524" rx="48" fill="url(#gloss)" />
+    <rect x="295" y="259" width="422" height="522" rx="47" stroke="#ffffff" stroke-opacity="0.3" stroke-width="2" />
+  </g>
+
+  <rect x="354" y="374" width="50" height="50" rx="15" fill="#eef0ff" />
+  <rect x="420" y="382" width="200" height="34" rx="17" fill="#ffffff" fill-opacity="0.95" />
+  <rect x="354" y="466" width="256" height="26" rx="13" fill="#ffffff" fill-opacity="0.5" />
+  <rect x="354" y="516" width="256" height="26" rx="13" fill="#ffffff" fill-opacity="0.44" />
+  <rect x="354" y="566" width="172" height="26" rx="13" fill="#ffffff" fill-opacity="0.38" />
+  <rect x="354" y="634" width="104" height="30" rx="15" fill="#ffffff" fill-opacity="0.9" />
+</svg>

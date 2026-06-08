@@ -9,6 +9,7 @@ files:
   - "!node_modules/**/*"
   - node_modules/zod/**/*
 win:
+  icon: build/icon.ico
   executableName: kongyo-spec
   target:
     - target: nsis
