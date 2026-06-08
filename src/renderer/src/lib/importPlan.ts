@@ -6,6 +6,7 @@ import type { Node } from "unist";
 import { parseFile } from "@shared/frontmatter";
 import type { ImportAssetOp, ImportPlan, ImportSpecEntry } from "@shared/api";
 import { deriveTitle, MAX_ASSET_OPS, RESERVED_FRONTMATTER_KEYS } from "./import";
+import { srcsetUrlTokens } from "./srcset";
 
 export interface DroppedFile {
   name: string;
@@ -280,30 +281,6 @@ function htmlAttrEscape(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function srcsetUrlTokens(value: string): { url: string; start: number; end: number }[] {
-  const tokens: { url: string; start: number; end: number }[] = [];
-  const n = value.length;
-  let i = 0;
-  while (i < n) {
-    while (i < n && (/\s/.test(value[i] ?? "") || value[i] === ",")) i++;
-    if (i >= n) break;
-    const start = i;
-    while (i < n && !/\s/.test(value[i] ?? "")) i++;
-    let end = i;
-    let endsWithComma = false;
-    while (end > start && value[end - 1] === ",") {
-      end--;
-      endsWithComma = true;
-    }
-    if (end > start) tokens.push({ url: value.slice(start, end), start, end });
-    if (!endsWithComma) {
-      while (i < n && /\s/.test(value[i] ?? "")) i++;
-      while (i < n && value[i] !== ",") i++;
-    }
-  }
-  return tokens;
-}
-
 function rawAssetUrl(prepared: Prepared, rawValue: string, naming: AssetNaming, ctx: BuildCtx): string | null {
   const { path, suffix } = splitSuffix(decodeEntities(rawValue));
   const decoded = decodePath(path);
@@ -344,7 +321,7 @@ function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ctx
   if (start === null || value.length === 0 || prepared.file.path.length === 0) return [];
   const replacements: Replacement[] = [];
 
-  for (const tag of value.matchAll(/<img\b[^>]*>/gi)) {
+  for (const tag of value.matchAll(/<img\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
     const tagStart = start + (tag.index ?? 0);
     const src = findAttr(tag[0], "src");
     if (src) {
@@ -358,7 +335,7 @@ function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ctx
     }
   }
 
-  for (const tag of value.matchAll(/<a\b[^>]*>/gi)) {
+  for (const tag of value.matchAll(/<a\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
     const tagStart = start + (tag.index ?? 0);
     const href = findAttr(tag[0], "href");
     if (!href) continue;

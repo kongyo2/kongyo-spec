@@ -9,6 +9,7 @@ import { SKIP, visit } from "unist-util-visit";
 import type { Element, Root } from "hast";
 import { mdastToHast, remarkBase } from "./remark";
 import { getShikiHighlighter, SHIKI_THEMES } from "./shiki";
+import { srcsetUrlTokens } from "./srcset";
 
 function rehypeMermaid() {
   return (tree: Root): void => {
@@ -73,17 +74,18 @@ function toSpecAssetUrl(value: string): string | null {
 }
 
 function rewriteSrcsetAssets(value: string): string {
-  return value
-    .split(",")
-    .map((candidate) => {
-      const lead = /^\s*/.exec(candidate)?.[0] ?? "";
-      const rest = candidate.slice(lead.length);
-      const match = /^(\S+)(\s[\s\S]*)?$/.exec(rest);
-      if (!match) return candidate;
-      const resolved = toSpecAssetUrl(match[1] ?? "");
-      return resolved ? `${lead}${resolved}${match[2] ?? ""}` : candidate;
-    })
-    .join(",");
+  const replacements: { start: number; end: number; value: string }[] = [];
+  for (const token of srcsetUrlTokens(value)) {
+    const resolved = toSpecAssetUrl(token.url);
+    if (resolved) replacements.push({ start: token.start, end: token.end, value: resolved });
+  }
+  if (replacements.length === 0) return value;
+  replacements.sort((a, b) => b.start - a.start);
+  let out = value;
+  for (const replacement of replacements) {
+    out = out.slice(0, replacement.start) + replacement.value + out.slice(replacement.end);
+  }
+  return out;
 }
 
 function rehypeSpecAssets() {

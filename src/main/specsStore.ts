@@ -44,7 +44,7 @@ function fileFor(id: string): string {
 }
 
 function isSafeId(id: string): boolean {
-  return /^[A-Za-z0-9._-]+$/.test(id) && !id.includes("..");
+  return /^[A-Za-z0-9._-]+$/.test(id) && id !== "." && !id.includes("..");
 }
 
 function nowIso(): string {
