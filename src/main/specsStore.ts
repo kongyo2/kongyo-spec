@@ -63,24 +63,21 @@ export async function initStore(): Promise<void> {
 export async function listSpecs(): Promise<SpecMeta[]> {
   await ensureDir();
   const entries = await fs.readdir(getSpecsDir());
-  const loaded = await Promise.all(
-    entries
-      .filter((entry) => entry.endsWith(".md"))
-      .map((entry) => entry.replace(/\.md$/, ""))
-      .filter(isSafeId)
-      .map(async (id): Promise<SpecMeta | null> => {
-        try {
-          const raw = await fs.readFile(fileFor(id), "utf8");
-          return { ...parseFrontmatter(parseFile(raw).data), id };
-        } catch (err) {
-          console.warn(`[specsStore] skipping ${id}.md:`, err);
-          return null;
-        }
-      }),
-  );
-  return loaded
-    .filter((meta): meta is SpecMeta => meta !== null)
-    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+  const metas: SpecMeta[] = [];
+  for (const entry of entries) {
+    if (!entry.endsWith(".md")) continue;
+    const id = entry.replace(/\.md$/, "");
+    if (!isSafeId(id)) continue;
+    try {
+      // eslint-disable-next-line no-await-in-loop -- sequential reads avoid exhausting the file-descriptor limit
+      const raw = await fs.readFile(join(getSpecsDir(), entry), "utf8");
+      metas.push({ ...parseFrontmatter(parseFile(raw).data), id });
+    } catch (err) {
+      console.warn(`[specsStore] skipping ${entry}:`, err);
+    }
+  }
+  metas.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+  return metas;
 }
 
 export async function readSpec(id: string): Promise<SpecDocument> {
