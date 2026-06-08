@@ -15,7 +15,8 @@
     "format:check": "prettier --check .",
     "lint": "oxlint --format agent",
     "lint:fix": "oxlint --fix",
-    "lint:strict": "oxlint --deny-warnings"
+    "lint:strict": "oxlint --deny-warnings",
+    "lint:ci": "oxlint --format github"
   },
   "dependencies": {
     "@shikijs/rehype": "^4.2.0",
