@@ -1,7 +1,9 @@
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol, screen, shell } from "electron";
+import type { WindowBounds } from "@shared/schemas/settings";
 import { registerIpc } from "./ipc";
+import { closeSettingsStore, initSettingsStore, readSettings, writeSetting } from "./settingsStore";
 import { getSpecsDir, initStore } from "./specsStore";
 
 protocol.registerSchemesAsPrivileged([
@@ -31,14 +33,41 @@ function resolveSpecAsset(requestUrl: string): string | null {
   return absolute;
 }
 
+function fitBoundsToScreen(bounds: WindowBounds): WindowBounds {
+  const { x, y, width, height } = bounds;
+  if (x === null || y === null) return bounds;
+  const { workArea } = screen.getDisplayMatching({ x, y, width, height });
+  const fittedWidth = Math.min(width, workArea.width);
+  const fittedHeight = Math.min(height, workArea.height);
+  return {
+    ...bounds,
+    width: fittedWidth,
+    height: fittedHeight,
+    x: Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - fittedWidth),
+    y: Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - fittedHeight),
+  };
+}
+
+function debounce(fn: () => void, ms: number): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(fn, ms);
+  };
+}
+
 function createWindow(): void {
+  const settings = readSettings();
+  const restored = settings.windowBounds ? fitBoundsToScreen(settings.windowBounds) : null;
+  const startDark = settings.theme === "dark" || (settings.theme === "system" && nativeTheme.shouldUseDarkColors);
   const window = new BrowserWindow({
-    width: 1320,
-    height: 880,
+    width: restored?.width ?? 1320,
+    height: restored?.height ?? 880,
+    ...(restored && restored.x !== null && restored.y !== null ? { x: restored.x, y: restored.y } : {}),
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: "#ffffff",
+    backgroundColor: startDark ? "#0d1117" : "#ffffff",
     title: "Kongyo Spec",
     autoHideMenuBar: true,
     webPreferences: {
@@ -50,7 +79,27 @@ function createWindow(): void {
     },
   });
 
-  window.once("ready-to-show", () => window.show());
+  const captureBounds = (): void => {
+    if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return;
+    const bounds = window.getNormalBounds();
+    writeSetting("windowBounds", {
+      width: bounds.width,
+      height: bounds.height,
+      x: bounds.x,
+      y: bounds.y,
+      maximized: window.isMaximized(),
+    });
+  };
+  const persistBounds = debounce(captureBounds, 400);
+  window.on("resize", persistBounds);
+  window.on("move", persistBounds);
+  window.on("maximize", persistBounds);
+  window.on("unmaximize", persistBounds);
+
+  window.once("ready-to-show", () => {
+    if (restored?.maximized) window.maximize();
+    window.show();
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
@@ -76,6 +125,7 @@ function createWindow(): void {
     if (!window.isDestroyed()) window.close();
   });
   window.on("close", (event) => {
+    captureBounds();
     if (closeFlushed) return;
     if (!rendererReady) return;
     event.preventDefault();
@@ -125,6 +175,7 @@ app
     });
 
     await initStore();
+    initSettingsStore();
     registerIpc();
     createWindow();
 
@@ -140,3 +191,5 @@ app
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+
+app.on("will-quit", () => closeSettingsStore());

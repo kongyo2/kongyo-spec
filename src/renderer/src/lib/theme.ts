@@ -1,16 +1,7 @@
-export type ThemePreference = "system" | "light" | "dark";
+import type { ThemePreference } from "@shared/schemas/settings";
+
+export type { ThemePreference };
 export type ResolvedTheme = "light" | "dark";
-
-const STORAGE_KEY = "kongyo-spec.theme";
-
-export function loadThemePreference(): ThemePreference {
-  const value = localStorage.getItem(STORAGE_KEY);
-  return value === "light" || value === "dark" || value === "system" ? value : "system";
-}
-
-export function saveThemePreference(preference: ThemePreference): void {
-  localStorage.setItem(STORAGE_KEY, preference);
-}
 
 export function systemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -27,4 +18,15 @@ export function applyTheme(resolved: ResolvedTheme): void {
 
 export function nextPreference(current: ThemePreference): ThemePreference {
   return current === "system" ? "light" : current === "light" ? "dark" : "system";
+}
+
+const LEGACY_STORAGE_KEY = "kongyo-spec.theme";
+
+export function readLegacyTheme(): ThemePreference | null {
+  const value = localStorage.getItem(LEGACY_STORAGE_KEY);
+  return value === "system" || value === "light" || value === "dark" ? value : null;
+}
+
+export function clearLegacyTheme(): void {
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
 }
