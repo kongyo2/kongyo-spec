@@ -140,6 +140,11 @@ function Stepper({
   );
 }
 
+function focusableWithin(container: HTMLElement): HTMLElement[] {
+  const selector = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((el) => el.getClientRects().length > 0);
+}
+
 export function Settings({
   theme,
   appearance,
@@ -152,8 +157,34 @@ export function Settings({
   const shellRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     shellRef.current?.focus();
+    return () => previouslyFocused?.focus();
   }, []);
+
+  const trapFocus = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== "Tab") return;
+    const shell = shellRef.current;
+    if (!shell) return;
+    const focusables = focusableWithin(shell);
+    if (focusables.length === 0) {
+      event.preventDefault();
+      shell.focus();
+      return;
+    }
+    const first = focusables[0]!;
+    const last = focusables[focusables.length - 1]!;
+    const activeEl = document.activeElement;
+    if (event.shiftKey) {
+      if (activeEl === first || activeEl === shell || !shell.contains(activeEl)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (activeEl === last || !shell.contains(activeEl)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const active = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0]!;
 
@@ -166,6 +197,7 @@ export function Settings({
         aria-modal="true"
         aria-label="設定"
         tabIndex={-1}
+        onKeyDown={trapFocus}
         onClick={(event) => event.stopPropagation()}
       >
         <nav className="settings-nav" aria-label="設定カテゴリ">
