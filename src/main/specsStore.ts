@@ -184,8 +184,13 @@ async function copyFromHandle(handle: FileHandle, destination: string, limit: nu
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
       if (bytesRead === 0) break;
       if (copied + bytesRead > limit) return null;
-      // eslint-disable-next-line no-await-in-loop -- paired with the chunked read above
-      await dest.write(buffer, 0, bytesRead);
+      let offset = 0;
+      while (offset < bytesRead) {
+        // eslint-disable-next-line no-await-in-loop -- drains the chunk across possible partial writes
+        const { bytesWritten } = await dest.write(buffer, offset, bytesRead - offset);
+        if (bytesWritten === 0) throw new Error("asset copy stalled");
+        offset += bytesWritten;
+      }
       copied += bytesRead;
       position += bytesRead;
     }
@@ -199,6 +204,10 @@ function destWithinImportAssets(dest: string, allowedIds: Set<string>): boolean 
   const segments = dest.split(/[\\/]/);
   if (segments.length < 3 || segments[0] !== "assets" || !allowedIds.has(segments[1] ?? "")) return false;
   return segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
+function isAbsoluteOrNetworkSource(path: string): boolean {
+  return path.startsWith("/") || path.startsWith("\\") || /^[a-z][a-z0-9+.-]*:/i.test(path);
 }
 
 type CopyOutcome = "copied" | "skipped-size" | "skipped-missing";
@@ -216,6 +225,7 @@ async function copyImportedAsset(
   } catch {
     source = op.url;
   }
+  if (isAbsoluteOrNetworkSource(source) || isAbsoluteOrNetworkSource(op.url)) return "skipped-missing";
   const absolute = resolve(dirname(op.srcFile), source);
   try {
     const stat = await fs.stat(absolute);

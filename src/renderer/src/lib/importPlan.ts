@@ -147,6 +147,7 @@ function isExternalUrl(url: string): boolean {
     /^[a-z][a-z0-9+.-]*:/i.test(url) ||
     url.startsWith("//") ||
     url.startsWith("/") ||
+    url.startsWith("\\") ||
     url.startsWith("#") ||
     url.startsWith("?")
   );

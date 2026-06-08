@@ -26,10 +26,16 @@ export function srcsetUrlTokens(value: string): SrcsetUrlToken[] {
       while (i < n && !isWhitespace(value[i]) && value[i] !== ",") i++;
     }
     let end = i;
-    while (end > start && value[end - 1] === ",") end--;
+    let sawComma = false;
+    while (end > start && value[end - 1] === ",") {
+      end--;
+      sawComma = true;
+    }
     if (end > start) tokens.push({ url: value.slice(start, end), start, end });
-    while (i < n && isWhitespace(value[i])) i++;
-    while (i < n && value[i] !== ",") i++;
+    if (!sawComma) {
+      while (i < n && isWhitespace(value[i])) i++;
+      while (i < n && value[i] !== ",") i++;
+    }
   }
   return tokens;
 }
