@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { KongyoApi } from "@shared/api";
 
 const api: KongyoApi = {
@@ -8,6 +8,8 @@ const api: KongyoApi = {
   saveSpec: (id, content) => ipcRenderer.invoke("specs:save", { id, content }),
   renameSpec: (id, title) => ipcRenderer.invoke("specs:rename", { id, title }),
   deleteSpec: (id) => ipcRenderer.invoke("specs:delete", { id }),
+  importSpecs: (paths) => ipcRenderer.invoke("specs:import", { paths }),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),
   onFlushBeforeClose: (callback) => {
     const handler = (): void => callback();

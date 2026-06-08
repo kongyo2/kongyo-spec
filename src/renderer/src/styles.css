@@ -13,6 +13,7 @@
   --editor-bg: #ffffff;
   --code-bg: #f6f8fa;
   --danger: #cf222e;
+  --success: #1a7f37;
   --mark-bg: #fff3b0;
   --mark-fg: #1f2328;
   --mark-current-bg: #fb8f44;
@@ -31,6 +32,7 @@ html.dark {
   --editor-bg: #0d1117;
   --code-bg: #161b22;
   --danger: #f85149;
+  --success: #238636;
   --mark-bg: #5a4500;
   --mark-fg: #ffffff;
   --mark-current-bg: #bb8009;
@@ -923,13 +925,63 @@ mark.search-hit-current {
   cursor: default;
 }
 
+/* ---------- Drop overlay ---------- */
+.app > .drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  backdrop-filter: blur(2px);
+  animation: drop-overlay-in 0.12s ease-out;
+}
+
+@keyframes drop-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.drop-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 52px;
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--accent);
+  box-shadow: var(--shadow);
+  text-align: center;
+  max-width: 460px;
+}
+
+.drop-overlay-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.drop-overlay-hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
 /* ---------- Toast ---------- */
 .app > .toast {
   position: fixed;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--danger);
   color: #ffffff;
   padding: 10px 18px;
   border-radius: 8px;
@@ -937,6 +989,14 @@ mark.search-hit-current {
   box-shadow: var(--shadow);
   z-index: 60;
   max-width: 70vw;
+}
+
+.app > .toast.toast-error {
+  background: var(--danger);
+}
+
+.app > .toast.toast-success {
+  background: var(--success);
 }
 
 /* ---------- Scrollbars ---------- */

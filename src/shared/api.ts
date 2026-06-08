@@ -7,6 +7,8 @@ export interface KongyoApi {
   saveSpec(id: string, content: string): Promise<SpecMeta>;
   renameSpec(id: string, title: string): Promise<SpecMeta>;
   deleteSpec(id: string): Promise<void>;
+  importSpecs(paths: string[]): Promise<SpecMeta[]>;
+  getPathForFile(file: File): string;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;

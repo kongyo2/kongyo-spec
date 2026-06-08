@@ -29,3 +29,11 @@ export type OpenExternalInput = z.infer<typeof OpenExternalInputSchema>;
 export function parseOpenExternalInput(raw: unknown): OpenExternalInput {
   return OpenExternalInputSchema.parse(raw);
 }
+
+export const ImportSpecsInputSchema = z.object({
+  paths: z.array(z.string().min(1).max(4096)).min(1).max(256),
+});
+export type ImportSpecsInput = z.infer<typeof ImportSpecsInputSchema>;
+export function parseImportSpecsInput(raw: unknown): ImportSpecsInput {
+  return ImportSpecsInputSchema.parse(raw);
+}

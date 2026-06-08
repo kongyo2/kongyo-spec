@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { type Dirent, promises as fs } from "node:fs";
+import { basename, join } from "node:path";
 import { app } from "electron";
 import { byUpdatedDesc, parseFrontmatter, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { parseFile, stringifyFile } from "./frontmatter";
@@ -120,4 +120,112 @@ export async function deleteSpec(id: string): Promise<void> {
   await withLock(id, async () => {
     await fs.rm(fileFor(id), { force: true });
   });
+}
+
+const MARKDOWN_RE = /\.(?:md|markdown|mdx)$/i;
+const SKIP_DIRS = new Set(["node_modules"]);
+const MAX_IMPORT_FILES = 500;
+const MAX_IMPORT_DEPTH = 8;
+
+function byName(a: { name: string }, b: { name: string }): number {
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function resolveImportTitle(data: Record<string, unknown>, content: string, filePath: string): string {
+  if (isNonEmptyString(data["title"])) return data["title"].trim();
+  const heading = /^[ \t]{0,3}#[ \t]+(.+?)[ \t]*#*[ \t]*$/m.exec(content);
+  if (isNonEmptyString(heading?.[1])) return heading[1].trim();
+  const name = basename(filePath).replace(MARKDOWN_RE, "");
+  return name.length > 0 ? name : "Untitled";
+}
+
+function resolveImportCreatedAt(data: Record<string, unknown>, fallback: string): string {
+  const value = data["createdAt"];
+  return isNonEmptyString(value) && !Number.isNaN(Date.parse(value)) ? value : fallback;
+}
+
+async function readDirSafe(dir: string): Promise<Dirent[]> {
+  try {
+    return await fs.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    console.warn(`[specsStore] skipping ${dir}:`, err);
+    return [];
+  }
+}
+
+async function collectMarkdownFiles(dir: string, depth: number, seen: Set<string>, out: string[]): Promise<void> {
+  if (out.length >= MAX_IMPORT_FILES) return;
+  const entries = await readDirSafe(dir);
+  entries.sort(byName);
+  for (const entry of entries) {
+    if (out.length >= MAX_IMPORT_FILES) break;
+    if (entry.name.startsWith(".")) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (depth < MAX_IMPORT_DEPTH && !SKIP_DIRS.has(entry.name)) {
+        // eslint-disable-next-line no-await-in-loop -- sequential traversal avoids exhausting the file-descriptor limit
+        await collectMarkdownFiles(full, depth + 1, seen, out);
+      }
+    } else if (entry.isFile() && MARKDOWN_RE.test(entry.name) && !seen.has(full)) {
+      seen.add(full);
+      out.push(full);
+    }
+  }
+}
+
+export async function importSpecs(paths: string[]): Promise<SpecMeta[]> {
+  await ensureDir();
+  const seen = new Set<string>();
+  const files: string[] = [];
+  for (const path of paths) {
+    let stats;
+    try {
+      // eslint-disable-next-line no-await-in-loop -- sequential stats avoid exhausting the file-descriptor limit
+      stats = await fs.stat(path);
+    } catch (err) {
+      console.warn(`[specsStore] cannot import ${path}:`, err);
+      continue;
+    }
+    if (stats.isDirectory()) {
+      // eslint-disable-next-line no-await-in-loop -- sequential traversal avoids exhausting the file-descriptor limit
+      await collectMarkdownFiles(path, 0, seen, files);
+    } else if (stats.isFile() && MARKDOWN_RE.test(path) && !seen.has(path)) {
+      seen.add(path);
+      files.push(path);
+    }
+  }
+
+  const created: SpecMeta[] = [];
+  for (const file of files) {
+    let raw: string;
+    try {
+      // eslint-disable-next-line no-await-in-loop -- sequential reads avoid exhausting the file-descriptor limit
+      raw = await fs.readFile(file, "utf8");
+    } catch (err) {
+      console.warn(`[specsStore] failed to read ${file}:`, err);
+      continue;
+    }
+    const parsed = parseFile(raw);
+    const stamp = nowIso();
+    const meta: SpecMeta = {
+      id: randomUUID(),
+      title: resolveImportTitle(parsed.data, parsed.content, file),
+      createdAt: resolveImportCreatedAt(parsed.data, stamp),
+      updatedAt: stamp,
+    };
+    try {
+      // eslint-disable-next-line no-await-in-loop -- specs are written one at a time to bound open descriptors
+      await writeSpec(meta, parsed.content);
+    } catch (err) {
+      console.warn(`[specsStore] failed to import ${file}:`, err);
+      continue;
+    }
+    created.push(meta);
+  }
+  created.sort(byUpdatedDesc);
+  return created;
 }

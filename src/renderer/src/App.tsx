@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText } from "lucide-react";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
+import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
 import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
@@ -15,6 +16,7 @@ import { computePageHeadingIds } from "./lib/headings";
 import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
+import { useFileDrop } from "./lib/useFileDrop";
 import {
   applyTheme,
   loadThemePreference,
@@ -36,6 +38,11 @@ interface PendingAnchor {
   id: string;
 }
 
+interface Toast {
+  text: string;
+  tone: "error" | "success";
+}
+
 export function App(): React.ReactElement {
   const [specs, setSpecs] = useState<SpecMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -53,7 +60,7 @@ export function App(): React.ReactElement {
 
   const [pendingAnchor, setPendingAnchor] = useState<PendingAnchor | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
 
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => loadThemePreference());
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(loadThemePreference()));
@@ -95,6 +102,10 @@ export function App(): React.ReactElement {
     return () => media.removeEventListener("change", handleChange);
   }, [themePreference]);
 
+  const notify = useCallback((text: string, tone: Toast["tone"] = "error"): void => {
+    setToast({ text, tone });
+  }, []);
+
   const flushSave = useCallback((): Promise<boolean> => {
     if (flushPromiseRef.current) return flushPromiseRef.current;
     const run = (async (): Promise<boolean> => {
@@ -117,7 +128,7 @@ export function App(): React.ReactElement {
           } catch (err) {
             if (!saveFailedRef.current) {
               saveFailedRef.current = true;
-              setToast(`保存に失敗しました: ${errorMessage(err)}`);
+              notify(`保存に失敗しました: ${errorMessage(err)}`);
             }
             if (retryTimerRef.current === null) {
               retryTimerRef.current = window.setTimeout(() => {
@@ -151,7 +162,7 @@ export function App(): React.ReactElement {
         try {
           document = await window.api.readSpec(id);
         } catch (err) {
-          setToast(`仕様書の読み込みに失敗しました: ${errorMessage(err)}`);
+          notify(`仕様書の読み込みに失敗しました: ${errorMessage(err)}`);
           return false;
         }
         if (token !== openRequestRef.current) return false;
@@ -190,7 +201,7 @@ export function App(): React.ReactElement {
         const first = list[0];
         if (first && docRef.current === null && pendingOpenIdRef.current === null) await openSpec(first.id);
       } catch (err) {
-        setToast(`仕様書の読み込みに失敗しました: ${errorMessage(err)}`);
+        notify(`仕様書の読み込みに失敗しました: ${errorMessage(err)}`);
       }
     })();
   }, [openSpec]);
@@ -320,7 +331,7 @@ export function App(): React.ReactElement {
   const handleLinkActivate = useCallback(
     (href: string): void => {
       const reportLaunchFailure = (err: unknown): void => {
-        setToast(`リンクを開けませんでした: ${errorMessage(err)}`);
+        notify(`リンクを開けませんでした: ${errorMessage(err)}`);
       };
       if (href.startsWith("//")) {
         void window.api.openExternal(`https:${href}`).catch(reportLaunchFailure);
@@ -345,7 +356,7 @@ export function App(): React.ReactElement {
       const targetId = fileName.replace(/\.md$/i, "");
       const target = specs.find((spec) => spec.id === targetId);
       if (!target) {
-        setToast(`リンク先が見つかりません: ${href}`);
+        notify(`リンク先が見つかりません: ${href}`);
         return;
       }
       void openSpec(target.id).then((opened) => {
@@ -368,7 +379,7 @@ export function App(): React.ReactElement {
         const opened = await openSpec(meta.id);
         if (opened) setMode("source");
       } catch (err) {
-        setToast(`作成に失敗しました: ${errorMessage(err)}`);
+        notify(`作成に失敗しました: ${errorMessage(err)}`);
       }
     })();
   };
@@ -381,7 +392,7 @@ export function App(): React.ReactElement {
         setSpecs((prev) => prev.map((spec) => (spec.id === id ? meta : spec)).sort(byUpdatedDesc));
         setDoc((prev) => (prev && prev.meta.id === id ? { ...prev, meta } : prev));
       } catch (err) {
-        setToast(`変更に失敗しました: ${errorMessage(err)}`);
+        notify(`変更に失敗しました: ${errorMessage(err)}`);
       }
     })();
   };
@@ -407,7 +418,7 @@ export function App(): React.ReactElement {
           }
         }
       } catch (err) {
-        setToast(`削除に失敗しました: ${errorMessage(err)}`);
+        notify(`削除に失敗しました: ${errorMessage(err)}`);
         const current = docRef.current;
         if (current && current.content !== loadedContentRef.current) {
           pendingSaveRef.current = { id: current.meta.id, content: current.content };
@@ -418,6 +429,35 @@ export function App(): React.ReactElement {
       }
     })();
   };
+
+  const handleImportPaths = useCallback(
+    (paths: string[]): void => {
+      const navToken = openRequestRef.current;
+      const intent = (createIntentRef.current += 1);
+      void (async () => {
+        try {
+          const created = await window.api.importSpecs(paths);
+          if (created.length === 0) {
+            notify("取り込める Markdown が見つかりませんでした。");
+            return;
+          }
+          setSpecs((prev) => {
+            const incoming = new Set(created.map((meta) => meta.id));
+            return [...created, ...prev.filter((spec) => !incoming.has(spec.id))].sort(byUpdatedDesc);
+          });
+          notify(`${created.length} 件の仕様書を取り込みました。`, "success");
+          if (createIntentRef.current !== intent || openRequestRef.current !== navToken) return;
+          const first = created[0];
+          if (first) await openSpec(first.id);
+        } catch (err) {
+          notify(`取り込みに失敗しました: ${errorMessage(err)}`);
+        }
+      })();
+    },
+    [openSpec, notify],
+  );
+
+  const dragging = useFileDrop(handleImportPaths);
 
   const currentMatch = matches[matchCursor];
   const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;
@@ -525,7 +565,9 @@ export function App(): React.ReactElement {
         />
       ) : null}
 
-      {toast ? <div className="toast">{toast}</div> : null}
+      <DropOverlay active={dragging} />
+
+      {toast ? <div className={`toast toast-${toast.tone}`}>{toast.text}</div> : null}
     </div>
   );
 }

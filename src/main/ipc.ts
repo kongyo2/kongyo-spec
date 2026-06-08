@@ -1,12 +1,13 @@
 import { ipcMain, shell } from "electron";
 import {
   parseCreateSpecInput,
+  parseImportSpecsInput,
   parseOpenExternalInput,
   parseRenameSpecInput,
   parseSaveSpecInput,
   parseSpecIdInput,
 } from "@shared/schemas/ipc";
-import { createSpec, deleteSpec, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
+import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
 
 export function registerIpc(): void {
   ipcMain.handle("specs:list", () => listSpecs());
@@ -26,6 +27,8 @@ export function registerIpc(): void {
   });
 
   ipcMain.handle("specs:delete", (_event, raw: unknown) => deleteSpec(parseSpecIdInput(raw).id));
+
+  ipcMain.handle("specs:import", (_event, raw: unknown) => importSpecs(parseImportSpecsInput(raw).paths));
 
   ipcMain.handle("shell:openExternal", async (_event, raw: unknown) => {
     const { url } = parseOpenExternalInput(raw);
