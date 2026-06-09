@@ -11,12 +11,14 @@ import {
   RotateCcw,
   Sparkles,
   Sun,
+  Telescope,
   Type,
   X,
 } from "lucide-react";
 import {
   type Accent,
   EDITOR_FONT_SIZE,
+  type GeminiModel,
   PREVIEW_FONT_SIZE,
   type ReadingWidth,
   type ThemePreference,
@@ -29,24 +31,41 @@ export type SettingChange =
   | { key: "accent"; value: Accent }
   | { key: "editorFontSize"; value: number }
   | { key: "previewFontSize"; value: number }
-  | { key: "readingWidth"; value: ReadingWidth };
+  | { key: "readingWidth"; value: ReadingWidth }
+  | { key: "geminiModel"; value: GeminiModel };
+
+export interface AiSettings {
+  apiKeySet: boolean;
+  model: GeminiModel;
+}
 
 interface SettingsProps {
   theme: ThemePreference;
   appearance: AppearanceSettings;
   resolvedTheme: ResolvedTheme;
+  ai: AiSettings;
   onChange: (change: SettingChange) => void;
+  onSaveApiKey: (key: string | null) => void;
   onReset: () => void;
   onClose: () => void;
 }
 
-type Section = "appearance" | "typography" | "about";
+type Section = "appearance" | "typography" | "ai" | "about";
 
 const SECTIONS: { id: Section; label: string; hint: string; icon: LucideIcon }[] = [
   { id: "appearance", label: "外観", hint: "テーマとアクセント", icon: Palette },
   { id: "typography", label: "タイポグラフィ", hint: "文字サイズと横幅", icon: Type },
+  { id: "ai", label: "AI レビュー", hint: "Gemini と Lens", icon: Telescope },
   { id: "about", label: "情報", hint: "バージョンと構成", icon: Sparkles },
 ];
+
+const GEMINI_MODEL_OPTIONS: { value: GeminiModel; label: string }[] = [
+  { value: "gemini-2.5-flash-lite", label: "Flash-Lite" },
+  { value: "gemini-2.5-flash", label: "Flash" },
+  { value: "gemini-2.5-pro", label: "Pro" },
+];
+
+const AI_STUDIO_URL = "https://aistudio.google.com/apikey";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
   { value: "system", label: "System", icon: Monitor },
@@ -149,12 +168,22 @@ export function Settings({
   theme,
   appearance,
   resolvedTheme,
+  ai,
   onChange,
+  onSaveApiKey,
   onReset,
   onClose,
 }: SettingsProps): React.ReactElement {
   const [section, setSection] = useState<Section>("appearance");
+  const [keyDraft, setKeyDraft] = useState("");
   const shellRef = useRef<HTMLDivElement>(null);
+
+  const submitKeyDraft = (): void => {
+    const trimmed = keyDraft.trim();
+    if (trimmed.length === 0) return;
+    onSaveApiKey(trimmed);
+    setKeyDraft("");
+  };
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -297,6 +326,67 @@ export function Settings({
                     value={appearance.readingWidth}
                     options={READING_WIDTHS.map((preset) => ({ value: preset.id, label: preset.label }))}
                     onSelect={(value) => onChange({ key: "readingWidth", value })}
+                  />
+                </Row>
+              </div>
+            ) : section === "ai" ? (
+              <div className="settings-panel" key="ai">
+                <p className="settings-ai-philosophy">
+                  Lens は仕様を書き足しません。削るべき過剰な具体と、人間が決めるべき問いだけを返します。
+                </p>
+                <div className="settings-row stack">
+                  <div className="settings-row-label">
+                    <span className="settings-row-title">
+                      Gemini API キー
+                      <span className={`settings-key-state${ai.apiKeySet ? " set" : ""}`}>
+                        {ai.apiKeySet ? "設定済み" : "未設定"}
+                      </span>
+                    </span>
+                    <span className="settings-row-desc">キーはこの端末の設定ストアにのみ保存されます。</span>
+                  </div>
+                  <div className="settings-key-controls">
+                    <input
+                      type="password"
+                      className="settings-key-input"
+                      value={keyDraft}
+                      placeholder={ai.apiKeySet ? "変更する場合のみ入力" : "AIza…"}
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-label="Gemini API キー"
+                      onChange={(event) => setKeyDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") submitKeyDraft();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="settings-key-save"
+                      disabled={keyDraft.trim().length === 0}
+                      onClick={submitKeyDraft}
+                    >
+                      保存
+                    </button>
+                    {ai.apiKeySet ? (
+                      <button type="button" className="settings-key-remove" onClick={() => onSaveApiKey(null)}>
+                        削除
+                      </button>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="settings-inline-link"
+                    onClick={() => void window.api.openExternal(AI_STUDIO_URL).catch(() => undefined)}
+                  >
+                    Google AI Studio でキーを取得
+                    <ArrowUpRight size={13} aria-hidden="true" />
+                  </button>
+                </div>
+                <Row title="モデル" desc="レビューに使う Gemini モデル">
+                  <Segmented
+                    label="モデル"
+                    value={ai.model}
+                    options={GEMINI_MODEL_OPTIONS}
+                    onSelect={(value) => onChange({ key: "geminiModel", value })}
                   />
                 </Row>
               </div>

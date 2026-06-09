@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
-import { DEFAULT_SETTINGS, type Settings } from "@shared/schemas/settings";
+import { DEFAULT_SETTINGS, type GeminiModel, type RendererSettings } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import { Dialog, type DialogState } from "./components/Dialog";
 import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
+import { LensPanel, type LensState } from "./components/LensPanel";
 import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
 import { Preview, type HeadingInfo } from "./components/Preview";
@@ -14,7 +15,7 @@ import { SpecsSidebar } from "./components/SpecsSidebar";
 import { Toolbar, type EditorMode } from "./components/Toolbar";
 import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
 import { safeDecode } from "./lib/dom";
-import { errorMessage } from "./lib/errors";
+import { errorMessage, ipcErrorMessage } from "./lib/errors";
 import { computePageHeadingIds } from "./lib/headings";
 import { isMarkdownFile, MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_TOTAL_IMPORT_BYTES } from "./lib/import";
 import { buildImportPlan, type DroppedFile } from "./lib/importPlan";
@@ -43,7 +44,7 @@ interface PendingAnchor {
 }
 
 interface AppProps {
-  initialSettings: Settings;
+  initialSettings: RendererSettings;
 }
 
 const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl ";
@@ -76,6 +77,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     readingWidth: initialSettings.readingWidth,
   }));
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const [lensOpen, setLensOpen] = useState(false);
+  const [lens, setLens] = useState<LensState>({ status: "idle" });
+  const [aiKeySet, setAiKeySet] = useState(initialSettings.geminiApiKeySet);
+  const [aiModel, setAiModel] = useState<GeminiModel>(initialSettings.geminiModel);
+  const lensTokenRef = useRef(0);
 
   const loadedContentRef = useRef("");
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
@@ -127,6 +134,11 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   useEffect(() => {
     if (activeId === null) return;
     void window.api.setSetting("lastActiveSpecId", activeId).catch(() => undefined);
+  }, [activeId]);
+
+  useEffect(() => {
+    lensTokenRef.current += 1;
+    setLens({ status: "idle" });
   }, [activeId]);
 
   const flushSave = useCallback((): Promise<boolean> => {
@@ -315,6 +327,49 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     };
   }, [pendingAnchor, pages, doc, pageHeadingIds, linkDefs]);
 
+  const runLens = useCallback((): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const token = (lensTokenRef.current += 1);
+    setLens({ status: "running" });
+    window.api.reviewSpec(current.content).then(
+      (report) => {
+        if (lensTokenRef.current === token) setLens({ status: "done", report });
+      },
+      (err: unknown) => {
+        if (lensTokenRef.current === token) setLens({ status: "error", message: ipcErrorMessage(err) });
+      },
+    );
+  }, []);
+
+  const applyLensRewrite = useCallback((excerpt: string, rewrite: string): boolean => {
+    const current = docRef.current;
+    if (!current) return false;
+    const index = current.content.indexOf(excerpt);
+    if (index === -1) {
+      setToast("該当箇所が見つかりません。本文が変更された可能性があります。");
+      return false;
+    }
+    const next = current.content.slice(0, index) + rewrite + current.content.slice(index + excerpt.length);
+    setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+    return true;
+  }, []);
+
+  const jumpToLensExcerpt = useCallback(
+    (excerpt: string): void => {
+      const probe = excerpt.trim();
+      if (probe.length === 0) return;
+      const targetPage = pages.findIndex((page) => page.content.includes(probe));
+      if (targetPage === -1) {
+        setToast("該当箇所が見つかりません。本文が変更された可能性があります。");
+        return;
+      }
+      setMode("preview");
+      setPageIndex(targetPage);
+    },
+    [pages],
+  );
+
   const openSearch = useCallback(() => {
     setMode("preview");
     setSearch((prev) => ({ open: true, query: prev.query }));
@@ -348,6 +403,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       } else if (mod && event.key.toLowerCase() === "n") {
         event.preventDefault();
         setDialog({ kind: "new" });
+      } else if (mod && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        if (docRef.current !== null) setLensOpen((prev) => !prev);
       } else if (event.key === "Escape" && search.open) {
         closeSearch();
       }
@@ -550,7 +608,25 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setAppearance((prev) => ({ ...prev, readingWidth: change.value }));
         void window.api.setSetting("readingWidth", change.value).catch(() => undefined);
         return;
+      case "geminiModel":
+        setAiModel(change.value);
+        void window.api.setSetting("geminiModel", change.value).catch(() => undefined);
+        return;
     }
+  }, []);
+
+  const handleSaveApiKey = useCallback((key: string | null): void => {
+    void window.api
+      .setSetting("geminiApiKey", key)
+      .then((persisted) => {
+        if (persisted) {
+          setAiKeySet(key !== null);
+          setToast(key !== null ? "Gemini API キーを保存しました" : "Gemini API キーを削除しました");
+        } else {
+          setToast("設定ストアが利用できないため保存できませんでした");
+        }
+      })
+      .catch((err) => setToast(`API キーの保存に失敗しました: ${errorMessage(err)}`));
   }, []);
 
   const handleResetSettings = useCallback((): void => {
@@ -571,9 +647,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const currentMatch = matches[matchCursor];
   const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;
   const previewAnchor = pendingAnchor && doc && pendingAnchor.docId === doc.meta.id ? pendingAnchor.id : null;
+  const lensVisible = lensOpen && doc !== null;
 
   return (
-    <div className="app">
+    <div className={`app${lensVisible ? " lens-open" : ""}`}>
       <aside className="left-pane">
         <div className="brand">
           <span className="brand-mark">
@@ -611,10 +688,13 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           mode={mode}
           saving={saving}
           themePreference={themePreference}
+          lensOpen={lensVisible}
+          lensAvailable={doc !== null}
           onMode={setMode}
           onPrev={() => setPageIndex((index) => Math.max(0, index - 1))}
           onNext={() => setPageIndex((index) => Math.min(pages.length - 1, index + 1))}
           onSearch={openSearch}
+          onToggleLens={() => setLensOpen((prev) => !prev)}
           onCycleTheme={() => setThemePreference((prev) => nextPreference(prev))}
           onOpenSettings={() => setSettingsOpen(true)}
         />
@@ -672,7 +752,21 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         </div>
       </main>
 
-      <Outline headings={headings} activeId={activeHeadingId} />
+      {lensVisible && doc ? (
+        <LensPanel
+          state={lens}
+          model={aiModel}
+          apiKeySet={aiKeySet}
+          docContent={doc.content}
+          onRun={runLens}
+          onClose={() => setLensOpen(false)}
+          onApply={applyLensRewrite}
+          onJump={jumpToLensExcerpt}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      ) : (
+        <Outline headings={headings} activeId={activeHeadingId} />
+      )}
 
       {dialog ? (
         <Dialog
@@ -692,7 +786,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           theme={themePreference}
           appearance={appearance}
           resolvedTheme={resolvedTheme}
+          ai={{ apiKeySet: aiKeySet, model: aiModel }}
           onChange={handleSettingChange}
+          onSaveApiKey={handleSaveApiKey}
           onReset={handleResetSettings}
           onClose={() => setSettingsOpen(false)}
         />

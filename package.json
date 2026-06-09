@@ -22,6 +22,7 @@
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/geist-mono": "^5.2.8",
+    "@google/genai": "^2.8.0",
     "@shikijs/rehype": "^4.2.0",
     "github-slugger": "^2.0.0",
     "hast-util-to-text": "^4.0.2",

@@ -13,6 +13,7 @@ const api: KongyoApi = {
   getInitialTheme: () => ipcRenderer.sendSync("settings:get-theme"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   setSetting: (key, value) => ipcRenderer.invoke("settings:set", { key, value }),
+  reviewSpec: (content) => ipcRenderer.invoke("assist:review", { content }),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),
   onFlushBeforeClose: (callback) => {
     const handler = (): void => callback();

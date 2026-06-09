@@ -1,4 +1,5 @@
 import { ipcMain, shell } from "electron";
+import { parseReviewSpecInput } from "@shared/schemas/assist";
 import {
   parseCreateSpecInput,
   parseImportSpecsInput,
@@ -7,7 +8,8 @@ import {
   parseSaveSpecInput,
   parseSpecIdInput,
 } from "@shared/schemas/ipc";
-import { parseSetSettingInput } from "@shared/schemas/settings";
+import { parseSetSettingInput, toRendererSettings } from "@shared/schemas/settings";
+import { reviewSpec } from "./assist";
 import { readSettings, writeSetting } from "./settingsStore";
 import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
 
@@ -32,7 +34,9 @@ export function registerIpc(): void {
 
   ipcMain.handle("specs:delete", (_event, raw: unknown) => deleteSpec(parseSpecIdInput(raw).id));
 
-  ipcMain.handle("settings:get", () => readSettings());
+  ipcMain.handle("settings:get", () => toRendererSettings(readSettings()));
+
+  ipcMain.handle("assist:review", (_event, raw: unknown) => reviewSpec(parseReviewSpecInput(raw).content));
 
   ipcMain.on("settings:get-theme", (event) => {
     event.returnValue = readSettings().theme;
