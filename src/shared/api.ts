@@ -1,4 +1,4 @@
-import type { LensReport } from "./schemas/assist";
+import type { LensReport, WeaveResult, WeaveSpecInput } from "./schemas/assist";
 import type { GeminiModel, RendererSettings, SettingKey, Settings, ThemePreference } from "./schemas/settings";
 import type { SpecDocument, SpecMeta } from "./schemas/spec";
 
@@ -37,6 +37,7 @@ export interface KongyoApi {
   getSettings(): Promise<RendererSettings>;
   setSetting<K extends SettingKey>(key: K, value: Settings[K]): Promise<boolean>;
   reviewSpec(content: string, model: GeminiModel): Promise<LensReport>;
+  weaveSpec(input: WeaveSpecInput): Promise<WeaveResult>;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;

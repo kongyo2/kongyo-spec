@@ -2956,3 +2956,321 @@ kbd {
 .settings-inline-link:hover {
   opacity: 0.8;
 }
+
+/* ---------- Loom panel ---------- */
+.loom-compose {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.loom-lede {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.loom-material {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  padding: 10px 11px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+
+.loom-material::placeholder {
+  color: var(--muted-2);
+}
+
+.loom-material:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.loom-compose-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.loom-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 560;
+  box-shadow: var(--highlight), var(--shadow-sm);
+  transition:
+    background-color var(--t-fast),
+    border-color var(--t-fast),
+    color var(--t-fast);
+}
+
+.loom-ghost:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.loom-target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 38%, transparent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  padding: 3px 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  transition: opacity var(--t-fast);
+}
+
+.loom-target-chip:hover {
+  opacity: 0.75;
+}
+
+.lens-run.loom-weave {
+  align-self: center;
+}
+
+.loom-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted-2);
+}
+
+.loom-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.loom-block + .loom-block {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.loom-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.loom-block-label {
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  text-transform: none;
+}
+
+.loom-block-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  color: var(--muted-2);
+}
+
+.loom-woven {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-line);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  color: var(--fg);
+  padding: 10px 11px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.loom-woven::placeholder {
+  color: var(--muted-2);
+  font-family: var(--sans);
+}
+
+.loom-woven:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.loom-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.loom-actions .lens-run {
+  margin-top: 0;
+}
+
+.loom-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.loom-question {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-sm);
+  animation: lens-card-in 0.3s var(--ease-out) both;
+}
+
+.loom-topic {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--lens-decision);
+  background: var(--lens-decision-soft);
+  border: 1px solid color-mix(in srgb, var(--lens-decision) 26%, transparent);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.loom-question-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  font-weight: 540;
+  color: var(--fg);
+}
+
+.loom-question-why {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.loom-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.loom-option {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  padding: 3px 11px;
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: left;
+  transition:
+    background-color var(--t-fast),
+    border-color var(--t-fast),
+    color var(--t-fast);
+}
+
+.loom-option:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.loom-option.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 560;
+}
+
+.loom-answer {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.loom-answer::placeholder {
+  color: var(--muted-2);
+}
+
+.loom-answer:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.lens-run.loom-reweave {
+  align-self: center;
+  margin-top: 2px;
+}
+
+/* ---------- Pending decisions (未決定) ---------- */
+.pending-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px dashed color-mix(in srgb, var(--lens-decision) 42%, transparent);
+  border-radius: 999px;
+  background: var(--lens-decision-soft);
+  color: var(--lens-decision);
+  padding: 2px 9px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition:
+    border-color var(--t-fast),
+    opacity var(--t-fast);
+}
+
+.pending-badge:hover {
+  border-color: var(--lens-decision);
+}
+
+.preview mark.pending-decision,
+mark.pending-decision {
+  display: inline;
+  background: var(--lens-decision-soft);
+  color: var(--lens-decision);
+  border: 1px dashed color-mix(in srgb, var(--lens-decision) 40%, transparent);
+  border-radius: 6px;
+  padding: 0.04em 0.4em;
+  font-size: 0.92em;
+  font-weight: 560;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}

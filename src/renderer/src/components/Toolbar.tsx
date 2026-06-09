@@ -1,11 +1,13 @@
 import {
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   type LucideIcon,
   Monitor,
   Moon,
   Search,
   Settings,
+  Spool,
   Sun,
   Telescope,
 } from "lucide-react";
@@ -25,11 +27,15 @@ interface ToolbarProps {
   themePreference: ThemePreference;
   lensOpen: boolean;
   lensAvailable: boolean;
+  loomOpen: boolean;
+  pendingCount: number;
   onMode: (mode: EditorMode) => void;
   onPrev: () => void;
   onNext: () => void;
   onSearch: () => void;
   onToggleLens: () => void;
+  onToggleLoom: () => void;
+  onJumpPending: () => void;
   onCycleTheme: () => void;
   onOpenSettings: () => void;
 }
@@ -61,11 +67,15 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     themePreference,
     lensOpen,
     lensAvailable,
+    loomOpen,
+    pendingCount,
     onMode,
     onPrev,
     onNext,
     onSearch,
     onToggleLens,
+    onToggleLoom,
+    onJumpPending,
     onCycleTheme,
     onOpenSettings,
   } = props;
@@ -79,6 +89,18 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         <ChevronRight className="crumb-sep" size={14} aria-hidden="true" />
         <span className="crumb-page">{pageTitle}</span>
         <span className="crumb-count">{pageCount > 0 ? `${pageIndex + 1} / ${pageCount}` : "0 / 0"}</span>
+        {pendingCount > 0 ? (
+          <button
+            type="button"
+            className="pending-badge"
+            onClick={onJumpPending}
+            title="クリックで次の未決定箇所へ移動"
+            aria-label={`未決定 ${pendingCount} 件 — 次の未決定箇所へ移動`}
+          >
+            <CircleHelp size={12} aria-hidden="true" />
+            未決定 {pendingCount}
+          </button>
+        ) : null}
         {saving ? <span className="saving-indicator">保存中…</span> : null}
       </div>
 
@@ -128,6 +150,18 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         <button type="button" className="icon-button" onClick={onSearch} aria-label="検索 (Ctrl/Cmd+F)" title="検索">
           <Search size={14} aria-hidden="true" />
           <kbd>{MOD}F</kbd>
+        </button>
+        <button
+          type="button"
+          className={`icon-button lens-toggle${loomOpen ? " active" : ""}`}
+          onClick={onToggleLoom}
+          disabled={!lensAvailable}
+          aria-pressed={loomOpen}
+          aria-label="Loom — 仕様を織る (Ctrl/Cmd+J)"
+          title="仕様を織る — 素材と決定から仕様文を組み上げる"
+        >
+          <Spool size={14} aria-hidden="true" />
+          Loom
         </button>
         <button
           type="button"

@@ -24,9 +24,17 @@ interface EditorProps {
   theme: ResolvedTheme;
   jump: { start: number; end: number } | null;
   onJumpHandled: () => void;
+  onSelectionChange?: (start: number, end: number) => void;
 }
 
-export function Editor({ value, onChange, theme, jump, onJumpHandled }: EditorProps): React.ReactElement {
+export function Editor({
+  value,
+  onChange,
+  theme,
+  jump,
+  onJumpHandled,
+  onSelectionChange,
+}: EditorProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
@@ -41,6 +49,11 @@ export function Editor({ value, onChange, theme, jump, onJumpHandled }: EditorPr
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) onSelectionChange?.(textarea.selectionStart, textarea.selectionEnd);
+  }, [onSelectionChange]);
 
   useEffect(() => {
     if (!highlighter) {
@@ -77,6 +90,7 @@ export function Editor({ value, onChange, theme, jump, onJumpHandled }: EditorPr
     textarea.value = full;
     textarea.focus({ preventScroll: true });
     textarea.setSelectionRange(start, end);
+    onSelectionChange?.(start, end);
     textarea.scrollTop = Math.max(0, offsetBottom - textarea.clientHeight / 2);
     const backdrop = backdropRef.current;
     if (backdrop) {
@@ -137,6 +151,7 @@ export function Editor({ value, onChange, theme, jump, onJumpHandled }: EditorPr
         onChange={(event) => onChange(event.target.value)}
         onScroll={syncScroll}
         onKeyDown={handleKeyDown}
+        onSelect={(event) => onSelectionChange?.(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
         aria-label="Markdown ソースエディタ"
       />
     </div>

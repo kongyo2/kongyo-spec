@@ -105,3 +105,65 @@ export type ReviewSpecInput = z.infer<typeof ReviewSpecInputSchema>;
 export function parseReviewSpecInput(raw: unknown): ReviewSpecInput {
   return ReviewSpecInputSchema.parse(raw);
 }
+
+const TrimmedSchema = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .nullish()
+    .transform((value) => value?.trim() ?? "");
+
+export const WeaveQuestionSchema = z.object({
+  topic: TrimmedSchema(60).transform((value) => (value.length > 0 ? value : "決定")),
+  question: TrimmedSchema(2000),
+  whyItMatters: TrimmedSchema(2000),
+  options: z
+    .array(z.string().max(300))
+    .max(8)
+    .nullish()
+    .transform((items) =>
+      (items ?? [])
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+        .slice(0, 4),
+    ),
+});
+export type WeaveQuestion = z.infer<typeof WeaveQuestionSchema>;
+
+export const WeaveResultSchema = z.object({
+  woven: z
+    .string()
+    .max(48_000)
+    .nullish()
+    .transform((value) => (value ?? "").replace(/^\n+/, "").replace(/\s+$/, "")),
+  questions: z
+    .array(WeaveQuestionSchema)
+    .max(16)
+    .transform((items) => items.filter((item) => item.question.length > 0).slice(0, 6)),
+});
+export type WeaveResult = z.infer<typeof WeaveResultSchema>;
+
+export function parseWeaveResult(raw: unknown): WeaveResult {
+  return WeaveResultSchema.parse(raw);
+}
+
+export const WeaveQaSchema = z.object({
+  question: z.string().min(1).max(2000),
+  answer: z.string().min(1).max(4000),
+});
+export type WeaveQa = z.infer<typeof WeaveQaSchema>;
+
+export const MAX_WEAVE_MATERIAL_CHARS = 32_000;
+export const MAX_WEAVE_CONTEXT_CHARS = 16_000;
+
+export const WeaveSpecInputSchema = z.object({
+  title: z.string().max(200).default(""),
+  material: z.string().max(MAX_WEAVE_MATERIAL_CHARS).default(""),
+  context: z.string().max(MAX_WEAVE_CONTEXT_CHARS).default(""),
+  qa: z.array(WeaveQaSchema).max(12).default([]),
+  model: GeminiModelSchema,
+});
+export type WeaveSpecInput = z.infer<typeof WeaveSpecInputSchema>;
+export function parseWeaveSpecInput(raw: unknown): WeaveSpecInput {
+  return WeaveSpecInputSchema.parse(raw);
+}
