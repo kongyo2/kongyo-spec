@@ -60,16 +60,10 @@ function matchExcerpt(content: string, excerpt: string): ExcerptMatch {
 
 function AltitudeMeter({ report }: { report: LensReport }): React.ReactElement {
   const { intent, behavior, implementation } = report.altitude;
-  const total = Math.max(1, intent + behavior + implementation);
-  const pct = {
-    intent: Math.round((intent / total) * 100),
-    behavior: Math.round((behavior / total) * 100),
-    implementation: Math.round((implementation / total) * 100),
-  };
   const segments = [
-    { key: "intent", label: "意図", value: pct.intent },
-    { key: "behavior", label: "振る舞い", value: pct.behavior },
-    { key: "implementation", label: "実装", value: pct.implementation },
+    { key: "intent", label: "意図", value: intent },
+    { key: "behavior", label: "振る舞い", value: behavior },
+    { key: "implementation", label: "実装", value: implementation },
   ];
   return (
     <div className="lens-altitude">
