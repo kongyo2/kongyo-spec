@@ -14,6 +14,7 @@ const api: KongyoApi = {
   getSettings: () => ipcRenderer.invoke("settings:get"),
   setSetting: (key, value) => ipcRenderer.invoke("settings:set", { key, value }),
   reviewSpec: (content, model) => ipcRenderer.invoke("assist:review", { content, model }),
+  weaveSpec: (input) => ipcRenderer.invoke("assist:weave", input),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),
   onFlushBeforeClose: (callback) => {
     const handler = (): void => callback();

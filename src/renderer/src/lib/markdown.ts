@@ -6,8 +6,9 @@ import GithubSlugger from "github-slugger";
 import rehypeStringify from "rehype-stringify";
 import { unified } from "unified";
 import { SKIP, visit } from "unist-util-visit";
-import type { Element, Root } from "hast";
+import type { Element, ElementContent, Root } from "hast";
 import { mdastToHast, remarkBase } from "./remark";
+import { PENDING_DECISION_RE } from "./pending";
 import { getShikiHighlighter, SHIKI_THEMES } from "./shiki";
 import { srcsetUrlTokens } from "./srcset";
 
@@ -109,6 +110,45 @@ function rehypeSpecAssets() {
   };
 }
 
+const PENDING_SKIP_TAGS = new Set(["code", "pre", "script", "style", "textarea", "mark"]);
+
+function splitPendingText(value: string): ElementContent[] | null {
+  PENDING_DECISION_RE.lastIndex = 0;
+  if (!PENDING_DECISION_RE.test(value)) return null;
+  PENDING_DECISION_RE.lastIndex = 0;
+  const out: ElementContent[] = [];
+  let cursor = 0;
+  for (const match of value.matchAll(PENDING_DECISION_RE)) {
+    if (match.index > cursor) out.push({ type: "text", value: value.slice(cursor, match.index) });
+    out.push({
+      type: "element",
+      tagName: "mark",
+      properties: { className: ["pending-decision"], title: "人間が決めるまで実装してはいけない箇所" },
+      children: [{ type: "text", value: match[0].slice(1, -1) }],
+    });
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < value.length) out.push({ type: "text", value: value.slice(cursor) });
+  return out;
+}
+
+function rehypePendingDecisions() {
+  const walk = (node: Root | Element): void => {
+    for (let i = node.children.length - 1; i >= 0; i--) {
+      const child = node.children[i];
+      if (child === undefined) continue;
+      if (child.type === "element") {
+        if (!PENDING_SKIP_TAGS.has(child.tagName)) walk(child);
+        continue;
+      }
+      if (child.type !== "text") continue;
+      const replaced = splitPendingText(child.value);
+      if (replaced) node.children.splice(i, 1, ...replaced);
+    }
+  };
+  return (tree: Root): void => walk(tree);
+}
+
 function rehypeAssignIds(ids: string[]) {
   return (tree: Root): void => {
     const slugger = new GithubSlugger();
@@ -142,6 +182,7 @@ export async function renderMarkdownToHtml(markdown: string, headingIds: string[
     .use(mdastToHast)
     .use(rehypeSanitizeScripts)
     .use(rehypeSpecAssets)
+    .use(rehypePendingDecisions)
     .use(rehypeAssignIds, headingIds)
     .use(rehypeAutolinkHeadings, {
       behavior: "append",

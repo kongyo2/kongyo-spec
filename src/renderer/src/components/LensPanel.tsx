@@ -38,7 +38,7 @@ const KIND_META: Record<FindingKind, { label: string; hint: string }> = {
   decision: { label: "未決定", hint: "人間が決めるべき未記載の事項" },
 };
 
-const MODEL_LABEL: Record<GeminiModel, string> = {
+export const MODEL_LABEL: Record<GeminiModel, string> = {
   "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite",
   "gemini-2.5-flash": "Gemini 2.5 Flash",
   "gemini-2.5-pro": "Gemini 2.5 Pro",
@@ -245,7 +245,7 @@ export function LensPanel({
           <KeyRound size={20} aria-hidden="true" />
         </span>
         <p className="lens-intro-title">Gemini API キーが必要です</p>
-        <p className="lens-intro-text">設定の「AI レビュー」で Google AI Studio のキーを登録すると使えます。</p>
+        <p className="lens-intro-text">設定の「AI アシスト」で Google AI Studio のキーを登録すると使えます。</p>
         <button type="button" className="lens-run" onClick={onOpenSettings}>
           設定を開く
         </button>

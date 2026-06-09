@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
 import { DEFAULT_SETTINGS, type GeminiModel, type RendererSettings } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
+import { MAX_WEAVE_CONTEXT_CHARS, MAX_WEAVE_MATERIAL_CHARS, type WeaveQa } from "@shared/schemas/assist";
 import { Dialog, type DialogState } from "./components/Dialog";
 import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
 import { LensPanel, type LensState } from "./components/LensPanel";
+import { INITIAL_LOOM_SESSION, LoomPanel, type LoomSession, type WeaveKind } from "./components/LoomPanel";
 import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
 import { Preview, type HeadingInfo } from "./components/Preview";
@@ -21,6 +23,7 @@ import { isMarkdownFile, MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_TOTAL_IMPORT_BY
 import { buildImportPlan, type DroppedFile } from "./lib/importPlan";
 import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
+import { findPendingDecisions, nextPendingDecision } from "./lib/pending";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
 import {
   applyTheme,
@@ -48,6 +51,16 @@ interface AppProps {
 }
 
 const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl ";
+
+function lineStartOffset(content: string, line: number): number {
+  let offset = 0;
+  for (let current = 0; current < line; current++) {
+    const newline = content.indexOf("\n", offset);
+    if (newline === -1) return content.length;
+    offset = newline + 1;
+  }
+  return offset;
+}
 
 export function App({ initialSettings }: AppProps): React.ReactElement {
   const [specs, setSpecs] = useState<SpecMeta[]>([]);
@@ -85,6 +98,17 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const [aiModel, setAiModel] = useState<GeminiModel>(initialSettings.geminiModel);
   const lensTokenRef = useRef(0);
   const lensRunningRef = useRef(false);
+
+  const [loomOpen, setLoomOpen] = useState(false);
+  const [loomSession, setLoomSession] = useState<LoomSession>(INITIAL_LOOM_SESSION);
+  const loomSessionRef = useRef(loomSession);
+  loomSessionRef.current = loomSession;
+  const loomTokenRef = useRef(0);
+  const loomRunningRef = useRef(false);
+  const lastWeaveKindRef = useRef<WeaveKind>("compose");
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
+  const modeRef = useRef<EditorMode>("preview");
+  modeRef.current = mode;
 
   const loadedContentRef = useRef("");
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
@@ -141,6 +165,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   useEffect(() => {
     lensTokenRef.current += 1;
     setLens((prev) => (prev.status === "running" ? prev : { status: "idle" }));
+    loomTokenRef.current += 1;
+    setLoomSession(INITIAL_LOOM_SESSION);
+    selectionRef.current = null;
     setEditorJump(null);
   }, [activeId]);
 
@@ -394,6 +421,175 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     [pages],
   );
 
+  const handleEditorSelection = useCallback((start: number, end: number): void => {
+    selectionRef.current = { start, end };
+  }, []);
+
+  const updateLoomSession = useCallback((patch: Partial<LoomSession>): void => {
+    setLoomSession((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const runWeave = useCallback(
+    (kind: WeaveKind): void => {
+      const current = docRef.current;
+      if (!current || loomRunningRef.current) return;
+      const session = loomSessionRef.current;
+      const qa: WeaveQa[] = [];
+      if (kind === "reweave" && session.result !== null) {
+        session.result.questions.forEach((question, index) => {
+          const answer = (session.answers[index] ?? "").trim();
+          if (answer.length > 0) qa.push({ question: question.question, answer: answer.slice(0, 4000) });
+        });
+      }
+      const base = kind === "reweave" && session.woven.trim().length > 0 ? session.woven : session.material;
+      const material = base.slice(0, MAX_WEAVE_MATERIAL_CHARS);
+      if (material.trim().length === 0 && qa.length === 0 && current.meta.title.trim().length === 0) {
+        setToast("素材がありません。メモや箇条書きを入れてから織ってください");
+        return;
+      }
+      lastWeaveKindRef.current = kind;
+      loomRunningRef.current = true;
+      const token = (loomTokenRef.current += 1);
+      setLoomSession((prev) => ({ ...prev, phase: "running", error: null }));
+      window.api
+        .weaveSpec({
+          title: current.meta.title.slice(0, 200),
+          material,
+          context: current.content.slice(0, MAX_WEAVE_CONTEXT_CHARS),
+          qa,
+          model: aiModel,
+        })
+        .then(
+          (result) => {
+            if (loomTokenRef.current !== token) return;
+            if (result.woven.length === 0 && result.questions.length === 0) {
+              setLoomSession((prev) => ({
+                ...prev,
+                phase: "error",
+                error: "織れるものがありませんでした。素材を増やして再試行してください。",
+              }));
+              return;
+            }
+            setLoomSession((prev) => ({
+              ...prev,
+              phase: "done",
+              result,
+              woven: result.woven,
+              answers: new Array<string>(result.questions.length).fill(""),
+              error: null,
+            }));
+          },
+          (err: unknown) => {
+            if (loomTokenRef.current !== token) return;
+            setLoomSession((prev) => ({ ...prev, phase: "error", error: ipcErrorMessage(err) }));
+          },
+        )
+        .finally(() => {
+          loomRunningRef.current = false;
+        });
+    },
+    [aiModel],
+  );
+
+  const retryWeave = useCallback((): void => {
+    setLoomSession((prev) => ({ ...prev, phase: prev.result !== null ? "done" : "compose", error: null }));
+    runWeave(lastWeaveKindRef.current);
+  }, [runWeave]);
+
+  const pullSelectionToLoom = useCallback((): void => {
+    const current = docRef.current;
+    if (!current) return;
+    if (modeRef.current !== "source") {
+      setToast("Source モードで取り込みたい範囲を選択してください");
+      return;
+    }
+    const selection = selectionRef.current;
+    if (!selection || selection.start === selection.end) {
+      setToast("選択範囲がありません。エディタで範囲を選択してください");
+      return;
+    }
+    const text = current.content.slice(selection.start, selection.end);
+    const prev = loomSessionRef.current;
+    const merged = prev.material.trim().length > 0 ? `${prev.material.replace(/\s+$/, "")}\n\n${text}` : text;
+    if (merged.length > MAX_WEAVE_MATERIAL_CHARS) {
+      setToast("素材が上限(約 3.2 万字)を超えるため取り込めません");
+      return;
+    }
+    setLoomSession({ ...prev, material: merged, replaceTarget: text });
+  }, []);
+
+  const insertWoven = useCallback((): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const session = loomSessionRef.current;
+    const text = session.woven.trim();
+    if (text.length === 0) return;
+    const content = current.content;
+    let notice: string | null = null;
+    let replaceRange: { start: number; end: number } | null = null;
+    if (session.replaceTarget !== null && session.replaceTarget.length > 0) {
+      const first = content.indexOf(session.replaceTarget);
+      if (first !== -1 && content.indexOf(session.replaceTarget, first + 1) === -1) {
+        replaceRange = { start: first, end: first + session.replaceTarget.length };
+      } else {
+        notice = "置き換え対象を特定できないため、挿入に切り替えました";
+      }
+    }
+    let next: string;
+    let jumpStart: number;
+    if (replaceRange) {
+      next = content.slice(0, replaceRange.start) + text + content.slice(replaceRange.end);
+      jumpStart = replaceRange.start;
+    } else {
+      const nextPage = pages[pageIndex + 1];
+      const caret =
+        modeRef.current === "source"
+          ? (selectionRef.current?.end ?? content.length)
+          : nextPage
+            ? lineStartOffset(content, nextPage.startLine)
+            : content.length;
+      const before = content.slice(0, caret);
+      const after = content.slice(caret);
+      const lead = before.length === 0 || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+      const trail = after.length === 0 ? "\n" : after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
+      next = before + lead + text + trail + after;
+      jumpStart = caret + lead.length;
+    }
+    setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+    setLoomSession(INITIAL_LOOM_SESSION);
+    setMode("source");
+    setEditorJump({ start: jumpStart, end: jumpStart + text.length });
+    setToast(notice ?? (replaceRange ? "選択箇所を置き換えました" : "織り上がりを挿入しました"));
+  }, [pages, pageIndex]);
+
+  const pendingCount = useMemo(() => findPendingDecisions(doc?.content ?? "").length, [doc?.content]);
+
+  const jumpToPending = useCallback((): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const ranges = findPendingDecisions(current.content);
+    const target = nextPendingDecision(ranges, selectionRef.current?.end ?? 0);
+    if (!target) return;
+    setMode("source");
+    setEditorJump({ start: target.start, end: target.end });
+  }, []);
+
+  const toggleLens = useCallback((): void => {
+    if (docRef.current === null) return;
+    setLensOpen((prev) => {
+      if (!prev) setLoomOpen(false);
+      return !prev;
+    });
+  }, []);
+
+  const toggleLoom = useCallback((): void => {
+    if (docRef.current === null) return;
+    setLoomOpen((prev) => {
+      if (!prev) setLensOpen(false);
+      return !prev;
+    });
+  }, []);
+
   const openSearch = useCallback(() => {
     setMode("preview");
     setSearch((prev) => ({ open: true, query: prev.query }));
@@ -429,14 +625,17 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setDialog({ kind: "new" });
       } else if (mod && event.key.toLowerCase() === "l") {
         event.preventDefault();
-        if (docRef.current !== null) setLensOpen((prev) => !prev);
+        toggleLens();
+      } else if (mod && event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        toggleLoom();
       } else if (event.key === "Escape" && search.open) {
         closeSearch();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openSearch, closeSearch, search.open, settingsOpen]);
+  }, [openSearch, closeSearch, search.open, settingsOpen, toggleLens, toggleLoom]);
 
   const stepMatch = (delta: number): void => {
     if (matches.length === 0) return;
@@ -676,9 +875,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;
   const previewAnchor = pendingAnchor && doc && pendingAnchor.docId === doc.meta.id ? pendingAnchor.id : null;
   const lensVisible = lensOpen && doc !== null;
+  const loomVisible = loomOpen && doc !== null;
 
   return (
-    <div className={`app${lensVisible ? " lens-open" : ""}`}>
+    <div className={`app${lensVisible || loomVisible ? " lens-open" : ""}`}>
       <aside className="left-pane">
         <div className="brand">
           <span className="brand-mark">
@@ -718,11 +918,15 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           themePreference={themePreference}
           lensOpen={lensVisible}
           lensAvailable={doc !== null}
+          loomOpen={loomVisible}
+          pendingCount={pendingCount}
           onMode={setMode}
           onPrev={() => setPageIndex((index) => Math.max(0, index - 1))}
           onNext={() => setPageIndex((index) => Math.min(pages.length - 1, index + 1))}
           onSearch={openSearch}
-          onToggleLens={() => setLensOpen((prev) => !prev)}
+          onToggleLens={toggleLens}
+          onToggleLoom={toggleLoom}
+          onJumpPending={jumpToPending}
           onCycleTheme={() => setThemePreference((prev) => nextPreference(prev))}
           onOpenSettings={() => setSettingsOpen(true)}
         />
@@ -776,6 +980,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               theme={resolvedTheme}
               jump={editorJump}
               onJumpHandled={() => setEditorJump(null)}
+              onSelectionChange={handleEditorSelection}
               onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}
             />
           )}
@@ -792,6 +997,19 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onClose={() => setLensOpen(false)}
           onApply={applyLensRewrite}
           onJump={jumpToLensExcerpt}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      ) : loomVisible && doc ? (
+        <LoomPanel
+          session={loomSession}
+          model={aiModel}
+          apiKeySet={aiKeySet}
+          onUpdate={updateLoomSession}
+          onWeave={runWeave}
+          onRetry={retryWeave}
+          onInsert={insertWoven}
+          onPullSelection={pullSelectionToLoom}
+          onClose={() => setLoomOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : (

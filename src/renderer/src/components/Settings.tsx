@@ -55,7 +55,7 @@ type Section = "appearance" | "typography" | "ai" | "about";
 const SECTIONS: { id: Section; label: string; hint: string; icon: LucideIcon }[] = [
   { id: "appearance", label: "外観", hint: "テーマとアクセント", icon: Palette },
   { id: "typography", label: "タイポグラフィ", hint: "文字サイズと横幅", icon: Type },
-  { id: "ai", label: "AI レビュー", hint: "Gemini と Lens", icon: Telescope },
+  { id: "ai", label: "AI アシスト", hint: "Gemini · Loom · Lens", icon: Telescope },
   { id: "about", label: "情報", hint: "バージョンと構成", icon: Sparkles },
 ];
 
@@ -337,7 +337,8 @@ export function Settings({
             ) : section === "ai" ? (
               <div className="settings-panel" key="ai">
                 <p className="settings-ai-philosophy">
-                  Lens は仕様を書き足しません。削るべき過剰な具体と、人間が決めるべき問いだけを返します。
+                  仕様書の著者はあなたです。Loom はあなたの言葉だけを仕様に織り上げ、Lens
+                  は削るべき過剰な具体と人間が決めるべき問いだけを返します。
                 </p>
                 <div className="settings-row stack">
                   <div className="settings-row-label">
@@ -388,7 +389,7 @@ export function Settings({
                     <ArrowUpRight size={13} aria-hidden="true" />
                   </button>
                 </div>
-                <Row title="モデル" desc="レビューに使う Gemini モデル">
+                <Row title="モデル" desc="Loom と Lens が使う Gemini モデル">
                   <Segmented
                     label="モデル"
                     value={ai.model}

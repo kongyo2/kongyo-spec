@@ -1,5 +1,5 @@
 import { ipcMain, shell } from "electron";
-import { parseReviewSpecInput } from "@shared/schemas/assist";
+import { parseReviewSpecInput, parseWeaveSpecInput } from "@shared/schemas/assist";
 import {
   parseCreateSpecInput,
   parseImportSpecsInput,
@@ -9,7 +9,7 @@ import {
   parseSpecIdInput,
 } from "@shared/schemas/ipc";
 import { parseSetSettingInput, toRendererSettings } from "@shared/schemas/settings";
-import { reviewSpec } from "./assist";
+import { reviewSpec, weaveSpec } from "./assist";
 import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
 import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
 
@@ -40,6 +40,8 @@ export function registerIpc(): void {
     const input = parseReviewSpecInput(raw);
     return reviewSpec(input.content, input.model);
   });
+
+  ipcMain.handle("assist:weave", (_event, raw: unknown) => weaveSpec(parseWeaveSpecInput(raw)));
 
   ipcMain.on("settings:get-theme", (event) => {
     event.returnValue = readSettings().theme;
