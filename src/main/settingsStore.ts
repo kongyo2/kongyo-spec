@@ -1,9 +1,39 @@
+import { Buffer } from "node:buffer";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 import { DEFAULT_SETTINGS, SettingsSchema, type SettingKey, type Settings } from "@shared/schemas/settings";
 
 let db: DatabaseSync | null = null;
+
+const SECRET_KEYS: ReadonlySet<SettingKey> = new Set<SettingKey>(["geminiApiKey"]);
+const ENCRYPTED_PREFIX = "enc:v1:";
+
+function encryptSecret(value: string): string {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return value;
+    return ENCRYPTED_PREFIX + safeStorage.encryptString(value).toString("base64");
+  } catch {
+    return value;
+  }
+}
+
+function decryptSecret(value: string): string | null {
+  if (!value.startsWith(ENCRYPTED_PREFIX)) return value;
+  try {
+    return safeStorage.decryptString(Buffer.from(value.slice(ENCRYPTED_PREFIX.length), "base64"));
+  } catch {
+    return null;
+  }
+}
+
+function toStoredValue(key: SettingKey, value: unknown): unknown {
+  return SECRET_KEYS.has(key) && typeof value === "string" ? encryptSecret(value) : value;
+}
+
+function fromStoredValue(key: SettingKey, value: unknown): unknown {
+  return SECRET_KEYS.has(key) && typeof value === "string" ? decryptSecret(value) : value;
+}
 
 function disableStore(): void {
   if (db === null) return;
@@ -56,7 +86,7 @@ export function readSettings(): Settings {
       const raw = stored.get(key);
       if (raw !== undefined) {
         try {
-          const parsed = shape[key].safeParse(JSON.parse(raw));
+          const parsed = shape[key].safeParse(fromStoredValue(key, JSON.parse(raw)));
           if (parsed.success) {
             result[key] = parsed.data;
             continue;
@@ -83,7 +113,7 @@ export function writeSetting<K extends SettingKey>(key: K, value: Settings[K]): 
   try {
     db.prepare(
       "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-    ).run(key, JSON.stringify(value), new Date().toISOString());
+    ).run(key, JSON.stringify(toStoredValue(key, value)), new Date().toISOString());
     return true;
   } catch (err) {
     console.warn("[settingsStore] write failed:", err);

@@ -15,8 +15,8 @@ import type { GeminiModel } from "@shared/schemas/settings";
 
 export type LensState =
   | { status: "idle" }
-  | { status: "running" }
-  | { status: "done"; report: LensReport }
+  | { status: "running"; model: GeminiModel }
+  | { status: "done"; report: LensReport; model: GeminiModel }
   | { status: "error"; message: string };
 
 interface LensPanelProps {
@@ -42,6 +42,21 @@ const MODEL_LABEL: Record<GeminiModel, string> = {
   "gemini-2.5-flash": "Gemini 2.5 Flash",
   "gemini-2.5-pro": "Gemini 2.5 Pro",
 };
+
+type ExcerptMatch = "unique" | "missing" | "ambiguous";
+
+const APPLY_LABEL: Record<ExcerptMatch, string> = {
+  unique: "書き換えを適用",
+  missing: "本文と一致しません",
+  ambiguous: "該当箇所が複数あります",
+};
+
+function matchExcerpt(content: string, excerpt: string): ExcerptMatch {
+  if (excerpt.length === 0) return "missing";
+  const first = content.indexOf(excerpt);
+  if (first === -1) return "missing";
+  return content.indexOf(excerpt, first + 1) === -1 ? "unique" : "ambiguous";
+}
 
 function AltitudeMeter({ report }: { report: LensReport }): React.ReactElement {
   const { intent, behavior, implementation } = report.altitude;
@@ -78,14 +93,14 @@ function AltitudeMeter({ report }: { report: LensReport }): React.ReactElement {
 function FindingCard({
   finding,
   applied,
-  applicable,
+  match,
   onApply,
   onJump,
   onDismiss,
 }: {
   finding: LensFinding;
   applied: boolean;
-  applicable: boolean;
+  match: ExcerptMatch;
   onApply: () => void;
   onJump: () => void;
   onDismiss: () => void;
@@ -125,9 +140,9 @@ function FindingCard({
               適用しました
             </span>
           ) : (
-            <button type="button" className="lens-apply" disabled={!applicable} onClick={onApply}>
+            <button type="button" className="lens-apply" disabled={match !== "unique"} onClick={onApply}>
               <Replace size={13} aria-hidden="true" />
-              {applicable ? "書き換えを適用" : "本文と一致しません"}
+              {APPLY_LABEL[match]}
             </button>
           )}
         </div>
@@ -170,7 +185,7 @@ export function LensPanel({
         <LoaderCircle className="lens-spin" size={24} aria-hidden="true" />
         <p className="lens-intro-title">仕様書を読んでいます…</p>
         <p className="lens-intro-text">削るべき具体と、決めるべき問いを探しています。</p>
-        <span className="lens-model-chip">{MODEL_LABEL[model]}</span>
+        <span className="lens-model-chip">{MODEL_LABEL[state.model]}</span>
       </div>
     );
   } else if (state.status === "error") {
@@ -208,7 +223,7 @@ export function LensPanel({
                 key={index}
                 finding={finding}
                 applied={applied.has(index)}
-                applicable={finding.excerpt.length > 0 && docContent.includes(finding.excerpt)}
+                match={matchExcerpt(docContent, finding.excerpt)}
                 onApply={() => handleApply(index, finding)}
                 onJump={() => onJump(finding.excerpt)}
                 onDismiss={() => setDismissed((prev) => new Set(prev).add(index))}
@@ -217,7 +232,7 @@ export function LensPanel({
           </div>
         )}
         <p className="lens-meta">
-          指摘 {findings.length} 件 · {MODEL_LABEL[model]}
+          指摘 {findings.length} 件 · {MODEL_LABEL[state.model]}
         </p>
       </>
     );

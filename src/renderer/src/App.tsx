@@ -331,16 +331,17 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     const current = docRef.current;
     if (!current) return;
     const token = (lensTokenRef.current += 1);
-    setLens({ status: "running" });
+    const model = aiModel;
+    setLens({ status: "running", model });
     window.api.reviewSpec(current.content).then(
       (report) => {
-        if (lensTokenRef.current === token) setLens({ status: "done", report });
+        if (lensTokenRef.current === token) setLens({ status: "done", report, model });
       },
       (err: unknown) => {
         if (lensTokenRef.current === token) setLens({ status: "error", message: ipcErrorMessage(err) });
       },
     );
-  }, []);
+  }, [aiModel]);
 
   const applyLensRewrite = useCallback((excerpt: string, rewrite: string): boolean => {
     const current = docRef.current;
@@ -348,6 +349,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     const index = current.content.indexOf(excerpt);
     if (index === -1) {
       setToast("該当箇所が見つかりません。本文が変更された可能性があります。");
+      return false;
+    }
+    if (current.content.indexOf(excerpt, index + 1) !== -1) {
+      setToast("同じ記述が複数あるため適用できません。該当箇所を直接編集してください。");
       return false;
     }
     const next = current.content.slice(0, index) + rewrite + current.content.slice(index + excerpt.length);
@@ -638,10 +643,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       readingWidth: DEFAULT_SETTINGS.readingWidth,
     };
     setAppearance(defaults);
+    setAiModel(DEFAULT_SETTINGS.geminiModel);
     void window.api.setSetting("accent", defaults.accent).catch(() => undefined);
     void window.api.setSetting("editorFontSize", defaults.editorFontSize).catch(() => undefined);
     void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
     void window.api.setSetting("readingWidth", defaults.readingWidth).catch(() => undefined);
+    void window.api.setSetting("geminiModel", DEFAULT_SETTINGS.geminiModel).catch(() => undefined);
   }, []);
 
   const currentMatch = matches[matchCursor];

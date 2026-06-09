@@ -4,7 +4,7 @@ export const FINDING_KINDS = ["overspec", "speculation", "decision"] as const;
 export const FindingKindSchema = z.enum(FINDING_KINDS);
 export type FindingKind = z.infer<typeof FindingKindSchema>;
 
-const OptionalText = z
+const QuestionSchema = z
   .string()
   .max(8000)
   .nullish()
@@ -13,19 +13,25 @@ const OptionalText = z
     return trimmed.length > 0 ? trimmed : null;
   });
 
+const RewriteSchema = z
+  .string()
+  .max(8000)
+  .nullish()
+  .transform((value) => (value == null || value.trim().length === 0 ? null : value));
+
 export const LensFindingSchema = z.object({
   kind: FindingKindSchema,
   excerpt: z
     .string()
     .max(4000)
-    .transform((value) => value.trim()),
+    .transform((value) => (value.trim().length === 0 ? "" : value)),
   reason: z
     .string()
     .min(1)
     .max(4000)
     .transform((value) => value.trim()),
-  question: OptionalText,
-  rewrite: OptionalText,
+  question: QuestionSchema,
+  rewrite: RewriteSchema,
 });
 export type LensFinding = z.infer<typeof LensFindingSchema>;
 
