@@ -95,7 +95,12 @@ class HttpStatusError extends Error {
   }
 }
 
+const REQUEST_TIMEOUT_MS = 120_000;
+
 function friendlyError(err: unknown): Error {
+  if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+    return new Error("応答がタイムアウトしました。エンドポイントとモデルを確認して再試行してください。");
+  }
   const status = err instanceof ApiError ? err.status : err instanceof HttpStatusError ? err.status : null;
   if (status !== null) {
     if (status === 401 || status === 403) {
@@ -170,7 +175,10 @@ async function callGemini(args: ProviderCall): Promise<unknown> {
   if (apiKey === null) throw new Error("Gemini API キーが設定されていません。");
   const ai = new GoogleGenAI({
     apiKey,
-    ...(args.profile.baseUrl !== null ? { httpOptions: { baseUrl: args.profile.baseUrl } } : {}),
+    httpOptions: {
+      timeout: REQUEST_TIMEOUT_MS,
+      ...(args.profile.baseUrl !== null ? { baseUrl: args.profile.baseUrl } : {}),
+    },
   });
   const response = await ai.models.generateContent({
     model: args.profile.model,
@@ -196,7 +204,12 @@ async function postChatCompletions(
   headers: Record<string, string>,
   body: Record<string, unknown>,
 ): Promise<unknown> {
-  const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new HttpStatusError(response.status, detail.slice(0, 400));

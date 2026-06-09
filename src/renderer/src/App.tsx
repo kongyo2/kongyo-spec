@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
 import {
   DEFAULT_SETTINGS,
+  LEGACY_GEMINI_PROFILE_ID,
   llmProfileDisplayName,
   rendererLlmRouting,
   type MermaidRenderer,
@@ -163,7 +164,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const llmRouting = useMemo(() => rendererLlmRouting(llm), [llm]);
   const mainModelLabel = llmProfileDisplayName(llmRouting.main);
-  const aiReady = !(llmRouting.main.provider === "gemini" && !llmRouting.main.apiKeySet && !aiKeySet);
+  const aiReady = [llmRouting.main, ...llmRouting.fallbacks].some(
+    (profile) => profile.provider !== "gemini" || profile.apiKeySet || aiKeySet,
+  );
 
   const applyLlmSettings = useCallback((settings: RendererSettings): void => {
     setLlm({
@@ -984,7 +987,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
     void window.api.setSetting("readingWidth", defaults.readingWidth).catch(() => undefined);
     void window.api.setSetting("mermaidRenderer", DEFAULT_SETTINGS.mermaidRenderer).catch(() => undefined);
-  }, []);
+    // ルーティングを内蔵 Gemini に戻す。登録済みプロファイルとキーは資産なので消さない
+    void window.api
+      .setSetting("geminiModel", DEFAULT_SETTINGS.geminiModel)
+      .catch(() => undefined)
+      .then(() => window.api.setLlmRouting(LEGACY_GEMINI_PROFILE_ID, []))
+      .then(applyLlmSettings)
+      .catch(() => undefined);
+  }, [applyLlmSettings]);
 
   const currentMatch = matches[matchCursor];
   const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;
@@ -996,6 +1006,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     profiles: llmRouting.roster,
     mainId: llmRouting.main.id,
     fallbackIds: llmRouting.fallbacks.map((profile) => profile.id),
+    storedCount: llm.llmProfiles.length,
   };
 
   return (

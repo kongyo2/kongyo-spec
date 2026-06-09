@@ -47,6 +47,7 @@ export interface LlmSettings {
   profiles: RendererLlmProfile[];
   mainId: string;
   fallbackIds: string[];
+  storedCount: number;
 }
 
 interface SettingsProps {
@@ -721,8 +722,14 @@ export function Settings({
                               type="button"
                               className={`settings-llm-iconbtn danger${deleteArmedId === profile.id ? " armed" : ""}`}
                               aria-label={`${llmProfileDisplayName(profile)} を削除`}
-                              title={deleteArmedId === profile.id ? "もう一度クリックで削除" : "削除"}
-                              disabled={llm.profiles.length <= 1}
+                              title={
+                                llm.storedCount === 0
+                                  ? "内蔵の既定モデルは削除できません"
+                                  : deleteArmedId === profile.id
+                                    ? "もう一度クリックで削除"
+                                    : "削除"
+                              }
+                              disabled={llm.storedCount === 0}
                               onClick={() => requestDelete(profile.id)}
                             >
                               <Trash2 size={13} aria-hidden="true" />
