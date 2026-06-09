@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { MermaidRenderer } from "@shared/schemas/settings";
 import { safeDecode, scrollToId } from "../lib/dom";
 import { renderCached } from "../lib/markdown";
 import { renderMermaidIn } from "../lib/mermaid";
@@ -16,6 +17,7 @@ interface PreviewProps {
   headingIds: string[];
   linkDefs: string;
   theme: ResolvedTheme;
+  mermaidRenderer: MermaidRenderer;
   searchQuery: string;
   searchCurrentInPage: number;
   pendingAnchor: string | null;
@@ -81,6 +83,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     headingIds,
     linkDefs,
     theme,
+    mermaidRenderer,
     searchQuery,
     searchCurrentInPage,
     pendingAnchor,
@@ -156,7 +159,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     if (!container || html.length === 0) return;
     let frame = 0;
     const run = (): void => {
-      void renderMermaidIn(container, theme);
+      void renderMermaidIn(container, theme, mermaidRenderer);
     };
     run();
     const observer = new MutationObserver(() => {
@@ -168,7 +171,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [html, theme]);
+  }, [html, theme, mermaidRenderer]);
 
   useEffect(() => {
     const container = containerRef.current;

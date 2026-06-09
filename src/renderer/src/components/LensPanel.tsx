@@ -12,17 +12,16 @@ import {
   X,
 } from "lucide-react";
 import type { FindingKind, LensFinding, LensReport } from "@shared/schemas/assist";
-import type { GeminiModel } from "@shared/schemas/settings";
 
 export type LensState =
   | { status: "idle" }
-  | { status: "running"; model: GeminiModel }
-  | { status: "done"; report: LensReport; model: GeminiModel; reviewedContent: string }
+  | { status: "running"; model: string }
+  | { status: "done"; report: LensReport; model: string; reviewedContent: string }
   | { status: "error"; message: string };
 
 interface LensPanelProps {
   state: LensState;
-  model: GeminiModel;
+  modelLabel: string;
   apiKeySet: boolean;
   docContent: string;
   onRun: () => void;
@@ -36,12 +35,6 @@ const KIND_META: Record<FindingKind, { label: string; hint: string }> = {
   overspec: { label: "過剰具体", hint: "実装の自由を不必要に奪っている記述" },
   speculation: { label: "推測", hint: "根拠が書かれていない具体値・選択" },
   decision: { label: "未決定", hint: "人間が決めるべき未記載の事項" },
-};
-
-export const MODEL_LABEL: Record<GeminiModel, string> = {
-  "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite",
-  "gemini-2.5-flash": "Gemini 2.5 Flash",
-  "gemini-2.5-pro": "Gemini 2.5 Pro",
 };
 
 type ExcerptMatch = "unique" | "missing" | "ambiguous";
@@ -148,7 +141,7 @@ function FindingCard({
 
 export function LensPanel({
   state,
-  model,
+  modelLabel,
   apiKeySet,
   docContent,
   onRun,
@@ -180,7 +173,7 @@ export function LensPanel({
         <LoaderCircle className="lens-spin" size={24} aria-hidden="true" />
         <p className="lens-intro-title">仕様書を読んでいます…</p>
         <p className="lens-intro-text">削るべき具体と、決めるべき問いを探しています。</p>
-        <span className="lens-model-chip">{MODEL_LABEL[state.model]}</span>
+        <span className="lens-model-chip">{state.model}</span>
       </div>
     );
   } else if (state.status === "error") {
@@ -234,7 +227,7 @@ export function LensPanel({
           </div>
         )}
         <p className="lens-meta">
-          指摘 {findings.length} 件 · {MODEL_LABEL[state.model]}
+          指摘 {findings.length} 件 · {state.model}
         </p>
       </>
     );
@@ -265,7 +258,7 @@ export function LensPanel({
           <Telescope size={14} aria-hidden="true" />
           レビューを実行
         </button>
-        <span className="lens-model-chip">{MODEL_LABEL[model]}</span>
+        <span className="lens-model-chip">{modelLabel}</span>
       </div>
     );
   }

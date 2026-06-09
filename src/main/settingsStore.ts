@@ -28,12 +28,26 @@ function decryptSecret(value: string): string | null {
   }
 }
 
-function toStoredValue(key: SettingKey, value: unknown): unknown {
-  if (!SECRET_KEYS.has(key) || typeof value !== "string") return value;
+function encryptSecret(value: string): string {
   return ENCRYPTED_PREFIX + safeStorage.encryptString(value).toString("base64");
 }
 
+function hasApiKey(entry: unknown): entry is { apiKey: string } {
+  return typeof entry === "object" && entry !== null && typeof (entry as { apiKey?: unknown }).apiKey === "string";
+}
+
+function toStoredValue(key: SettingKey, value: unknown): unknown {
+  if (key === "llmProfiles" && Array.isArray(value)) {
+    return value.map((entry) => (hasApiKey(entry) ? { ...entry, apiKey: encryptSecret(entry.apiKey) } : entry));
+  }
+  if (!SECRET_KEYS.has(key) || typeof value !== "string") return value;
+  return encryptSecret(value);
+}
+
 function fromStoredValue(key: SettingKey, value: unknown): unknown {
+  if (key === "llmProfiles" && Array.isArray(value)) {
+    return value.map((entry) => (hasApiKey(entry) ? { ...entry, apiKey: decryptSecret(entry.apiKey) } : entry));
+  }
   return SECRET_KEYS.has(key) && typeof value === "string" ? decryptSecret(value) : value;
 }
 
@@ -112,7 +126,12 @@ export function readSettings(): Settings {
 
 export function writeSetting<K extends SettingKey>(key: K, value: Settings[K]): boolean {
   if (db === null) return false;
-  if (SECRET_KEYS.has(key) && typeof value === "string" && !isSecretEncryptionAvailable()) return false;
+  // 暗号化が使えない環境では、平文キーを書く代わりに(キーを null へ
+  // すり替えて成功を装うのでもなく)書き込み自体を失敗させる
+  const carriesSecret =
+    (SECRET_KEYS.has(key) && typeof value === "string") ||
+    (key === "llmProfiles" && Array.isArray(value) && value.some(hasApiKey));
+  if (carriesSecret && !isSecretEncryptionAvailable()) return false;
   try {
     db.prepare(
       "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",

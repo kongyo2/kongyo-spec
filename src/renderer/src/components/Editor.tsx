@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Highlighter } from "shiki";
+import { findPendingDecisions, type PendingRange } from "../lib/pending";
 import { getShikiHighlighter, SHIKI_THEMES } from "../lib/shiki";
 import type { ResolvedTheme } from "../lib/theme";
 
@@ -9,6 +10,39 @@ function escapeHtml(text: string): string {
 
 function plainCodeHtml(value: string): string {
   return `<pre class="shiki"><code>${escapeHtml(value)}</code></pre>`;
+}
+
+function markPendingDecisions(html: string, ranges: PendingRange[]): string {
+  if (ranges.length === 0) return html;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  const nodes: { node: Text; start: number }[] = [];
+  let offset = 0;
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    nodes.push({ node, start: offset });
+    offset += node.data.length;
+  }
+  for (const { node, start } of nodes) {
+    const end = start + node.data.length;
+    const overlapping = ranges.filter((range) => range.start < end && range.end > start);
+    if (overlapping.length === 0) continue;
+    const fragment = doc.createDocumentFragment();
+    let cursor = 0;
+    for (const range of overlapping) {
+      const localStart = Math.max(0, range.start - start);
+      const localEnd = Math.min(node.data.length, range.end - start);
+      if (localStart > cursor) fragment.appendChild(doc.createTextNode(node.data.slice(cursor, localStart)));
+      const mark = doc.createElement("mark");
+      mark.className = "pending-decision";
+      mark.textContent = node.data.slice(localStart, localEnd);
+      fragment.appendChild(mark);
+      cursor = localEnd;
+    }
+    if (cursor < node.data.length) fragment.appendChild(doc.createTextNode(node.data.slice(cursor)));
+    node.parentNode?.replaceChild(fragment, node);
+  }
+  return doc.body.innerHTML;
 }
 
 function setSelectionSoon(textarea: HTMLTextAreaElement, start: number, end: number): void {
@@ -56,15 +90,21 @@ export function Editor({
   }, [onSelectionChange]);
 
   useEffect(() => {
+    // Shiki は CRLF を LF に正規化して出力するため、装飾オフセットも
+    // 同じ正規化を施したソースに対して計算する
+    const source = value.replace(/\r\n?/g, "\n");
+    const pendingRanges = findPendingDecisions(source);
+    let raw: string;
     if (!highlighter) {
-      setHtml(plainCodeHtml(value));
-      return;
+      raw = plainCodeHtml(source);
+    } else {
+      try {
+        raw = highlighter.codeToHtml(source.length > 0 ? source : " ", { lang: "markdown", themes: SHIKI_THEMES });
+      } catch {
+        raw = plainCodeHtml(source);
+      }
     }
-    try {
-      setHtml(highlighter.codeToHtml(value.length > 0 ? value : " ", { lang: "markdown", themes: SHIKI_THEMES }));
-    } catch {
-      setHtml(plainCodeHtml(value));
-    }
+    setHtml(markPendingDecisions(raw, pendingRanges));
   }, [highlighter, value]);
 
   const syncScroll = (): void => {

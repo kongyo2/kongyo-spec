@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
-import { DEFAULT_SETTINGS, type GeminiModel, type RendererSettings } from "@shared/schemas/settings";
+import {
+  DEFAULT_SETTINGS,
+  llmProfileDisplayName,
+  rendererLlmRouting,
+  type MermaidRenderer,
+  type RendererSettings,
+  type UpsertLlmProfileInput,
+} from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
-import { MAX_WEAVE_CONTEXT_CHARS, MAX_WEAVE_MATERIAL_CHARS, type WeaveQa } from "@shared/schemas/assist";
+import {
+  MAX_WEAVE_CONTEXT_CHARS,
+  MAX_WEAVE_MATERIAL_CHARS,
+  MAX_WEAVE_WOVEN_CHARS,
+  type WeaveQa,
+} from "@shared/schemas/assist";
 import { Dialog, type DialogState } from "./components/Dialog";
 import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
@@ -12,7 +24,7 @@ import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
 import { Preview, type HeadingInfo } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
-import { Settings as SettingsScreen, type SettingChange } from "./components/Settings";
+import { Settings as SettingsScreen, type LlmSettings, type SettingChange } from "./components/Settings";
 import { SpecsSidebar } from "./components/SpecsSidebar";
 import { Toolbar, type EditorMode } from "./components/Toolbar";
 import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
@@ -62,6 +74,17 @@ function lineStartOffset(content: string, line: number): number {
   return offset;
 }
 
+function spliceOut(text: string, range: { start: number; end: number }): string {
+  const blockish =
+    (range.start === 0 || text[range.start - 1] === "\n") && (range.end >= text.length || text[range.end] === "\n");
+  if (!blockish) return text.slice(0, range.start) + text.slice(range.end);
+  const before = text.slice(0, range.start).replace(/\n+$/, "");
+  const after = text.slice(range.end).replace(/^\n+/, "");
+  if (before.length === 0) return after;
+  if (after.length === 0) return `${before}\n`;
+  return `${before}\n\n${after}`;
+}
+
 export function App({ initialSettings }: AppProps): React.ReactElement {
   const [specs, setSpecs] = useState<SpecMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -95,7 +118,13 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const [lens, setLens] = useState<LensState>({ status: "idle" });
   const [editorJump, setEditorJump] = useState<{ start: number; end: number } | null>(null);
   const [aiKeySet, setAiKeySet] = useState(initialSettings.geminiApiKeySet);
-  const [aiModel, setAiModel] = useState<GeminiModel>(initialSettings.geminiModel);
+  const [mermaidRenderer, setMermaidRenderer] = useState<MermaidRenderer>(initialSettings.mermaidRenderer);
+  const [llm, setLlm] = useState(() => ({
+    llmProfiles: initialSettings.llmProfiles,
+    llmMainProfileId: initialSettings.llmMainProfileId,
+    llmFallbackProfileIds: initialSettings.llmFallbackProfileIds,
+    geminiModel: initialSettings.geminiModel,
+  }));
   const lensTokenRef = useRef(0);
   const lensRunningRef = useRef(false);
 
@@ -131,6 +160,22 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const pageHeadingIds = useMemo(() => computePageHeadingIds(pages.map((page) => page.content)), [pages]);
   const linkDefs = useMemo(() => collectLinkDefinitions(doc?.content ?? ""), [doc?.content]);
   const activePage = pages[pageIndex] ?? pages[0];
+
+  const llmRouting = useMemo(() => rendererLlmRouting(llm), [llm]);
+  const mainModelLabel = llmProfileDisplayName(llmRouting.main);
+  const aiReady = [llmRouting.main, ...llmRouting.fallbacks].some(
+    (profile) => profile.provider !== "gemini" || profile.apiKeySet || aiKeySet,
+  );
+
+  const applyLlmSettings = useCallback((settings: RendererSettings): void => {
+    setLlm({
+      llmProfiles: settings.llmProfiles,
+      llmMainProfileId: settings.llmMainProfileId,
+      llmFallbackProfileIds: settings.llmFallbackProfileIds,
+      geminiModel: settings.geminiModel,
+    });
+    setAiKeySet(settings.geminiApiKeySet);
+  }, []);
 
   useEffect(() => {
     const resolved = resolveTheme(themePreference);
@@ -364,13 +409,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (!current || lensRunningRef.current) return;
     lensRunningRef.current = true;
     const token = (lensTokenRef.current += 1);
-    const model = aiModel;
     const reviewedContent = current.content;
-    setLens({ status: "running", model });
+    setLens({ status: "running", model: mainModelLabel });
     window.api
-      .reviewSpec(reviewedContent, model)
+      .reviewSpec(reviewedContent)
       .then(
-        (report) => {
+        ({ report, model }) => {
           if (lensTokenRef.current === token) setLens({ status: "done", report, model, reviewedContent });
           else setLens((prev) => (prev.status === "running" ? { status: "idle" } : prev));
         },
@@ -382,7 +426,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       .finally(() => {
         lensRunningRef.current = false;
       });
-  }, [aiModel]);
+  }, [mainModelLabel]);
 
   const applyLensRewrite = useCallback((excerpt: string, rewrite: string): boolean => {
     const current = docRef.current;
@@ -431,67 +475,72 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setLoomSession((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  const runWeave = useCallback(
-    (kind: WeaveKind): void => {
-      const current = docRef.current;
-      if (!current || loomRunningRef.current) return;
-      const session = loomSessionRef.current;
-      const qa: WeaveQa[] = [];
-      if (kind === "reweave" && session.result !== null) {
-        session.result.questions.forEach((question, index) => {
-          const answer = (session.answers[index] ?? "").trim();
-          if (answer.length > 0) qa.push({ question: question.question, answer: answer.slice(0, 4000) });
-        });
-      }
-      const base = kind === "reweave" && session.woven.trim().length > 0 ? session.woven : session.material;
-      const material = base.slice(0, MAX_WEAVE_MATERIAL_CHARS);
-      if (material.trim().length === 0 && qa.length === 0 && current.meta.title.trim().length === 0) {
-        setToast("素材がありません。メモや箇条書きを入れてから織ってください");
-        return;
-      }
-      lastWeaveKindRef.current = kind;
-      loomRunningRef.current = true;
-      const token = (loomTokenRef.current += 1);
-      setLoomSession((prev) => ({ ...prev, phase: "running", error: null }));
-      window.api
-        .weaveSpec({
-          title: current.meta.title.slice(0, 200),
-          material,
-          context: current.content.slice(0, MAX_WEAVE_CONTEXT_CHARS),
-          qa,
-          model: aiModel,
-        })
-        .then(
-          (result) => {
-            if (loomTokenRef.current !== token) return;
-            if (result.woven.length === 0 && result.questions.length === 0) {
-              setLoomSession((prev) => ({
-                ...prev,
-                phase: "error",
-                error: "織れるものがありませんでした。素材を増やして再試行してください。",
-              }));
-              return;
-            }
+  const runWeave = useCallback((kind: WeaveKind): void => {
+    const current = docRef.current;
+    if (!current || loomRunningRef.current) return;
+    const session = loomSessionRef.current;
+    const qa: WeaveQa[] = [];
+    if (kind === "reweave" && session.result !== null) {
+      session.result.questions.forEach((question, index) => {
+        const answer = (session.answers[index] ?? "").trim();
+        if (answer.length > 0) qa.push({ question: question.question, answer: answer.slice(0, 4000) });
+      });
+    }
+    const material = kind === "reweave" && session.woven.trim().length > 0 ? session.woven : session.material;
+    const materialLimit = kind === "reweave" ? MAX_WEAVE_WOVEN_CHARS : MAX_WEAVE_MATERIAL_CHARS;
+    if (material.length > materialLimit) {
+      setToast(
+        kind === "reweave"
+          ? "織り上がりが上限(約 4.8 万字)を超えています。削ってから織り込んでください"
+          : "素材が上限(約 3.2 万字)を超えています。削ってから織ってください",
+      );
+      return;
+    }
+    if (material.trim().length === 0 && qa.length === 0 && current.meta.title.trim().length === 0) {
+      setToast("素材がありません。メモや箇条書きを入れてから織ってください");
+      return;
+    }
+    lastWeaveKindRef.current = kind;
+    loomRunningRef.current = true;
+    const token = (loomTokenRef.current += 1);
+    setLoomSession((prev) => ({ ...prev, phase: "running", error: null }));
+    window.api
+      .weaveSpec({
+        title: current.meta.title.slice(0, 200),
+        material,
+        context: current.content.slice(0, MAX_WEAVE_CONTEXT_CHARS),
+        qa,
+      })
+      .then(
+        ({ result, model }) => {
+          if (loomTokenRef.current !== token) return;
+          if (result.woven.length === 0 && result.questions.length === 0) {
             setLoomSession((prev) => ({
               ...prev,
-              phase: "done",
-              result,
-              woven: result.woven,
-              answers: new Array<string>(result.questions.length).fill(""),
-              error: null,
+              phase: "error",
+              error: "織れるものがありませんでした。素材を増やして再試行してください。",
             }));
-          },
-          (err: unknown) => {
-            if (loomTokenRef.current !== token) return;
-            setLoomSession((prev) => ({ ...prev, phase: "error", error: ipcErrorMessage(err) }));
-          },
-        )
-        .finally(() => {
-          loomRunningRef.current = false;
-        });
-    },
-    [aiModel],
-  );
+            return;
+          }
+          setLoomSession((prev) => ({
+            ...prev,
+            phase: "done",
+            result,
+            woven: result.woven,
+            answers: new Array<string>(result.questions.length).fill(""),
+            servedBy: model,
+            error: null,
+          }));
+        },
+        (err: unknown) => {
+          if (loomTokenRef.current !== token) return;
+          setLoomSession((prev) => ({ ...prev, phase: "error", error: ipcErrorMessage(err) }));
+        },
+      )
+      .finally(() => {
+        loomRunningRef.current = false;
+      });
+  }, []);
 
   const retryWeave = useCallback((): void => {
     setLoomSession((prev) => ({ ...prev, phase: prev.result !== null ? "done" : "compose", error: null }));
@@ -512,12 +561,16 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     }
     const text = current.content.slice(selection.start, selection.end);
     const prev = loomSessionRef.current;
+    if (prev.replaceTargets.includes(text)) {
+      setToast("その範囲は取り込み済みです");
+      return;
+    }
     const merged = prev.material.trim().length > 0 ? `${prev.material.replace(/\s+$/, "")}\n\n${text}` : text;
     if (merged.length > MAX_WEAVE_MATERIAL_CHARS) {
       setToast("素材が上限(約 3.2 万字)を超えるため取り込めません");
       return;
     }
-    setLoomSession({ ...prev, material: merged, replaceTarget: text });
+    setLoomSession({ ...prev, material: merged, replaceTargets: [...prev.replaceTargets, text] });
   }, []);
 
   const insertWoven = useCallback((): void => {
@@ -528,20 +581,38 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (text.length === 0) return;
     const content = current.content;
     let notice: string | null = null;
-    let replaceRange: { start: number; end: number } | null = null;
-    if (session.replaceTarget !== null && session.replaceTarget.length > 0) {
-      const first = content.indexOf(session.replaceTarget);
-      if (first !== -1 && content.indexOf(session.replaceTarget, first + 1) === -1) {
-        replaceRange = { start: first, end: first + session.replaceTarget.length };
-      } else {
-        notice = "置き換え対象を特定できないため、挿入に切り替えました";
+    let replaceRanges: { start: number; end: number }[] | null = null;
+    const targets = session.replaceTargets.filter((target) => target.length > 0);
+    if (targets.length > 0) {
+      const resolved: { start: number; end: number }[] = [];
+      let unique = true;
+      for (const target of targets) {
+        const first = content.indexOf(target);
+        if (first === -1 || content.indexOf(target, first + 1) !== -1) {
+          unique = false;
+          break;
+        }
+        resolved.push({ start: first, end: first + target.length });
       }
+      if (unique) {
+        resolved.sort((a, b) => a.start - b.start);
+        for (let i = 1; i < resolved.length && unique; i++) {
+          if (resolved[i]!.start < resolved[i - 1]!.end) unique = false;
+        }
+      }
+      if (unique) replaceRanges = resolved;
+      else notice = "置き換え対象を特定できないため、挿入に切り替えました";
     }
     let next: string;
     let jumpStart: number;
-    if (replaceRange) {
-      next = content.slice(0, replaceRange.start) + text + content.slice(replaceRange.end);
-      jumpStart = replaceRange.start;
+    if (replaceRanges) {
+      const primary = replaceRanges[0]!;
+      next = content;
+      for (let i = replaceRanges.length - 1; i >= 1; i--) {
+        next = spliceOut(next, replaceRanges[i]!);
+      }
+      next = next.slice(0, primary.start) + text + next.slice(primary.end);
+      jumpStart = primary.start;
     } else {
       const nextPage = pages[pageIndex + 1];
       const caret =
@@ -561,7 +632,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setLoomSession(INITIAL_LOOM_SESSION);
     setMode("source");
     setEditorJump({ start: jumpStart, end: jumpStart + text.length });
-    setToast(notice ?? (replaceRange ? "選択箇所を置き換えました" : "織り上がりを挿入しました"));
+    setToast(
+      notice ??
+        (replaceRanges
+          ? replaceRanges.length > 1
+            ? `${replaceRanges.length} 箇所を 1 つに織り直しました`
+            : "選択箇所を置き換えました"
+          : "織り上がりを挿入しました"),
+    );
   }, [pages, pageIndex]);
 
   const pendingCount = useMemo(() => findPendingDecisions(doc?.content ?? "").length, [doc?.content]);
@@ -833,12 +911,65 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setAppearance((prev) => ({ ...prev, readingWidth: change.value }));
         void window.api.setSetting("readingWidth", change.value).catch(() => undefined);
         return;
-      case "geminiModel":
-        setAiModel(change.value);
-        void window.api.setSetting("geminiModel", change.value).catch(() => undefined);
+      case "mermaidRenderer":
+        setMermaidRenderer(change.value);
+        void window.api.setSetting("mermaidRenderer", change.value).catch(() => undefined);
         return;
     }
   }, []);
+
+  const handleUpsertProfile = useCallback(
+    async (input: UpsertLlmProfileInput): Promise<boolean> => {
+      try {
+        applyLlmSettings(await window.api.upsertLlmProfile(input));
+        setToast("モデル設定を保存しました");
+        return true;
+      } catch (err) {
+        setToast(ipcErrorMessage(err));
+        return false;
+      }
+    },
+    [applyLlmSettings],
+  );
+
+  const handleDeleteProfile = useCallback(
+    async (id: string): Promise<boolean> => {
+      try {
+        applyLlmSettings(await window.api.deleteLlmProfile(id));
+        setToast("モデルを削除しました");
+        return true;
+      } catch (err) {
+        setToast(ipcErrorMessage(err));
+        return false;
+      }
+    },
+    [applyLlmSettings],
+  );
+
+  const routingSeqRef = useRef(0);
+  const routingQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const handleSetRouting = useCallback(
+    (mainId: string, fallbackIds: string[]): void => {
+      // 連打時に直前のクリックを織り込んだ状態から次の計算ができるよう楽観更新し、
+      // IPC は直列化して最後の応答だけを正とする
+      const seq = (routingSeqRef.current += 1);
+      setLlm((prev) => ({ ...prev, llmMainProfileId: mainId, llmFallbackProfileIds: fallbackIds }));
+      routingQueueRef.current = routingQueueRef.current.then(() =>
+        window.api.setLlmRouting(mainId, fallbackIds).then(
+          (settings) => {
+            if (routingSeqRef.current === seq) applyLlmSettings(settings);
+          },
+          (err: unknown) => {
+            if (routingSeqRef.current !== seq) return;
+            setToast(ipcErrorMessage(err));
+            // 楽観更新を残さない: 永続化済みの状態へ巻き戻す
+            window.api.getSettings().then(applyLlmSettings, () => undefined);
+          },
+        ),
+      );
+    },
+    [applyLlmSettings],
+  );
 
   const handleSaveApiKey = useCallback(async (key: string | null): Promise<boolean> => {
     try {
@@ -865,19 +996,40 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       readingWidth: DEFAULT_SETTINGS.readingWidth,
     };
     setAppearance(defaults);
-    setAiModel(DEFAULT_SETTINGS.geminiModel);
+    setMermaidRenderer(DEFAULT_SETTINGS.mermaidRenderer);
     void window.api.setSetting("accent", defaults.accent).catch(() => undefined);
     void window.api.setSetting("editorFontSize", defaults.editorFontSize).catch(() => undefined);
     void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
     void window.api.setSetting("readingWidth", defaults.readingWidth).catch(() => undefined);
-    void window.api.setSetting("geminiModel", DEFAULT_SETTINGS.geminiModel).catch(() => undefined);
-  }, []);
+    void window.api.setSetting("mermaidRenderer", DEFAULT_SETTINGS.mermaidRenderer).catch(() => undefined);
+    // 内蔵 Gemini プロファイルを初期状態に復元してメインへ戻す。
+    // 追加登録されたプロファイルとキーは資産なので消さない。
+    // ルーティング更新と同じキューに直列化し、キュー済みの変更がリセットを上書きしないようにする
+    const seq = (routingSeqRef.current += 1);
+    routingQueueRef.current = routingQueueRef.current.then(() =>
+      window.api.resetLlmRouting().then(
+        (settings) => {
+          if (routingSeqRef.current === seq) applyLlmSettings(settings);
+        },
+        (err: unknown) => {
+          if (routingSeqRef.current === seq) setToast(ipcErrorMessage(err));
+        },
+      ),
+    );
+  }, [applyLlmSettings]);
 
   const currentMatch = matches[matchCursor];
   const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;
   const previewAnchor = pendingAnchor && doc && pendingAnchor.docId === doc.meta.id ? pendingAnchor.id : null;
   const lensVisible = lensOpen && doc !== null;
   const loomVisible = loomOpen && doc !== null;
+  const llmSettings: LlmSettings = {
+    geminiApiKeySet: aiKeySet,
+    profiles: llmRouting.roster,
+    mainId: llmRouting.main.id,
+    fallbackIds: llmRouting.fallbacks.map((profile) => profile.id),
+    storedCount: llm.llmProfiles.length,
+  };
 
   return (
     <div className={`app${lensVisible || loomVisible ? " lens-open" : ""}`}>
@@ -968,6 +1120,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               headingIds={pageHeadingIds[pageIndex] ?? []}
               linkDefs={linkDefs}
               theme={resolvedTheme}
+              mermaidRenderer={mermaidRenderer}
               searchQuery={search.open ? search.query : ""}
               searchCurrentInPage={searchCurrentInPage}
               pendingAnchor={previewAnchor}
@@ -992,8 +1145,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       {lensVisible && doc ? (
         <LensPanel
           state={lens}
-          model={aiModel}
-          apiKeySet={aiKeySet}
+          modelLabel={mainModelLabel}
+          apiKeySet={aiReady}
           docContent={doc.content}
           onRun={runLens}
           onClose={() => setLensOpen(false)}
@@ -1004,8 +1157,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       ) : loomVisible && doc ? (
         <LoomPanel
           session={loomSession}
-          model={aiModel}
-          apiKeySet={aiKeySet}
+          modelLabel={mainModelLabel}
+          apiKeySet={aiReady}
           onUpdate={updateLoomSession}
           onWeave={runWeave}
           onRetry={retryWeave}
@@ -1036,9 +1189,13 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           theme={themePreference}
           appearance={appearance}
           resolvedTheme={resolvedTheme}
-          ai={{ apiKeySet: aiKeySet, model: aiModel }}
+          mermaidRenderer={mermaidRenderer}
+          llm={llmSettings}
           onChange={handleSettingChange}
           onSaveApiKey={handleSaveApiKey}
+          onUpsertProfile={handleUpsertProfile}
+          onDeleteProfile={handleDeleteProfile}
+          onSetRouting={handleSetRouting}
           onReset={handleResetSettings}
           onClose={() => setSettingsOpen(false)}
         />
