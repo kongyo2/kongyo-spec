@@ -960,7 +960,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             if (routingSeqRef.current === seq) applyLlmSettings(settings);
           },
           (err: unknown) => {
-            if (routingSeqRef.current === seq) setToast(ipcErrorMessage(err));
+            if (routingSeqRef.current !== seq) return;
+            setToast(ipcErrorMessage(err));
+            // 楽観更新を残さない: 永続化済みの状態へ巻き戻す
+            window.api.getSettings().then(applyLlmSettings, () => undefined);
           },
         ),
       );

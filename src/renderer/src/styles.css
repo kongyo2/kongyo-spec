@@ -3081,9 +3081,14 @@ kbd {
     color var(--t-fast);
 }
 
-.settings-llm-fb:hover {
+.settings-llm-fb:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent-text);
+}
+
+.settings-llm-fb:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .settings-llm-fb.active {

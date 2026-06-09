@@ -18,6 +18,10 @@ function persist<K extends keyof Settings>(key: K, value: Settings[K]): void {
 }
 
 function persistProfiles(profiles: LlmProfile[]): void {
+  if (profiles.length > MAX_LLM_PROFILES) {
+    // 上限超のロスターは SettingsSchema が読めず全プロファイル消失につながるため、書く前に拒否する
+    throw new Error(`モデルは最大 ${MAX_LLM_PROFILES} 件まで保存できます。`);
+  }
   if (profiles.some((profile) => profile.apiKey !== null) && !isSecretEncryptionAvailable()) {
     throw new Error("この環境では OS の安全な保存領域を利用できないため、API キーを含むモデル設定を保存できません。");
   }
@@ -40,6 +44,8 @@ export function upsertLlmProfile(input: UpsertLlmProfileInput): Settings {
     throw new Error(`モデルは最大 ${MAX_LLM_PROFILES} 件まで登録できます。`);
   }
   const existing = index === -1 ? null : profiles[index]!;
+  // プロバイダが変わったら保存済みキーは引き継がない(他プロバイダへの誤送信を防ぐ)
+  const keptKey = existing !== null && existing.provider === input.profile.provider ? existing.apiKey : null;
   const next: LlmProfile = {
     id,
     label: input.profile.label,
@@ -47,7 +53,7 @@ export function upsertLlmProfile(input: UpsertLlmProfileInput): Settings {
     model: input.profile.model,
     baseUrl: input.profile.baseUrl,
     temperature: input.profile.temperature,
-    apiKey: input.apiKey === undefined ? (existing?.apiKey ?? null) : input.apiKey,
+    apiKey: input.apiKey === undefined ? keptKey : input.apiKey,
   };
   if (index === -1) profiles.push(next);
   else profiles[index] = next;
@@ -92,6 +98,11 @@ export function resetLlmRouting(): Settings {
     const pristine = legacyGeminiProfile(DEFAULT_SETTINGS.geminiModel);
     const profiles = [...settings.llmProfiles];
     const index = profiles.findIndex((profile) => profile.id === LEGACY_GEMINI_PROFILE_ID);
+    if (index === -1 && profiles.length >= MAX_LLM_PROFILES) {
+      throw new Error(
+        `モデルが上限の ${MAX_LLM_PROFILES} 件登録されているため、内蔵プロファイルを復元できません。不要なモデルを削除してからやり直してください。`,
+      );
+    }
     if (index === -1) profiles.unshift(pristine);
     else profiles[index] = pristine;
     persistProfiles(profiles);

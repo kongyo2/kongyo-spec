@@ -16,7 +16,10 @@ function fencedCodeSpans(content: string): PendingRange[] {
     if (match) {
       const marker = match[1]!;
       if (fence === null) {
-        fence = { char: marker[0]!, length: marker.length, start: offset };
+        // CommonMark: バッククォートフェンスの info 文字列にバッククォートは置けない
+        if (marker[0] !== "`" || !match[2]!.includes("`")) {
+          fence = { char: marker[0]!, length: marker.length, start: offset };
+        }
       } else if (marker[0] === fence.char && marker.length >= fence.length && match[2]!.trim().length === 0) {
         spans.push({ start: fence.start, end: offset + line.length });
         fence = null;
@@ -28,6 +31,12 @@ function fencedCodeSpans(content: string): PendingRange[] {
   return spans;
 }
 
+function escapedByBackslash(content: string, index: number): boolean {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && content[i] === "\\"; i--) backslashes += 1;
+  return backslashes % 2 === 1;
+}
+
 function inlineCodeSpans(content: string, blocked: PendingRange[]): PendingRange[] {
   const runs: { start: number; length: number }[] = [];
   for (const match of content.matchAll(/`+/g)) {
@@ -35,14 +44,33 @@ function inlineCodeSpans(content: string, blocked: PendingRange[]): PendingRange
     runs.push({ start: match.index, length: match[0].length });
   }
   const spans: PendingRange[] = [];
-  for (let i = 0; i < runs.length; i++) {
-    const open = runs[i]!;
-    for (let j = i + 1; j < runs.length; j++) {
-      if (runs[j]!.length !== open.length) continue;
-      spans.push({ start: open.start, end: runs[j]!.start + runs[j]!.length });
-      i = j;
-      break;
+  let index = 0;
+  while (index < runs.length) {
+    const run = runs[index]!;
+    let start = run.start;
+    let length = run.length;
+    // 開き候補のみエスケープが効く(スパン内部ではバックスラッシュは文字どおり)
+    if (escapedByBackslash(content, start)) {
+      start += 1;
+      length -= 1;
     }
+    if (length === 0) {
+      index += 1;
+      continue;
+    }
+    let closer = -1;
+    for (let j = index + 1; j < runs.length; j++) {
+      if (runs[j]!.length === length) {
+        closer = j;
+        break;
+      }
+    }
+    if (closer === -1) {
+      index += 1;
+      continue;
+    }
+    spans.push({ start, end: runs[closer]!.start + runs[closer]!.length });
+    index = closer + 1;
   }
   return spans;
 }

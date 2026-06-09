@@ -24,6 +24,7 @@ import {
   LLM_TEMPERATURE,
   llmProfileDisplayName,
   type LlmProvider,
+  MAX_LLM_FALLBACKS,
   type MermaidRenderer,
   PREVIEW_FONT_SIZE,
   type ReadingWidth,
@@ -111,6 +112,7 @@ interface ProfileDraft {
   apiKey: string;
   clearKey: boolean;
   apiKeySet: boolean;
+  keyProvider: LlmProvider | null;
 }
 
 const NEW_PROFILE_DRAFT: ProfileDraft = {
@@ -123,6 +125,7 @@ const NEW_PROFILE_DRAFT: ProfileDraft = {
   apiKey: "",
   clearKey: false,
   apiKeySet: false,
+  keyProvider: null,
 };
 
 function draftFromProfile(profile: RendererLlmProfile): ProfileDraft {
@@ -136,6 +139,7 @@ function draftFromProfile(profile: RendererLlmProfile): ProfileDraft {
     apiKey: "",
     clearKey: false,
     apiKeySet: profile.apiKeySet,
+    keyProvider: profile.apiKeySet ? profile.provider : null,
   };
 }
 
@@ -250,6 +254,7 @@ function ProfileEditor({
     tempRaw.length === 0 ||
     (Number.isFinite(tempValue) && tempValue >= LLM_TEMPERATURE.min && tempValue <= LLM_TEMPERATURE.max);
   const valid = modelOk && urlOk && tempOk;
+  const keyCarries = draft.apiKeySet && draft.keyProvider === draft.provider;
 
   return (
     <div className="settings-llm-editor">
@@ -325,15 +330,17 @@ function ProfileEditor({
               placeholder={
                 draft.clearKey
                   ? "保存時にキーを削除します"
-                  : draft.apiKeySet
+                  : keyCarries
                     ? "設定済み — 変更する場合のみ入力"
-                    : draft.provider === "gemini"
-                      ? "空欄 = 共通の Gemini キーを使用"
-                      : "空欄 = キーなしで接続(ローカル LLM 等)"
+                    : draft.apiKeySet
+                      ? "プロバイダ変更により保存時にキーは破棄されます"
+                      : draft.provider === "gemini"
+                        ? "空欄 = 共通の Gemini キーを使用"
+                        : "空欄 = キーなしで接続(ローカル LLM 等)"
               }
               onChange={(event) => onDraft({ ...draft, apiKey: event.target.value })}
             />
-            {draft.apiKeySet ? (
+            {keyCarries ? (
               <button
                 type="button"
                 className={`settings-llm-keyclear${draft.clearKey ? " active" : ""}`}
@@ -429,10 +436,12 @@ export function Settings({
     );
   };
 
+  const fallbacksFull = llm.fallbackIds.length >= MAX_LLM_FALLBACKS;
+
   const toggleFallback = (id: string): void => {
-    const next = llm.fallbackIds.includes(id)
-      ? llm.fallbackIds.filter((fallbackId) => fallbackId !== id)
-      : [...llm.fallbackIds, id];
+    const has = llm.fallbackIds.includes(id);
+    if (!has && fallbacksFull) return;
+    const next = has ? llm.fallbackIds.filter((fallbackId) => fallbackId !== id) : [...llm.fallbackIds, id];
     onSetRouting(llm.mainId, next);
   };
 
@@ -699,7 +708,12 @@ export function Settings({
                                 type="button"
                                 className={`settings-llm-fb${fallbackIndex >= 0 ? " active" : ""}`}
                                 aria-pressed={fallbackIndex >= 0}
-                                title="フォールバックに含める(ON にした順に試行)"
+                                disabled={fallbackIndex < 0 && fallbacksFull}
+                                title={
+                                  fallbackIndex < 0 && fallbacksFull
+                                    ? `フォールバックは最大 ${MAX_LLM_FALLBACKS} 件です`
+                                    : "フォールバックに含める(ON にした順に試行)"
+                                }
                                 onClick={() => toggleFallback(profile.id)}
                               >
                                 <ListOrdered size={12} aria-hidden="true" />

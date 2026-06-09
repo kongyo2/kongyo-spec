@@ -224,26 +224,40 @@ async function callOpenAiCompatible(args: ProviderCall): Promise<unknown> {
   if (args.profile.apiKey !== null) headers["Authorization"] = `Bearer ${args.profile.apiKey}`;
   const jsonSchema = geminiSchemaToJsonSchema(args.schema);
   const system = `${args.system}\n\n出力規約: 応答は次の JSON Schema に厳密に従う、単一の JSON オブジェクトのみとする。説明文・前置き・コードフェンスを付けない。\n${JSON.stringify(jsonSchema)}`;
-  const body: Record<string, unknown> = {
+  const base: Record<string, unknown> = {
     model: args.profile.model,
     messages: [
       { role: "system", content: system },
       { role: "user", content: args.contents },
     ],
-    temperature: args.temperature,
     stream: false,
   };
+  const responseFormat = { response_format: { type: "json_object" } };
+  const withTemperature = { ...base, temperature: args.temperature };
+  // HTTP 400 を返すサーバー向けの後退順:
+  // response_format 非対応の互換サーバー → response_format なし、
+  // temperature 非対応の推論系モデル(o3 など、温度がプロファイル未指定のときのみ) → temperature なし
+  const attempts: Record<string, unknown>[] = [{ ...withTemperature, ...responseFormat }, withTemperature];
+  if (args.profile.temperature === null) {
+    attempts.push({ ...base, ...responseFormat }, base);
+  }
   let payload: unknown;
-  try {
-    payload = await postChatCompletions(url, headers, { ...body, response_format: { type: "json_object" } });
-  } catch (err) {
-    // 一部の互換サーバーは response_format を受け付けないため、外して一度だけ再試行する
-    if (err instanceof HttpStatusError && err.status === 400) {
+  let rejected: HttpStatusError | null = null;
+  for (const body of attempts) {
+    try {
+      // eslint-disable-next-line no-await-in-loop -- 前段の 400 を確認してからパラメータを削って再試行する
       payload = await postChatCompletions(url, headers, body);
-    } else {
+      rejected = null;
+      break;
+    } catch (err) {
+      if (err instanceof HttpStatusError && err.status === 400) {
+        rejected = err;
+        continue;
+      }
       throw err;
     }
   }
+  if (rejected !== null) throw rejected;
   const content = (payload as { choices?: { message?: { content?: unknown } }[] })?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || content.trim().length === 0) {
     throw new Error("モデルから応答が得られませんでした。再試行してください。");
