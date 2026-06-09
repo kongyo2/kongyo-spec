@@ -1,5 +1,6 @@
 import { ApiError, GoogleGenAI, Type, type Schema } from "@google/genai";
 import { parseLensReport, type LensReport } from "@shared/schemas/assist";
+import type { GeminiModel } from "@shared/schemas/settings";
 import { readSettings } from "./settingsStore";
 
 const MAX_SPEC_CHARS = 240_000;
@@ -103,7 +104,7 @@ function friendlyError(err: unknown): Error {
 
 let inflight = false;
 
-export async function reviewSpec(content: string): Promise<LensReport> {
+export async function reviewSpec(content: string, model: GeminiModel): Promise<LensReport> {
   if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてからレビューしてください。");
   if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎてレビューできません(約 24 万字まで)。");
   const settings = readSettings();
@@ -113,7 +114,7 @@ export async function reviewSpec(content: string): Promise<LensReport> {
   try {
     const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
     const response = await ai.models.generateContent({
-      model: settings.geminiModel,
+      model,
       contents: `レビュー対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
       config: {
         systemInstruction: SYSTEM_PROMPT,

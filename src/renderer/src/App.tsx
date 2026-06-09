@@ -83,6 +83,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const [aiKeySet, setAiKeySet] = useState(initialSettings.geminiApiKeySet);
   const [aiModel, setAiModel] = useState<GeminiModel>(initialSettings.geminiModel);
   const lensTokenRef = useRef(0);
+  const lensRunningRef = useRef(false);
 
   const loadedContentRef = useRef("");
   const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
@@ -329,18 +330,24 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const runLens = useCallback((): void => {
     const current = docRef.current;
-    if (!current) return;
+    if (!current || lensRunningRef.current) return;
+    lensRunningRef.current = true;
     const token = (lensTokenRef.current += 1);
     const model = aiModel;
     setLens({ status: "running", model });
-    window.api.reviewSpec(current.content).then(
-      (report) => {
-        if (lensTokenRef.current === token) setLens({ status: "done", report, model });
-      },
-      (err: unknown) => {
-        if (lensTokenRef.current === token) setLens({ status: "error", message: ipcErrorMessage(err) });
-      },
-    );
+    window.api
+      .reviewSpec(current.content, model)
+      .then(
+        (report) => {
+          if (lensTokenRef.current === token) setLens({ status: "done", report, model });
+        },
+        (err: unknown) => {
+          if (lensTokenRef.current === token) setLens({ status: "error", message: ipcErrorMessage(err) });
+        },
+      )
+      .finally(() => {
+        lensRunningRef.current = false;
+      });
   }, [aiModel]);
 
   const applyLensRewrite = useCallback((excerpt: string, rewrite: string): boolean => {
@@ -631,7 +638,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           setToast("設定ストアが利用できないため保存できませんでした");
         }
       })
-      .catch((err) => setToast(`API キーの保存に失敗しました: ${errorMessage(err)}`));
+      .catch((err) => setToast(ipcErrorMessage(err)));
   }, []);
 
   const handleResetSettings = useCallback((): void => {

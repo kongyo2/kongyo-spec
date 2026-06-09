@@ -1,5 +1,5 @@
 import type { LensReport } from "./schemas/assist";
-import type { RendererSettings, SettingKey, Settings, ThemePreference } from "./schemas/settings";
+import type { GeminiModel, RendererSettings, SettingKey, Settings, ThemePreference } from "./schemas/settings";
 import type { SpecDocument, SpecMeta } from "./schemas/spec";
 
 export interface ImportSpecEntry {
@@ -36,7 +36,7 @@ export interface KongyoApi {
   getInitialTheme(): ThemePreference;
   getSettings(): Promise<RendererSettings>;
   setSetting<K extends SettingKey>(key: K, value: Settings[K]): Promise<boolean>;
-  reviewSpec(content: string): Promise<LensReport>;
+  reviewSpec(content: string, model: GeminiModel): Promise<LensReport>;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;

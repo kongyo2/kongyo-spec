@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GeminiModelSchema } from "./settings";
 
 export const FINDING_KINDS = ["overspec", "speculation", "decision"] as const;
 export const FindingKindSchema = z.enum(FINDING_KINDS);
@@ -19,20 +20,22 @@ const RewriteSchema = z
   .nullish()
   .transform((value) => (value == null || value.trim().length === 0 ? null : value));
 
-export const LensFindingSchema = z.object({
-  kind: FindingKindSchema,
-  excerpt: z
-    .string()
-    .max(4000)
-    .transform((value) => (value.trim().length === 0 ? "" : value)),
-  reason: z
-    .string()
-    .min(1)
-    .max(4000)
-    .transform((value) => value.trim()),
-  question: QuestionSchema,
-  rewrite: RewriteSchema,
-});
+export const LensFindingSchema = z
+  .object({
+    kind: FindingKindSchema,
+    excerpt: z
+      .string()
+      .max(4000)
+      .transform((value) => (value.trim().length === 0 ? "" : value)),
+    reason: z
+      .string()
+      .min(1)
+      .max(4000)
+      .transform((value) => value.trim()),
+    question: QuestionSchema,
+    rewrite: RewriteSchema,
+  })
+  .transform((finding) => (finding.kind === "overspec" ? finding : { ...finding, rewrite: null }));
 export type LensFinding = z.infer<typeof LensFindingSchema>;
 
 export const LensAltitudeSchema = z.object({
@@ -60,7 +63,7 @@ export function parseLensReport(raw: unknown): LensReport {
   return LensReportSchema.parse(raw);
 }
 
-export const ReviewSpecInputSchema = z.object({ content: z.string().min(1) });
+export const ReviewSpecInputSchema = z.object({ content: z.string().min(1), model: GeminiModelSchema });
 export type ReviewSpecInput = z.infer<typeof ReviewSpecInputSchema>;
 export function parseReviewSpecInput(raw: unknown): ReviewSpecInput {
   return ReviewSpecInputSchema.parse(raw);

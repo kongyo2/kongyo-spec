@@ -9,12 +9,11 @@ let db: DatabaseSync | null = null;
 const SECRET_KEYS: ReadonlySet<SettingKey> = new Set<SettingKey>(["geminiApiKey"]);
 const ENCRYPTED_PREFIX = "enc:v1:";
 
-function encryptSecret(value: string): string {
+export function isSecretEncryptionAvailable(): boolean {
   try {
-    if (!safeStorage.isEncryptionAvailable()) return value;
-    return ENCRYPTED_PREFIX + safeStorage.encryptString(value).toString("base64");
+    return safeStorage.isEncryptionAvailable();
   } catch {
-    return value;
+    return false;
   }
 }
 
@@ -28,7 +27,8 @@ function decryptSecret(value: string): string | null {
 }
 
 function toStoredValue(key: SettingKey, value: unknown): unknown {
-  return SECRET_KEYS.has(key) && typeof value === "string" ? encryptSecret(value) : value;
+  if (!SECRET_KEYS.has(key) || typeof value !== "string") return value;
+  return ENCRYPTED_PREFIX + safeStorage.encryptString(value).toString("base64");
 }
 
 function fromStoredValue(key: SettingKey, value: unknown): unknown {
@@ -110,6 +110,7 @@ export function readSettings(): Settings {
 
 export function writeSetting<K extends SettingKey>(key: K, value: Settings[K]): boolean {
   if (db === null) return false;
+  if (SECRET_KEYS.has(key) && typeof value === "string" && !isSecretEncryptionAvailable()) return false;
   try {
     db.prepare(
       "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",

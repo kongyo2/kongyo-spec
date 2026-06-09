@@ -342,7 +342,9 @@ export function Settings({
                         {ai.apiKeySet ? "設定済み" : "未設定"}
                       </span>
                     </span>
-                    <span className="settings-row-desc">キーはこの端末の設定ストアにのみ保存されます。</span>
+                    <span className="settings-row-desc">
+                      キーは OS の安全な保存領域で暗号化され、この端末にのみ保存されます。
+                    </span>
                   </div>
                   <div className="settings-key-controls">
                     <input
