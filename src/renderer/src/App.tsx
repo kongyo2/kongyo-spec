@@ -80,6 +80,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const [lensOpen, setLensOpen] = useState(false);
   const [lens, setLens] = useState<LensState>({ status: "idle" });
+  const [editorJump, setEditorJump] = useState<{ start: number; end: number } | null>(null);
   const [aiKeySet, setAiKeySet] = useState(initialSettings.geminiApiKeySet);
   const [aiModel, setAiModel] = useState<GeminiModel>(initialSettings.geminiModel);
   const lensTokenRef = useRef(0);
@@ -139,7 +140,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   useEffect(() => {
     lensTokenRef.current += 1;
-    setLens({ status: "idle" });
+    setLens((prev) => (prev.status === "running" ? prev : { status: "idle" }));
+    setEditorJump(null);
   }, [activeId]);
 
   const flushSave = useCallback((): Promise<boolean> => {
@@ -340,9 +342,11 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       .then(
         (report) => {
           if (lensTokenRef.current === token) setLens({ status: "done", report, model });
+          else setLens((prev) => (prev.status === "running" ? { status: "idle" } : prev));
         },
         (err: unknown) => {
           if (lensTokenRef.current === token) setLens({ status: "error", message: ipcErrorMessage(err) });
+          else setLens((prev) => (prev.status === "running" ? { status: "idle" } : prev));
         },
       )
       .finally(() => {
@@ -369,15 +373,18 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const jumpToLensExcerpt = useCallback(
     (excerpt: string): void => {
-      const probe = excerpt.trim();
-      if (probe.length === 0) return;
-      const targetPage = pages.findIndex((page) => page.content.includes(probe));
-      if (targetPage === -1) {
+      const current = docRef.current;
+      if (!current || excerpt.length === 0) return;
+      const start = current.content.indexOf(excerpt);
+      if (start === -1) {
         setToast("該当箇所が見つかりません。本文が変更された可能性があります。");
         return;
       }
-      setMode("preview");
-      setPageIndex(targetPage);
+      const probe = excerpt.trim();
+      const targetPage = probe.length > 0 ? pages.findIndex((page) => page.content.includes(probe)) : -1;
+      if (targetPage !== -1) setPageIndex(targetPage);
+      setMode("source");
+      setEditorJump({ start, end: start + excerpt.length });
     },
     [pages],
   );
@@ -627,18 +634,20 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     }
   }, []);
 
-  const handleSaveApiKey = useCallback((key: string | null): void => {
-    void window.api
-      .setSetting("geminiApiKey", key)
-      .then((persisted) => {
-        if (persisted) {
-          setAiKeySet(key !== null);
-          setToast(key !== null ? "Gemini API キーを保存しました" : "Gemini API キーを削除しました");
-        } else {
-          setToast("設定ストアが利用できないため保存できませんでした");
-        }
-      })
-      .catch((err) => setToast(ipcErrorMessage(err)));
+  const handleSaveApiKey = useCallback(async (key: string | null): Promise<boolean> => {
+    try {
+      const persisted = await window.api.setSetting("geminiApiKey", key);
+      if (!persisted) {
+        setToast("設定ストアが利用できないため保存できませんでした");
+        return false;
+      }
+      setAiKeySet(key !== null);
+      setToast(key !== null ? "Gemini API キーを保存しました" : "Gemini API キーを削除しました");
+      return true;
+    } catch (err) {
+      setToast(ipcErrorMessage(err));
+      return false;
+    }
   }, []);
 
   const handleResetSettings = useCallback((): void => {
@@ -760,6 +769,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             <Editor
               value={doc.content}
               theme={resolvedTheme}
+              jump={editorJump}
+              onJumpHandled={() => setEditorJump(null)}
               onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}
             />
           )}

@@ -45,7 +45,7 @@ interface SettingsProps {
   resolvedTheme: ResolvedTheme;
   ai: AiSettings;
   onChange: (change: SettingChange) => void;
-  onSaveApiKey: (key: string | null) => void;
+  onSaveApiKey: (key: string | null) => Promise<boolean>;
   onReset: () => void;
   onClose: () => void;
 }
@@ -176,13 +176,18 @@ export function Settings({
 }: SettingsProps): React.ReactElement {
   const [section, setSection] = useState<Section>("appearance");
   const [keyDraft, setKeyDraft] = useState("");
+  const [keySaving, setKeySaving] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
 
   const submitKeyDraft = (): void => {
     const trimmed = keyDraft.trim();
-    if (trimmed.length === 0) return;
-    onSaveApiKey(trimmed);
-    setKeyDraft("");
+    if (trimmed.length === 0 || keySaving) return;
+    setKeySaving(true);
+    void onSaveApiKey(trimmed)
+      .then((saved) => {
+        if (saved) setKeyDraft("");
+      })
+      .finally(() => setKeySaving(false));
   };
 
   useEffect(() => {
@@ -363,13 +368,13 @@ export function Settings({
                     <button
                       type="button"
                       className="settings-key-save"
-                      disabled={keyDraft.trim().length === 0}
+                      disabled={keyDraft.trim().length === 0 || keySaving}
                       onClick={submitKeyDraft}
                     >
-                      保存
+                      {keySaving ? "保存中…" : "保存"}
                     </button>
                     {ai.apiKeySet ? (
-                      <button type="button" className="settings-key-remove" onClick={() => onSaveApiKey(null)}>
+                      <button type="button" className="settings-key-remove" onClick={() => void onSaveApiKey(null)}>
                         削除
                       </button>
                     ) : null}

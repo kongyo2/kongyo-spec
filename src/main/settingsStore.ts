@@ -8,10 +8,12 @@ let db: DatabaseSync | null = null;
 
 const SECRET_KEYS: ReadonlySet<SettingKey> = new Set<SettingKey>(["geminiApiKey"]);
 const ENCRYPTED_PREFIX = "enc:v1:";
+const LINUX_KEYSTORE_BACKENDS: ReadonlySet<string> = new Set(["gnome_libsecret", "kwallet", "kwallet5", "kwallet6"]);
 
 export function isSecretEncryptionAvailable(): boolean {
   try {
-    return safeStorage.isEncryptionAvailable();
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    return process.platform !== "linux" || LINUX_KEYSTORE_BACKENDS.has(safeStorage.getSelectedStorageBackend());
   } catch {
     return false;
   }

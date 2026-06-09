@@ -22,9 +22,11 @@ interface EditorProps {
   value: string;
   onChange: (next: string) => void;
   theme: ResolvedTheme;
+  jump: { start: number; end: number } | null;
+  onJumpHandled: () => void;
 }
 
-export function Editor({ value, onChange, theme }: EditorProps): React.ReactElement {
+export function Editor({ value, onChange, theme, jump, onJumpHandled }: EditorProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
@@ -59,6 +61,30 @@ export function Editor({ value, onChange, theme }: EditorProps): React.ReactElem
     backdrop.scrollTop = textarea.scrollTop;
     backdrop.scrollLeft = textarea.scrollLeft;
   };
+
+  useEffect(() => {
+    if (!jump) return;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const end = Math.min(jump.end, textarea.value.length);
+    const start = Math.min(jump.start, end);
+    const full = textarea.value;
+    const priorHeight = textarea.style.height;
+    textarea.style.height = "0";
+    textarea.value = full.slice(0, start);
+    const offsetBottom = textarea.scrollHeight;
+    textarea.style.height = priorHeight;
+    textarea.value = full;
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(start, end);
+    textarea.scrollTop = Math.max(0, offsetBottom - textarea.clientHeight / 2);
+    const backdrop = backdropRef.current;
+    if (backdrop) {
+      backdrop.scrollTop = textarea.scrollTop;
+      backdrop.scrollLeft = textarea.scrollLeft;
+    }
+    onJumpHandled();
+  }, [jump, onJumpHandled]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key !== "Tab") return;
