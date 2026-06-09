@@ -2,11 +2,11 @@ import { ApiError, GoogleGenAI, Type, type Schema } from "@google/genai";
 import {
   parseLensReport,
   parseWeaveResult,
-  type LensReport,
-  type WeaveResult,
+  type AssistReview,
+  type AssistWeave,
   type WeaveSpecInput,
 } from "@shared/schemas/assist";
-import type { GeminiModel } from "@shared/schemas/settings";
+import { llmProfileDisplayName, settingsLlmRouting, type LlmProfile, type Settings } from "@shared/schemas/settings";
 import { readSettings } from "./settingsStore";
 
 const MAX_SPEC_CHARS = 240_000;
@@ -86,40 +86,94 @@ const RESPONSE_SCHEMA: Schema = {
   propertyOrdering: ["verdict", "altitude", "findings"],
 };
 
+class HttpStatusError extends Error {
+  constructor(
+    public readonly status: number,
+    detail: string,
+  ) {
+    super(`HTTP ${status}${detail.length > 0 ? `: ${detail}` : ""}`);
+  }
+}
+
 function friendlyError(err: unknown): Error {
-  if (err instanceof ApiError) {
-    if (err.status === 401 || err.status === 403) {
-      return new Error("Gemini API キーが拒否されました。設定でキーを確認してください。");
+  const status = err instanceof ApiError ? err.status : err instanceof HttpStatusError ? err.status : null;
+  if (status !== null) {
+    if (status === 401 || status === 403) {
+      return new Error("API キーが拒否されました。設定でキーを確認してください。");
     }
-    if (err.status === 400) {
-      return new Error("Gemini API がリクエストを受け付けませんでした。API キーと本文を確認してください。");
+    if (status === 404) {
+      return new Error("モデルまたはエンドポイントが見つかりません。設定を確認してください。");
     }
-    if (err.status === 429) {
-      return new Error("Gemini API のレート上限に達しました。少し待ってから再試行してください。");
+    if (status === 400) {
+      return new Error("リクエストが受け付けられませんでした。モデル名と API キーを確認してください。");
     }
-    if (err.status >= 500) {
-      return new Error("Gemini 側で障害が発生しています。時間をおいて再試行してください。");
+    if (status === 429) {
+      return new Error("レート上限に達しました。少し待ってから再試行してください。");
     }
-    return new Error(`Gemini API エラー (HTTP ${err.status})`);
+    if (status >= 500) {
+      return new Error("モデル提供側で障害が発生しています。時間をおいて再試行してください。");
+    }
+    return new Error(`API エラー (HTTP ${status})`);
   }
   if (err instanceof Error && /fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|network/i.test(err.message)) {
-    return new Error("ネットワークに接続できません。接続を確認して再試行してください。");
+    return new Error("接続できません。エンドポイントとネットワークを確認してください。");
   }
   return err instanceof Error ? err : new Error(String(err));
 }
 
-async function generateStructured(args: {
-  model: GeminiModel;
+function parseJsonResponse(text: string): unknown {
+  const trimmed = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/, "");
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(trimmed.slice(start, end + 1));
+      } catch {
+        // fall through
+      }
+    }
+    throw new Error("モデルの応答を解析できませんでした。再試行してください。");
+  }
+}
+
+function geminiSchemaToJsonSchema(schema: Schema): Record<string, unknown> {
+  const type = String(schema.type ?? Type.OBJECT).toLowerCase();
+  const out: Record<string, unknown> = { type: schema.nullable ? [type, "null"] : type };
+  if (schema.enum) out["enum"] = schema.enum;
+  if (schema.properties) {
+    out["properties"] = Object.fromEntries(
+      Object.entries(schema.properties).map(([key, value]) => [key, geminiSchemaToJsonSchema(value)]),
+    );
+  }
+  if (schema.required) out["required"] = schema.required;
+  if (schema.items) out["items"] = geminiSchemaToJsonSchema(schema.items);
+  return out;
+}
+
+interface ProviderCall {
+  profile: LlmProfile;
+  settings: Settings;
   system: string;
   contents: string;
   schema: Schema;
   temperature: number;
-}): Promise<unknown> {
-  const settings = readSettings();
-  if (settings.geminiApiKey === null) throw new Error("Gemini API キーが設定されていません。");
-  const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+}
+
+async function callGemini(args: ProviderCall): Promise<unknown> {
+  const apiKey = args.profile.apiKey ?? args.settings.geminiApiKey;
+  if (apiKey === null) throw new Error("Gemini API キーが設定されていません。");
+  const ai = new GoogleGenAI({
+    apiKey,
+    ...(args.profile.baseUrl !== null ? { httpOptions: { baseUrl: args.profile.baseUrl } } : {}),
+  });
   const response = await ai.models.generateContent({
-    model: args.model,
+    model: args.profile.model,
     contents: args.contents,
     config: {
       systemInstruction: args.system,
@@ -130,37 +184,117 @@ async function generateStructured(args: {
   });
   const text = response.text;
   if (text === undefined || text.trim().length === 0) {
-    throw new Error("Gemini から応答が得られませんでした。再試行してください。");
+    throw new Error("モデルから応答が得られませんでした。再試行してください。");
   }
+  return parseJsonResponse(text);
+}
+
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+
+async function postChatCompletions(
+  url: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new HttpStatusError(response.status, detail.slice(0, 400));
+  }
+  return response.json();
+}
+
+async function callOpenAiCompatible(args: ProviderCall): Promise<unknown> {
+  const baseUrl = (args.profile.baseUrl ?? OPENAI_DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const url = `${baseUrl}/chat/completions`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (args.profile.apiKey !== null) headers["Authorization"] = `Bearer ${args.profile.apiKey}`;
+  const jsonSchema = geminiSchemaToJsonSchema(args.schema);
+  const system = `${args.system}\n\n出力規約: 応答は次の JSON Schema に厳密に従う、単一の JSON オブジェクトのみとする。説明文・前置き・コードフェンスを付けない。\n${JSON.stringify(jsonSchema)}`;
+  const body: Record<string, unknown> = {
+    model: args.profile.model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: args.contents },
+    ],
+    temperature: args.temperature,
+    stream: false,
+  };
+  let payload: unknown;
   try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("Gemini の応答を解析できませんでした。再試行してください。");
+    payload = await postChatCompletions(url, headers, { ...body, response_format: { type: "json_object" } });
+  } catch (err) {
+    // 一部の互換サーバーは response_format を受け付けないため、外して一度だけ再試行する
+    if (err instanceof HttpStatusError && err.status === 400) {
+      payload = await postChatCompletions(url, headers, body);
+    } else {
+      throw err;
+    }
   }
+  const content = (payload as { choices?: { message?: { content?: unknown } }[] })?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || content.trim().length === 0) {
+    throw new Error("モデルから応答が得られませんでした。再試行してください。");
+  }
+  return parseJsonResponse(content);
+}
+
+interface StructuredTask<T> {
+  system: string;
+  contents: string;
+  schema: Schema;
+  defaultTemperature: number;
+  parse: (raw: unknown) => T;
+}
+
+async function runStructured<T>(task: StructuredTask<T>): Promise<{ value: T; model: string }> {
+  const settings = readSettings();
+  const routing = settingsLlmRouting(settings);
+  const chain = [routing.main, ...routing.fallbacks];
+  const failures: string[] = [];
+  for (const profile of chain) {
+    const call: ProviderCall = {
+      profile,
+      settings,
+      system: task.system,
+      contents: task.contents,
+      schema: task.schema,
+      temperature: profile.temperature ?? task.defaultTemperature,
+    };
+    try {
+      // eslint-disable-next-line no-await-in-loop -- フォールバックは前段の失敗を確認してから順に試す
+      const raw = profile.provider === "gemini" ? await callGemini(call) : await callOpenAiCompatible(call);
+      let value: T;
+      try {
+        value = task.parse(raw);
+      } catch {
+        throw new Error("応答が想定する形式ではありませんでした。再試行してください。");
+      }
+      return { value, model: llmProfileDisplayName(profile) };
+    } catch (err) {
+      const friendly = friendlyError(err);
+      if (chain.length === 1) throw friendly;
+      failures.push(`${llmProfileDisplayName(profile)}: ${friendly.message}`);
+    }
+  }
+  throw new Error(`すべてのモデルで失敗しました — ${failures.join(" ／ ")}`);
 }
 
 let reviewInflight = false;
 
-export async function reviewSpec(content: string, model: GeminiModel): Promise<LensReport> {
+export async function reviewSpec(content: string): Promise<AssistReview> {
   if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてからレビューしてください。");
   if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎてレビューできません(約 24 万字まで)。");
   if (reviewInflight) throw new Error("レビューを実行中です。完了をお待ちください。");
   reviewInflight = true;
   try {
-    const raw = await generateStructured({
-      model,
+    const { value, model } = await runStructured({
       system: SYSTEM_PROMPT,
       contents: `レビュー対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
       schema: RESPONSE_SCHEMA,
-      temperature: 0.2,
+      defaultTemperature: 0.2,
+      parse: parseLensReport,
     });
-    try {
-      return parseLensReport(raw);
-    } catch {
-      throw new Error("Gemini の応答が想定する形式ではありませんでした。再試行してください。");
-    }
-  } catch (err) {
-    throw friendlyError(err);
+    return { report: value, model };
   } finally {
     reviewInflight = false;
   }
@@ -236,27 +370,21 @@ function buildWeaveContents(input: WeaveSpecInput): string {
 
 let weaveInflight = false;
 
-export async function weaveSpec(input: WeaveSpecInput): Promise<WeaveResult> {
+export async function weaveSpec(input: WeaveSpecInput): Promise<AssistWeave> {
   if (input.material.trim().length === 0 && input.qa.length === 0 && input.title.trim().length === 0) {
     throw new Error("素材がありません。メモや箇条書きを入れてから織ってください。");
   }
   if (weaveInflight) throw new Error("織りを実行中です。完了をお待ちください。");
   weaveInflight = true;
   try {
-    const raw = await generateStructured({
-      model: input.model,
+    const { value, model } = await runStructured({
       system: WEAVE_SYSTEM_PROMPT,
       contents: buildWeaveContents(input),
       schema: WEAVE_RESPONSE_SCHEMA,
-      temperature: 0.3,
+      defaultTemperature: 0.3,
+      parse: parseWeaveResult,
     });
-    try {
-      return parseWeaveResult(raw);
-    } catch {
-      throw new Error("Gemini の応答が想定する形式ではありませんでした。再試行してください。");
-    }
-  } catch (err) {
-    throw friendlyError(err);
+    return { result: value, model };
   } finally {
     weaveInflight = false;
   }

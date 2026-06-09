@@ -12,9 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type { WeaveResult } from "@shared/schemas/assist";
-import { MAX_WEAVE_MATERIAL_CHARS } from "@shared/schemas/assist";
-import type { GeminiModel } from "@shared/schemas/settings";
-import { MODEL_LABEL } from "./LensPanel";
+import { MAX_WEAVE_MATERIAL_CHARS, MAX_WEAVE_WOVEN_CHARS } from "@shared/schemas/assist";
 
 export type LoomPhase = "compose" | "running" | "done" | "error";
 export type WeaveKind = "compose" | "reweave";
@@ -25,7 +23,8 @@ export interface LoomSession {
   result: WeaveResult | null;
   woven: string;
   answers: string[];
-  replaceTarget: string | null;
+  replaceTargets: string[];
+  servedBy: string | null;
   error: string | null;
 }
 
@@ -35,13 +34,14 @@ export const INITIAL_LOOM_SESSION: LoomSession = {
   result: null,
   woven: "",
   answers: [],
-  replaceTarget: null,
+  replaceTargets: [],
+  servedBy: null,
   error: null,
 };
 
 interface LoomPanelProps {
   session: LoomSession;
-  model: GeminiModel;
+  modelLabel: string;
   apiKeySet: boolean;
   onUpdate: (patch: Partial<LoomSession>) => void;
   onWeave: (kind: WeaveKind) => void;
@@ -63,7 +63,7 @@ const MATERIAL_PLACEHOLDER = [
 
 export function LoomPanel({
   session,
-  model,
+  modelLabel,
   apiKeySet,
   onUpdate,
   onWeave,
@@ -101,7 +101,7 @@ export function LoomPanel({
         <LoaderCircle className="lens-spin" size={24} aria-hidden="true" />
         <p className="lens-intro-title">織っています…</p>
         <p className="lens-intro-text">あなたの言葉を仕様の形に。決めるべき問いを集めています。</p>
-        <span className="lens-model-chip">{MODEL_LABEL[model]}</span>
+        <span className="lens-model-chip">{modelLabel}</span>
       </div>
     );
   } else if (session.phase === "error") {
@@ -128,6 +128,7 @@ export function LoomPanel({
           <textarea
             className="loom-woven"
             value={session.woven}
+            maxLength={MAX_WEAVE_WOVEN_CHARS}
             placeholder="問いに答えて「織り込む」と、ここに本文が現れます。"
             spellCheck={false}
             aria-label="織り上がり(挿入前に編集できます)"
@@ -135,12 +136,16 @@ export function LoomPanel({
           />
           <div className="loom-actions">
             <button type="button" className="lens-run" disabled={session.woven.trim().length === 0} onClick={onInsert}>
-              {session.replaceTarget !== null ? (
+              {session.replaceTargets.length > 0 ? (
                 <Replace size={14} aria-hidden="true" />
               ) : (
                 <ArrowDownToLine size={14} aria-hidden="true" />
               )}
-              {session.replaceTarget !== null ? "選択箇所と置き換え" : "エディタへ挿入"}
+              {session.replaceTargets.length > 1
+                ? `${session.replaceTargets.length} 箇所と置き換え`
+                : session.replaceTargets.length === 1
+                  ? "選択箇所と置き換え"
+                  : "エディタへ挿入"}
             </button>
             <button
               type="button"
@@ -212,7 +217,7 @@ export function LoomPanel({
             </button>
           </section>
         ) : null}
-        <p className="lens-meta">{MODEL_LABEL[model]}</p>
+        <p className="lens-meta">{session.servedBy ?? modelLabel}</p>
       </>
     );
   } else {
@@ -247,14 +252,17 @@ export function LoomPanel({
             <TextSelect size={13} aria-hidden="true" />
             選択範囲を取り込む
           </button>
-          {session.replaceTarget !== null ? (
+          {session.replaceTargets.length > 0 ? (
             <button
               type="button"
               className="loom-target-chip"
-              title="挿入時にこの選択範囲を置き換えます。クリックで解除"
-              onClick={() => onUpdate({ replaceTarget: null })}
+              title="挿入時に取り込んだ選択範囲をすべて置き換えます。クリックで解除"
+              onClick={() => onUpdate({ replaceTargets: [] })}
             >
-              置き換え対象 {session.replaceTarget.length} 字
+              置き換え対象{" "}
+              {session.replaceTargets.length > 1
+                ? `${session.replaceTargets.length} 箇所`
+                : `${session.replaceTargets[0]!.length} 字`}
               <X size={11} aria-hidden="true" />
             </button>
           ) : null}
@@ -266,7 +274,7 @@ export function LoomPanel({
         <p className="loom-hint">
           {hasMaterial ? "Ctrl/⌘+Enter でも織れます。" : "素材が空のときは、仕様の骨格を立ち上げる問いだけが返ります。"}
         </p>
-        <span className="lens-model-chip">{MODEL_LABEL[model]}</span>
+        <span className="lens-model-chip">{modelLabel}</span>
       </div>
     );
   }

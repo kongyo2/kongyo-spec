@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { GeminiModelSchema } from "./settings";
 
 export const FINDING_KINDS = ["overspec", "speculation", "decision"] as const;
 export const FindingKindSchema = z.enum(FINDING_KINDS);
@@ -100,10 +99,15 @@ export function parseLensReport(raw: unknown): LensReport {
   return LensReportSchema.parse(raw);
 }
 
-export const ReviewSpecInputSchema = z.object({ content: z.string().min(1), model: GeminiModelSchema });
+export const ReviewSpecInputSchema = z.object({ content: z.string().min(1) });
 export type ReviewSpecInput = z.infer<typeof ReviewSpecInputSchema>;
 export function parseReviewSpecInput(raw: unknown): ReviewSpecInput {
   return ReviewSpecInputSchema.parse(raw);
+}
+
+export interface AssistReview {
+  report: LensReport;
+  model: string;
 }
 
 const TrimmedSchema = (max: number) =>
@@ -130,10 +134,14 @@ export const WeaveQuestionSchema = z.object({
 });
 export type WeaveQuestion = z.infer<typeof WeaveQuestionSchema>;
 
+export const MAX_WEAVE_MATERIAL_CHARS = 32_000;
+export const MAX_WEAVE_WOVEN_CHARS = 48_000;
+export const MAX_WEAVE_CONTEXT_CHARS = 16_000;
+
 export const WeaveResultSchema = z.object({
   woven: z
     .string()
-    .max(48_000)
+    .max(MAX_WEAVE_WOVEN_CHARS)
     .nullish()
     .transform((value) => (value ?? "").replace(/^\n+/, "").replace(/\s+$/, "")),
   questions: z
@@ -147,21 +155,22 @@ export function parseWeaveResult(raw: unknown): WeaveResult {
   return WeaveResultSchema.parse(raw);
 }
 
+export interface AssistWeave {
+  result: WeaveResult;
+  model: string;
+}
+
 export const WeaveQaSchema = z.object({
   question: z.string().min(1).max(2000),
   answer: z.string().min(1).max(4000),
 });
 export type WeaveQa = z.infer<typeof WeaveQaSchema>;
 
-export const MAX_WEAVE_MATERIAL_CHARS = 32_000;
-export const MAX_WEAVE_CONTEXT_CHARS = 16_000;
-
 export const WeaveSpecInputSchema = z.object({
   title: z.string().max(200).default(""),
-  material: z.string().max(MAX_WEAVE_MATERIAL_CHARS).default(""),
+  material: z.string().max(MAX_WEAVE_WOVEN_CHARS).default(""),
   context: z.string().max(MAX_WEAVE_CONTEXT_CHARS).default(""),
   qa: z.array(WeaveQaSchema).max(12).default([]),
-  model: GeminiModelSchema,
 });
 export type WeaveSpecInput = z.infer<typeof WeaveSpecInputSchema>;
 export function parseWeaveSpecInput(raw: unknown): WeaveSpecInput {

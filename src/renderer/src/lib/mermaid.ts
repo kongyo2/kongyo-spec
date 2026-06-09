@@ -1,8 +1,11 @@
 import mermaid from "mermaid";
+import { renderMermaid as renderBeautifulMermaid } from "@vercel/beautiful-mermaid";
+import type { MermaidRenderer } from "@shared/schemas/settings";
 import { errorMessage } from "./errors";
 import type { ResolvedTheme } from "./theme";
 
 let initializedTheme: ResolvedTheme | null = null;
+let activeRenderer: MermaidRenderer = "classic";
 let counter = 0;
 let generation = 0;
 const svgCache = new Map<string, string>();
@@ -47,11 +50,33 @@ function ensureInit(theme: ResolvedTheme): void {
       noteBorderColor: cssVar("--border-strong"),
     },
   });
-  if (initializedTheme !== null) {
-    svgCache.clear();
-    generation += 1;
-  }
   initializedTheme = theme;
+}
+
+function appFontFamily(): string {
+  const family = getComputedStyle(document.body).fontFamily;
+  return (
+    family
+      .split(",")[0]
+      ?.trim()
+      .replace(/^["']|["']$/g, "") ?? "Geist"
+  );
+}
+
+async function renderBeautiful(source: string): Promise<string> {
+  return renderBeautifulMermaid(source, {
+    bg: cssVar("--bg"),
+    fg: cssVar("--fg"),
+    line: cssVar("--muted-2"),
+    accent: cssVar("--accent"),
+    muted: cssVar("--muted-2"),
+    surface: cssVar("--surface-2"),
+    border: cssVar("--border-strong"),
+    font: appFontFamily(),
+    transparent: true,
+    cornerRadius: 6,
+    edgeBendRadius: 8,
+  });
 }
 
 function sourceOf(block: HTMLElement): string {
@@ -67,12 +92,21 @@ function findLiveBlock(container: HTMLElement, source: string): HTMLElement | nu
   );
 }
 
-export async function renderMermaidIn(container: HTMLElement, theme: ResolvedTheme): Promise<void> {
+export async function renderMermaidIn(
+  container: HTMLElement,
+  theme: ResolvedTheme,
+  renderer: MermaidRenderer,
+): Promise<void> {
   if (document.fonts?.ready) await document.fonts.ready;
-  const themeChanged = initializedTheme !== null && initializedTheme !== theme;
+  const configChanged = initializedTheme !== null && (initializedTheme !== theme || activeRenderer !== renderer);
   ensureInit(theme);
+  activeRenderer = renderer;
+  if (configChanged) {
+    svgCache.clear();
+    generation += 1;
+  }
   const gen = generation;
-  if (themeChanged) {
+  if (configChanged) {
     container.querySelectorAll<HTMLElement>("pre.mermaid-block.mermaid-rendered").forEach((block) => {
       const source = block.getAttribute("data-source");
       if (source !== null) {
@@ -100,8 +134,20 @@ export async function renderMermaidIn(container: HTMLElement, theme: ResolvedThe
     counter += 1;
     const id = `mermaid-render-${Date.now().toString(36)}-${counter}`;
     try {
-      // eslint-disable-next-line no-await-in-loop -- mermaid.render is not concurrency-safe
-      const { svg } = await mermaid.render(id, source);
+      let svg: string;
+      if (renderer === "beautiful") {
+        try {
+          // eslint-disable-next-line no-await-in-loop -- diagrams render sequentially to keep DOM updates ordered
+          svg = (await renderBeautiful(source)).trim();
+        } catch {
+          // beautiful-mermaid が対応しない図(gantt, pie など)は標準レンダラへ退避する
+          // eslint-disable-next-line no-await-in-loop -- mermaid.render is not concurrency-safe
+          svg = (await mermaid.render(id, source)).svg;
+        }
+      } else {
+        // eslint-disable-next-line no-await-in-loop -- mermaid.render is not concurrency-safe
+        svg = (await mermaid.render(id, source)).svg;
+      }
       if (gen !== generation) return;
       svgCache.set(source, svg);
       const target = findLiveBlock(container, source) ?? block;

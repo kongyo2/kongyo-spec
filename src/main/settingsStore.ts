@@ -28,12 +28,29 @@ function decryptSecret(value: string): string | null {
   }
 }
 
-function toStoredValue(key: SettingKey, value: unknown): unknown {
-  if (!SECRET_KEYS.has(key) || typeof value !== "string") return value;
+function encryptSecret(value: string): string {
   return ENCRYPTED_PREFIX + safeStorage.encryptString(value).toString("base64");
 }
 
+function hasApiKey(entry: unknown): entry is { apiKey: string } {
+  return typeof entry === "object" && entry !== null && typeof (entry as { apiKey?: unknown }).apiKey === "string";
+}
+
+function toStoredValue(key: SettingKey, value: unknown): unknown {
+  if (key === "llmProfiles" && Array.isArray(value)) {
+    const canEncrypt = isSecretEncryptionAvailable();
+    return value.map((entry) =>
+      hasApiKey(entry) ? { ...entry, apiKey: canEncrypt ? encryptSecret(entry.apiKey) : null } : entry,
+    );
+  }
+  if (!SECRET_KEYS.has(key) || typeof value !== "string") return value;
+  return encryptSecret(value);
+}
+
 function fromStoredValue(key: SettingKey, value: unknown): unknown {
+  if (key === "llmProfiles" && Array.isArray(value)) {
+    return value.map((entry) => (hasApiKey(entry) ? { ...entry, apiKey: decryptSecret(entry.apiKey) } : entry));
+  }
   return SECRET_KEYS.has(key) && typeof value === "string" ? decryptSecret(value) : value;
 }
 

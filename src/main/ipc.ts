@@ -8,8 +8,15 @@ import {
   parseSaveSpecInput,
   parseSpecIdInput,
 } from "@shared/schemas/ipc";
-import { parseSetSettingInput, toRendererSettings } from "@shared/schemas/settings";
+import {
+  parseDeleteLlmProfileInput,
+  parseSetLlmRoutingInput,
+  parseSetSettingInput,
+  parseUpsertLlmProfileInput,
+  toRendererSettings,
+} from "@shared/schemas/settings";
 import { reviewSpec, weaveSpec } from "./assist";
+import { deleteLlmProfile, setLlmRouting, upsertLlmProfile } from "./llmProfiles";
 import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
 import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
 
@@ -36,12 +43,21 @@ export function registerIpc(): void {
 
   ipcMain.handle("settings:get", () => toRendererSettings(readSettings()));
 
-  ipcMain.handle("assist:review", (_event, raw: unknown) => {
-    const input = parseReviewSpecInput(raw);
-    return reviewSpec(input.content, input.model);
-  });
+  ipcMain.handle("assist:review", (_event, raw: unknown) => reviewSpec(parseReviewSpecInput(raw).content));
 
   ipcMain.handle("assist:weave", (_event, raw: unknown) => weaveSpec(parseWeaveSpecInput(raw)));
+
+  ipcMain.handle("llm:upsert-profile", (_event, raw: unknown) =>
+    toRendererSettings(upsertLlmProfile(parseUpsertLlmProfileInput(raw))),
+  );
+
+  ipcMain.handle("llm:delete-profile", (_event, raw: unknown) =>
+    toRendererSettings(deleteLlmProfile(parseDeleteLlmProfileInput(raw).id)),
+  );
+
+  ipcMain.handle("llm:set-routing", (_event, raw: unknown) =>
+    toRendererSettings(setLlmRouting(parseSetLlmRoutingInput(raw))),
+  );
 
   ipcMain.on("settings:get-theme", (event) => {
     event.returnValue = readSettings().theme;

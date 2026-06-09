@@ -2,26 +2,34 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Check,
+  ListOrdered,
   type LucideIcon,
   Minus,
   Monitor,
   Moon,
   Palette,
+  Pencil,
   Plus,
   RotateCcw,
   Sparkles,
   Sun,
   Telescope,
+  Trash2,
   Type,
   X,
 } from "lucide-react";
 import {
   type Accent,
   EDITOR_FONT_SIZE,
-  type GeminiModel,
+  LLM_TEMPERATURE,
+  llmProfileDisplayName,
+  type LlmProvider,
+  type MermaidRenderer,
   PREVIEW_FONT_SIZE,
   type ReadingWidth,
+  type RendererLlmProfile,
   type ThemePreference,
+  type UpsertLlmProfileInput,
 } from "@shared/schemas/settings";
 import { ACCENTS, type AppearanceSettings, READING_WIDTHS } from "../lib/appearance";
 import type { ResolvedTheme } from "../lib/theme";
@@ -32,20 +40,26 @@ export type SettingChange =
   | { key: "editorFontSize"; value: number }
   | { key: "previewFontSize"; value: number }
   | { key: "readingWidth"; value: ReadingWidth }
-  | { key: "geminiModel"; value: GeminiModel };
+  | { key: "mermaidRenderer"; value: MermaidRenderer };
 
-export interface AiSettings {
-  apiKeySet: boolean;
-  model: GeminiModel;
+export interface LlmSettings {
+  geminiApiKeySet: boolean;
+  profiles: RendererLlmProfile[];
+  mainId: string;
+  fallbackIds: string[];
 }
 
 interface SettingsProps {
   theme: ThemePreference;
   appearance: AppearanceSettings;
   resolvedTheme: ResolvedTheme;
-  ai: AiSettings;
+  mermaidRenderer: MermaidRenderer;
+  llm: LlmSettings;
   onChange: (change: SettingChange) => void;
   onSaveApiKey: (key: string | null) => Promise<boolean>;
+  onUpsertProfile: (input: UpsertLlmProfileInput) => Promise<boolean>;
+  onDeleteProfile: (id: string) => Promise<boolean>;
+  onSetRouting: (mainId: string, fallbackIds: string[]) => void;
   onReset: () => void;
   onClose: () => void;
 }
@@ -55,14 +69,8 @@ type Section = "appearance" | "typography" | "ai" | "about";
 const SECTIONS: { id: Section; label: string; hint: string; icon: LucideIcon }[] = [
   { id: "appearance", label: "外観", hint: "テーマとアクセント", icon: Palette },
   { id: "typography", label: "タイポグラフィ", hint: "文字サイズと横幅", icon: Type },
-  { id: "ai", label: "AI アシスト", hint: "Gemini · Loom · Lens", icon: Telescope },
+  { id: "ai", label: "AI アシスト", hint: "モデル · Loom · Lens", icon: Telescope },
   { id: "about", label: "情報", hint: "バージョンと構成", icon: Sparkles },
-];
-
-const GEMINI_MODEL_OPTIONS: { value: GeminiModel; label: string }[] = [
-  { value: "gemini-2.5-flash-lite", label: "Flash-Lite" },
-  { value: "gemini-2.5-flash", label: "Flash" },
-  { value: "gemini-2.5-pro", label: "Pro" },
 ];
 
 const AI_STUDIO_URL = "https://aistudio.google.com/apikey";
@@ -73,9 +81,70 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }
   { value: "dark", label: "Dark", icon: Moon },
 ];
 
+const MERMAID_OPTIONS: { value: MermaidRenderer; label: string }[] = [
+  { value: "classic", label: "標準" },
+  { value: "beautiful", label: "Beautiful" },
+];
+
+const PROVIDER_LABEL: Record<LlmProvider, string> = {
+  gemini: "Gemini",
+  openai: "OpenAI 互換",
+};
+
+const PROVIDER_OPTIONS: { value: LlmProvider; label: string }[] = [
+  { value: "gemini", label: "Gemini" },
+  { value: "openai", label: "OpenAI 互換" },
+];
+
 const TECH = ["GFM", "Shiki", "KaTeX", "Mermaid"];
 const REPO_URL = "https://github.com/kongyo2/kongyo-spec";
 const APP_VERSION = __APP_VERSION__;
+
+interface ProfileDraft {
+  id: string | null;
+  label: string;
+  provider: LlmProvider;
+  model: string;
+  baseUrl: string;
+  temperature: string;
+  apiKey: string;
+  clearKey: boolean;
+  apiKeySet: boolean;
+}
+
+const NEW_PROFILE_DRAFT: ProfileDraft = {
+  id: null,
+  label: "",
+  provider: "openai",
+  model: "",
+  baseUrl: "",
+  temperature: "",
+  apiKey: "",
+  clearKey: false,
+  apiKeySet: false,
+};
+
+function draftFromProfile(profile: RendererLlmProfile): ProfileDraft {
+  return {
+    id: profile.id,
+    label: profile.label,
+    provider: profile.provider,
+    model: profile.model,
+    baseUrl: profile.baseUrl ?? "",
+    temperature: profile.temperature !== null ? String(profile.temperature) : "",
+    apiKey: "",
+    clearKey: false,
+    apiKeySet: profile.apiKeySet,
+  };
+}
+
+function endpointHost(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
 
 function Row({
   title,
@@ -159,6 +228,135 @@ function Stepper({
   );
 }
 
+function ProfileEditor({
+  draft,
+  saving,
+  onDraft,
+  onSave,
+  onCancel,
+}: {
+  draft: ProfileDraft;
+  saving: boolean;
+  onDraft: (next: ProfileDraft) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}): React.ReactElement {
+  const modelOk = draft.model.trim().length > 0 && !/[\s　]/.test(draft.model.trim());
+  const urlOk = draft.baseUrl.trim().length === 0 || /^https?:\/\//i.test(draft.baseUrl.trim());
+  const tempRaw = draft.temperature.trim();
+  const tempValue = Number(tempRaw);
+  const tempOk =
+    tempRaw.length === 0 ||
+    (Number.isFinite(tempValue) && tempValue >= LLM_TEMPERATURE.min && tempValue <= LLM_TEMPERATURE.max);
+  const valid = modelOk && urlOk && tempOk;
+
+  return (
+    <div className="settings-llm-editor">
+      <div className="settings-llm-editor-grid">
+        <label className="settings-llm-field">
+          <span>プロバイダ</span>
+          <Segmented
+            label="プロバイダ"
+            value={draft.provider}
+            options={PROVIDER_OPTIONS}
+            onSelect={(value) => onDraft({ ...draft, provider: value })}
+          />
+        </label>
+        <label className="settings-llm-field">
+          <span>表示名(任意)</span>
+          <input
+            className="settings-key-input"
+            value={draft.label}
+            maxLength={60}
+            placeholder="例: 速いやつ / 社内 LLM"
+            spellCheck={false}
+            onChange={(event) => onDraft({ ...draft, label: event.target.value })}
+          />
+        </label>
+        <label className="settings-llm-field">
+          <span>モデル名</span>
+          <input
+            className={`settings-key-input${draft.model.length > 0 && !modelOk ? " invalid" : ""}`}
+            value={draft.model}
+            maxLength={200}
+            placeholder={draft.provider === "gemini" ? "gemini-3.5-flash" : "gpt-5.2-mini / qwen3 など"}
+            spellCheck={false}
+            onChange={(event) => onDraft({ ...draft, model: event.target.value })}
+          />
+        </label>
+        <label className="settings-llm-field">
+          <span>temperature(空欄 = 既定)</span>
+          <input
+            className={`settings-key-input${tempOk ? "" : " invalid"}`}
+            type="number"
+            value={draft.temperature}
+            min={LLM_TEMPERATURE.min}
+            max={LLM_TEMPERATURE.max}
+            step={0.1}
+            placeholder="Lens 0.2 / Loom 0.3"
+            onChange={(event) => onDraft({ ...draft, temperature: event.target.value })}
+          />
+        </label>
+        <label className="settings-llm-field wide">
+          <span>エンドポイント{draft.provider === "openai" ? "(OpenAI 互換 /v1)" : "(任意)"}</span>
+          <input
+            className={`settings-key-input${urlOk ? "" : " invalid"}`}
+            value={draft.baseUrl}
+            maxLength={2000}
+            placeholder={
+              draft.provider === "openai" ? "https://api.openai.com/v1(空欄 = OpenAI)" : "空欄 = Google 既定"
+            }
+            spellCheck={false}
+            onChange={(event) => onDraft({ ...draft, baseUrl: event.target.value })}
+          />
+        </label>
+        <label className="settings-llm-field wide">
+          <span>API キー</span>
+          <div className="settings-llm-key-row">
+            <input
+              className="settings-key-input"
+              type="password"
+              value={draft.apiKey}
+              maxLength={4096}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={draft.clearKey}
+              placeholder={
+                draft.clearKey
+                  ? "保存時にキーを削除します"
+                  : draft.apiKeySet
+                    ? "設定済み — 変更する場合のみ入力"
+                    : draft.provider === "gemini"
+                      ? "空欄 = 共通の Gemini キーを使用"
+                      : "空欄 = キーなしで接続(ローカル LLM 等)"
+              }
+              onChange={(event) => onDraft({ ...draft, apiKey: event.target.value })}
+            />
+            {draft.apiKeySet ? (
+              <button
+                type="button"
+                className={`settings-llm-keyclear${draft.clearKey ? " active" : ""}`}
+                aria-pressed={draft.clearKey}
+                onClick={() => onDraft({ ...draft, clearKey: !draft.clearKey, apiKey: "" })}
+              >
+                キーを削除
+              </button>
+            ) : null}
+          </div>
+        </label>
+      </div>
+      <div className="settings-llm-editor-actions">
+        <button type="button" className="settings-key-save" disabled={!valid || saving} onClick={onSave}>
+          {saving ? "保存中…" : "保存"}
+        </button>
+        <button type="button" className="settings-llm-cancel" onClick={onCancel}>
+          キャンセル
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function focusableWithin(container: HTMLElement): HTMLElement[] {
   const selector = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
   return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((el) => el.getClientRects().length > 0);
@@ -168,15 +366,22 @@ export function Settings({
   theme,
   appearance,
   resolvedTheme,
-  ai,
+  mermaidRenderer,
+  llm,
   onChange,
   onSaveApiKey,
+  onUpsertProfile,
+  onDeleteProfile,
+  onSetRouting,
   onReset,
   onClose,
 }: SettingsProps): React.ReactElement {
   const [section, setSection] = useState<Section>("appearance");
   const [keyDraft, setKeyDraft] = useState("");
   const [keySaving, setKeySaving] = useState(false);
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
 
   const submitKeyDraft = (): void => {
@@ -188,6 +393,56 @@ export function Settings({
         if (saved) setKeyDraft("");
       })
       .finally(() => setKeySaving(false));
+  };
+
+  const submitProfileDraft = (): void => {
+    if (profileDraft === null || profileSaving) return;
+    const tempRaw = profileDraft.temperature.trim();
+    const input: UpsertLlmProfileInput = {
+      profile: {
+        ...(profileDraft.id !== null ? { id: profileDraft.id } : {}),
+        label: profileDraft.label.trim(),
+        provider: profileDraft.provider,
+        model: profileDraft.model.trim(),
+        baseUrl: profileDraft.baseUrl.trim().length > 0 ? profileDraft.baseUrl.trim() : null,
+        temperature: tempRaw.length > 0 ? Number(tempRaw) : null,
+      },
+      ...(profileDraft.clearKey
+        ? { apiKey: null }
+        : profileDraft.apiKey.trim().length > 0
+          ? { apiKey: profileDraft.apiKey.trim() }
+          : {}),
+    };
+    setProfileSaving(true);
+    void onUpsertProfile(input)
+      .then((saved) => {
+        if (saved) setProfileDraft(null);
+      })
+      .finally(() => setProfileSaving(false));
+  };
+
+  const setMainProfile = (id: string): void => {
+    onSetRouting(
+      id,
+      llm.fallbackIds.filter((fallbackId) => fallbackId !== id),
+    );
+  };
+
+  const toggleFallback = (id: string): void => {
+    const next = llm.fallbackIds.includes(id)
+      ? llm.fallbackIds.filter((fallbackId) => fallbackId !== id)
+      : [...llm.fallbackIds, id];
+    onSetRouting(llm.mainId, next);
+  };
+
+  const requestDelete = (id: string): void => {
+    if (deleteArmedId !== id) {
+      setDeleteArmedId(id);
+      return;
+    }
+    setDeleteArmedId(null);
+    if (profileDraft?.id === id) setProfileDraft(null);
+    void onDeleteProfile(id);
   };
 
   useEffect(() => {
@@ -304,6 +559,14 @@ export function Settings({
                     })}
                   </div>
                 </Row>
+                <Row title="Mermaid 描画" desc="図表のレンダリングエンジン。Beautiful は Vercel 製の洗練された描画">
+                  <Segmented
+                    label="Mermaid 描画"
+                    value={mermaidRenderer}
+                    options={MERMAID_OPTIONS}
+                    onSelect={(value) => onChange({ key: "mermaidRenderer", value })}
+                  />
+                </Row>
               </div>
             ) : section === "typography" ? (
               <div className="settings-panel" key="typography">
@@ -343,13 +606,14 @@ export function Settings({
                 <div className="settings-row stack">
                   <div className="settings-row-label">
                     <span className="settings-row-title">
-                      Gemini API キー
-                      <span className={`settings-key-state${ai.apiKeySet ? " set" : ""}`}>
-                        {ai.apiKeySet ? "設定済み" : "未設定"}
+                      Gemini API キー(共通)
+                      <span className={`settings-key-state${llm.geminiApiKeySet ? " set" : ""}`}>
+                        {llm.geminiApiKeySet ? "設定済み" : "未設定"}
                       </span>
                     </span>
                     <span className="settings-row-desc">
-                      キーは OS の安全な保存領域で暗号化され、この端末にのみ保存されます。
+                      Gemini プロバイダのモデルが既定で使うキー。OS
+                      の安全な保存領域で暗号化され、この端末にのみ保存されます。
                     </span>
                   </div>
                   <div className="settings-key-controls">
@@ -357,7 +621,7 @@ export function Settings({
                       type="password"
                       className="settings-key-input"
                       value={keyDraft}
-                      placeholder={ai.apiKeySet ? "変更する場合のみ入力" : "AIza…"}
+                      placeholder={llm.geminiApiKeySet ? "変更する場合のみ入力" : "AIza…"}
                       autoComplete="off"
                       spellCheck={false}
                       aria-label="Gemini API キー"
@@ -374,7 +638,7 @@ export function Settings({
                     >
                       {keySaving ? "保存中…" : "保存"}
                     </button>
-                    {ai.apiKeySet ? (
+                    {llm.geminiApiKeySet ? (
                       <button type="button" className="settings-key-remove" onClick={() => void onSaveApiKey(null)}>
                         削除
                       </button>
@@ -389,14 +653,107 @@ export function Settings({
                     <ArrowUpRight size={13} aria-hidden="true" />
                   </button>
                 </div>
-                <Row title="モデル" desc="Loom と Lens が使う Gemini モデル">
-                  <Segmented
-                    label="モデル"
-                    value={ai.model}
-                    options={GEMINI_MODEL_OPTIONS}
-                    onSelect={(value) => onChange({ key: "geminiModel", value })}
-                  />
-                </Row>
+
+                <div className="settings-row stack">
+                  <div className="settings-row-label">
+                    <span className="settings-row-title">モデル</span>
+                    <span className="settings-row-desc">
+                      Loom と Lens が使うモデル。モデル名・temperature・エンドポイントは自由に設定でき、OpenAI 互換 API
+                      も登録できます。メインが失敗するとフォールバックを ON にした順に試します。
+                    </span>
+                  </div>
+                  <div className="settings-llm-list" role="list">
+                    {llm.profiles.map((profile) => {
+                      const isMain = profile.id === llm.mainId;
+                      const fallbackIndex = llm.fallbackIds.indexOf(profile.id);
+                      const detail = [
+                        PROVIDER_LABEL[profile.provider],
+                        profile.model,
+                        ...(profile.baseUrl !== null ? [endpointHost(profile.baseUrl)] : []),
+                        ...(profile.temperature !== null ? [`T=${profile.temperature}`] : []),
+                      ].join(" · ");
+                      return (
+                        <div key={profile.id} className={`settings-llm-row${isMain ? " main" : ""}`} role="listitem">
+                          <button
+                            type="button"
+                            className={`settings-llm-radio${isMain ? " active" : ""}`}
+                            role="radio"
+                            aria-checked={isMain}
+                            aria-label={`${llmProfileDisplayName(profile)} をメインにする`}
+                            title="メインにする"
+                            onClick={() => setMainProfile(profile.id)}
+                          >
+                            <span aria-hidden="true" />
+                          </button>
+                          <div className="settings-llm-id">
+                            <span className="settings-llm-name">
+                              {llmProfileDisplayName(profile)}
+                              {isMain ? <span className="settings-llm-main-chip">メイン</span> : null}
+                            </span>
+                            <span className="settings-llm-sub">{detail}</span>
+                          </div>
+                          <div className="settings-llm-actions">
+                            {!isMain ? (
+                              <button
+                                type="button"
+                                className={`settings-llm-fb${fallbackIndex >= 0 ? " active" : ""}`}
+                                aria-pressed={fallbackIndex >= 0}
+                                title="フォールバックに含める(ON にした順に試行)"
+                                onClick={() => toggleFallback(profile.id)}
+                              >
+                                <ListOrdered size={12} aria-hidden="true" />
+                                {fallbackIndex >= 0 ? `FB ${fallbackIndex + 1}` : "FB"}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="settings-llm-iconbtn"
+                              aria-label={`${llmProfileDisplayName(profile)} を編集`}
+                              title="編集"
+                              onClick={() => {
+                                setDeleteArmedId(null);
+                                setProfileDraft(draftFromProfile(profile));
+                              }}
+                            >
+                              <Pencil size={13} aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              className={`settings-llm-iconbtn danger${deleteArmedId === profile.id ? " armed" : ""}`}
+                              aria-label={`${llmProfileDisplayName(profile)} を削除`}
+                              title={deleteArmedId === profile.id ? "もう一度クリックで削除" : "削除"}
+                              disabled={llm.profiles.length <= 1}
+                              onClick={() => requestDelete(profile.id)}
+                            >
+                              <Trash2 size={13} aria-hidden="true" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {profileDraft !== null ? (
+                    <ProfileEditor
+                      draft={profileDraft}
+                      saving={profileSaving}
+                      onDraft={setProfileDraft}
+                      onSave={submitProfileDraft}
+                      onCancel={() => setProfileDraft(null)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="settings-llm-add"
+                      onClick={() => {
+                        setDeleteArmedId(null);
+                        setProfileDraft(NEW_PROFILE_DRAFT);
+                      }}
+                    >
+                      <Plus size={14} aria-hidden="true" />
+                      モデルを追加
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="settings-panel" key="about">
