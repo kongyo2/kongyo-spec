@@ -336,12 +336,13 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     lensRunningRef.current = true;
     const token = (lensTokenRef.current += 1);
     const model = aiModel;
+    const reviewedContent = current.content;
     setLens({ status: "running", model });
     window.api
-      .reviewSpec(current.content, model)
+      .reviewSpec(reviewedContent, model)
       .then(
         (report) => {
-          if (lensTokenRef.current === token) setLens({ status: "done", report, model });
+          if (lensTokenRef.current === token) setLens({ status: "done", report, model, reviewedContent });
           else setLens((prev) => (prev.status === "running" ? { status: "idle" } : prev));
         },
         (err: unknown) => {
@@ -378,6 +379,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       const start = current.content.indexOf(excerpt);
       if (start === -1) {
         setToast("該当箇所が見つかりません。本文が変更された可能性があります。");
+        return;
+      }
+      if (current.content.indexOf(excerpt, start + 1) !== -1) {
+        setToast("同じ記述が複数あるため移動先を特定できません。");
         return;
       }
       const probe = excerpt.trim();

@@ -2504,6 +2504,25 @@ kbd {
   }
 }
 
+.lens-stale {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.lens-stale svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
 .lens-verdict {
   margin: 0;
   padding: 10px 12px;

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Check,
   CornerDownRight,
+  History,
   KeyRound,
   LoaderCircle,
   MessageCircleQuestionMark,
@@ -16,7 +17,7 @@ import type { GeminiModel } from "@shared/schemas/settings";
 export type LensState =
   | { status: "idle" }
   | { status: "running"; model: GeminiModel }
-  | { status: "done"; report: LensReport; model: GeminiModel }
+  | { status: "done"; report: LensReport; model: GeminiModel; reviewedContent: string }
   | { status: "error"; message: string };
 
 interface LensPanelProps {
@@ -196,8 +197,15 @@ export function LensPanel({
   } else if (state.status === "done") {
     const findings = state.report.findings;
     const visible = findings.map((finding, index) => ({ finding, index })).filter(({ index }) => !dismissed.has(index));
+    const stale = docContent !== state.reviewedContent;
     body = (
       <>
+        {stale ? (
+          <p className="lens-stale">
+            <History size={13} aria-hidden="true" />
+            <span>本文がレビュー時点から変更されています。指摘は当時の内容に基づきます。</span>
+          </p>
+        ) : null}
         <p className="lens-verdict">{state.report.verdict}</p>
         <AltitudeMeter report={state.report} />
         {findings.length === 0 ? (
