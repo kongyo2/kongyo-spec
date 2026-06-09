@@ -1,4 +1,14 @@
-import { ChevronLeft, ChevronRight, type LucideIcon, Monitor, Moon, Search, Settings, Sun } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  type LucideIcon,
+  Monitor,
+  Moon,
+  Search,
+  Settings,
+  Sun,
+  Telescope,
+} from "lucide-react";
 import type { ThemePreference } from "../lib/theme";
 
 export type EditorMode = "preview" | "source";
@@ -13,10 +23,13 @@ interface ToolbarProps {
   mode: EditorMode;
   saving: boolean;
   themePreference: ThemePreference;
+  lensOpen: boolean;
+  lensAvailable: boolean;
   onMode: (mode: EditorMode) => void;
   onPrev: () => void;
   onNext: () => void;
   onSearch: () => void;
+  onToggleLens: () => void;
   onCycleTheme: () => void;
   onOpenSettings: () => void;
 }
@@ -46,10 +59,13 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     mode,
     saving,
     themePreference,
+    lensOpen,
+    lensAvailable,
     onMode,
     onPrev,
     onNext,
     onSearch,
+    onToggleLens,
     onCycleTheme,
     onOpenSettings,
   } = props;
@@ -112,6 +128,18 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         <button type="button" className="icon-button" onClick={onSearch} aria-label="検索 (Ctrl/Cmd+F)" title="検索">
           <Search size={14} aria-hidden="true" />
           <kbd>{MOD}F</kbd>
+        </button>
+        <button
+          type="button"
+          className={`icon-button lens-toggle${lensOpen ? " active" : ""}`}
+          onClick={onToggleLens}
+          disabled={!lensAvailable}
+          aria-pressed={lensOpen}
+          aria-label="Lens — 仕様書を診る (Ctrl/Cmd+L)"
+          title="仕様書を診る — 過剰な具体と未決定を検出"
+        >
+          <Telescope size={14} aria-hidden="true" />
+          Lens
         </button>
         <button
           type="button"

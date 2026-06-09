@@ -1,4 +1,5 @@
 import { ipcMain, shell } from "electron";
+import { parseReviewSpecInput } from "@shared/schemas/assist";
 import {
   parseCreateSpecInput,
   parseImportSpecsInput,
@@ -7,8 +8,9 @@ import {
   parseSaveSpecInput,
   parseSpecIdInput,
 } from "@shared/schemas/ipc";
-import { parseSetSettingInput } from "@shared/schemas/settings";
-import { readSettings, writeSetting } from "./settingsStore";
+import { parseSetSettingInput, toRendererSettings } from "@shared/schemas/settings";
+import { reviewSpec } from "./assist";
+import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
 import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
 
 export function registerIpc(): void {
@@ -32,7 +34,12 @@ export function registerIpc(): void {
 
   ipcMain.handle("specs:delete", (_event, raw: unknown) => deleteSpec(parseSpecIdInput(raw).id));
 
-  ipcMain.handle("settings:get", () => readSettings());
+  ipcMain.handle("settings:get", () => toRendererSettings(readSettings()));
+
+  ipcMain.handle("assist:review", (_event, raw: unknown) => {
+    const input = parseReviewSpecInput(raw);
+    return reviewSpec(input.content, input.model);
+  });
 
   ipcMain.on("settings:get-theme", (event) => {
     event.returnValue = readSettings().theme;
@@ -40,6 +47,9 @@ export function registerIpc(): void {
 
   ipcMain.handle("settings:set", (_event, raw: unknown) => {
     const input = parseSetSettingInput(raw);
+    if (input.key === "geminiApiKey" && input.value !== null && !isSecretEncryptionAvailable()) {
+      throw new Error("この環境では OS の安全な保存領域を利用できないため、API キーを保存できません。");
+    }
     return writeSetting(input.key, input.value);
   });
 

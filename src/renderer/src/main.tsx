@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { DEFAULT_SETTINGS, type Settings } from "@shared/schemas/settings";
+import { DEFAULT_RENDERER_SETTINGS, type RendererSettings } from "@shared/schemas/settings";
 import "@fontsource-variable/geist/index.css";
 import "@fontsource-variable/geist-mono/index.css";
 import "katex/dist/katex.min.css";
@@ -27,7 +27,7 @@ function initialThemePreference(): ThemePreference {
 // before the window is shown — so a dark startup never flashes the light theme.
 applyTheme(resolveTheme(initialThemePreference()));
 
-async function loadInitialSettings(): Promise<Settings> {
+async function loadInitialSettings(): Promise<RendererSettings> {
   try {
     const settings = await window.api.getSettings();
     const legacy = readLegacyTheme();
@@ -42,7 +42,7 @@ async function loadInitialSettings(): Promise<Settings> {
     }
     return settings;
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_RENDERER_SETTINGS };
   }
 }
 
