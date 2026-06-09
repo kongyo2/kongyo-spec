@@ -44,8 +44,11 @@ export function upsertLlmProfile(input: UpsertLlmProfileInput): Settings {
     throw new Error(`モデルは最大 ${MAX_LLM_PROFILES} 件まで登録できます。`);
   }
   const existing = index === -1 ? null : profiles[index]!;
-  // プロバイダが変わったら保存済みキーは引き継がない(他プロバイダへの誤送信を防ぐ)
-  const keptKey = existing !== null && existing.provider === input.profile.provider ? existing.apiKey : null;
+  // プロバイダまたはエンドポイントが変わったら保存済みキーは引き継がない
+  // (別のサービスへ既存クレデンシャルを送ってしまうのを防ぐ)
+  const destinationUnchanged =
+    existing !== null && existing.provider === input.profile.provider && existing.baseUrl === input.profile.baseUrl;
+  const keptKey = destinationUnchanged ? existing.apiKey : null;
   const next: LlmProfile = {
     id,
     label: input.profile.label,

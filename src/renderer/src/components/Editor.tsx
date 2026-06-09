@@ -90,15 +90,18 @@ export function Editor({
   }, [onSelectionChange]);
 
   useEffect(() => {
-    const pendingRanges = findPendingDecisions(value);
+    // Shiki は CRLF を LF に正規化して出力するため、装飾オフセットも
+    // 同じ正規化を施したソースに対して計算する
+    const source = value.replace(/\r\n?/g, "\n");
+    const pendingRanges = findPendingDecisions(source);
     let raw: string;
     if (!highlighter) {
-      raw = plainCodeHtml(value);
+      raw = plainCodeHtml(source);
     } else {
       try {
-        raw = highlighter.codeToHtml(value.length > 0 ? value : " ", { lang: "markdown", themes: SHIKI_THEMES });
+        raw = highlighter.codeToHtml(source.length > 0 ? source : " ", { lang: "markdown", themes: SHIKI_THEMES });
       } catch {
-        raw = plainCodeHtml(value);
+        raw = plainCodeHtml(source);
       }
     }
     setHtml(markPendingDecisions(raw, pendingRanges));

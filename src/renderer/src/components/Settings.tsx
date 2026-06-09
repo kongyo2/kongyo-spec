@@ -113,6 +113,7 @@ interface ProfileDraft {
   clearKey: boolean;
   apiKeySet: boolean;
   keyProvider: LlmProvider | null;
+  keyBaseUrl: string | null;
 }
 
 const NEW_PROFILE_DRAFT: ProfileDraft = {
@@ -126,6 +127,7 @@ const NEW_PROFILE_DRAFT: ProfileDraft = {
   clearKey: false,
   apiKeySet: false,
   keyProvider: null,
+  keyBaseUrl: null,
 };
 
 function draftFromProfile(profile: RendererLlmProfile): ProfileDraft {
@@ -140,6 +142,7 @@ function draftFromProfile(profile: RendererLlmProfile): ProfileDraft {
     clearKey: false,
     apiKeySet: profile.apiKeySet,
     keyProvider: profile.apiKeySet ? profile.provider : null,
+    keyBaseUrl: profile.baseUrl,
   };
 }
 
@@ -254,7 +257,8 @@ function ProfileEditor({
     tempRaw.length === 0 ||
     (Number.isFinite(tempValue) && tempValue >= LLM_TEMPERATURE.min && tempValue <= LLM_TEMPERATURE.max);
   const valid = modelOk && urlOk && tempOk;
-  const keyCarries = draft.apiKeySet && draft.keyProvider === draft.provider;
+  const draftBaseUrl = draft.baseUrl.trim().length > 0 ? draft.baseUrl.trim() : null;
+  const keyCarries = draft.apiKeySet && draft.keyProvider === draft.provider && draft.keyBaseUrl === draftBaseUrl;
 
   return (
     <div className="settings-llm-editor">
@@ -333,7 +337,7 @@ function ProfileEditor({
                   : keyCarries
                     ? "設定済み — 変更する場合のみ入力"
                     : draft.apiKeySet
-                      ? "プロバイダ変更により保存時にキーは破棄されます"
+                      ? "接続先変更により保存時にキーは破棄されます"
                       : draft.provider === "gemini"
                         ? "空欄 = 共通の Gemini キーを使用"
                         : "空欄 = キーなしで接続(ローカル LLM 等)"

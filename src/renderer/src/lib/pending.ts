@@ -75,9 +75,48 @@ function inlineCodeSpans(content: string, blocked: PendingRange[]): PendingRange
   return spans;
 }
 
+const INDENTED_CODE_LINE_RE = /^(?: {4}|\t)/;
+const LIST_ITEM_LINE_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
+
+function indentedCodeSpans(content: string, blocked: PendingRange[]): PendingRange[] {
+  const spans: PendingRange[] = [];
+  let offset = 0;
+  let previousBlank = true;
+  // リスト項目直後の 4 スペースはリストの継続であってコードではない
+  let previousNonBlankIsListItem = false;
+  let run: PendingRange | null = null;
+  for (const line of content.split("\n")) {
+    const lineStart = offset;
+    const lineEnd = offset + line.length;
+    const inFence = blocked.some((span) => lineStart >= span.start && lineStart < span.end);
+    const blank = line.trim().length === 0;
+    if (!blank) {
+      const codeLine =
+        !inFence &&
+        INDENTED_CODE_LINE_RE.test(line) &&
+        (run !== null || (previousBlank && !previousNonBlankIsListItem));
+      if (codeLine) {
+        if (run === null) run = { start: lineStart, end: lineEnd };
+        else run.end = lineEnd;
+      } else {
+        if (run !== null) {
+          spans.push(run);
+          run = null;
+        }
+        previousNonBlankIsListItem = !inFence && LIST_ITEM_LINE_RE.test(line);
+      }
+    }
+    previousBlank = blank;
+    offset = lineEnd + 1;
+  }
+  if (run !== null) spans.push(run);
+  return spans;
+}
+
 function codeSpans(content: string): PendingRange[] {
   const fenced = fencedCodeSpans(content);
-  return [...fenced, ...inlineCodeSpans(content, fenced)];
+  const blocks = [...fenced, ...indentedCodeSpans(content, fenced)];
+  return [...blocks, ...inlineCodeSpans(content, blocks)];
 }
 
 export function findPendingDecisions(content: string): PendingRange[] {

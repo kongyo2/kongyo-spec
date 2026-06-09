@@ -1003,10 +1003,19 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("readingWidth", defaults.readingWidth).catch(() => undefined);
     void window.api.setSetting("mermaidRenderer", DEFAULT_SETTINGS.mermaidRenderer).catch(() => undefined);
     // 内蔵 Gemini プロファイルを初期状態に復元してメインへ戻す。
-    // 追加登録されたプロファイルとキーは資産なので消さない
-    window.api.resetLlmRouting().then(applyLlmSettings, (err: unknown) => {
-      setToast(ipcErrorMessage(err));
-    });
+    // 追加登録されたプロファイルとキーは資産なので消さない。
+    // ルーティング更新と同じキューに直列化し、キュー済みの変更がリセットを上書きしないようにする
+    const seq = (routingSeqRef.current += 1);
+    routingQueueRef.current = routingQueueRef.current.then(() =>
+      window.api.resetLlmRouting().then(
+        (settings) => {
+          if (routingSeqRef.current === seq) applyLlmSettings(settings);
+        },
+        (err: unknown) => {
+          if (routingSeqRef.current === seq) setToast(ipcErrorMessage(err));
+        },
+      ),
+    );
   }, [applyLlmSettings]);
 
   const currentMatch = matches[matchCursor];
