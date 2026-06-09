@@ -174,44 +174,46 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const flushSave = useCallback((): Promise<boolean> => {
     if (flushPromiseRef.current) return flushPromiseRef.current;
     const run = (async (): Promise<boolean> => {
-      try {
-        while (pendingSaveRef.current) {
-          const pending = pendingSaveRef.current;
-          try {
-            // eslint-disable-next-line no-await-in-loop -- drains a serialized save queue in order
-            const meta = await window.api.saveSpec(pending.id, pending.content);
-            if (pendingSaveRef.current === pending) pendingSaveRef.current = null;
-            if (docRef.current && docRef.current.meta.id === pending.id) {
-              loadedContentRef.current = pending.content;
-              if (docRef.current.content !== pending.content && pendingSaveRef.current === null) {
-                pendingSaveRef.current = { id: docRef.current.meta.id, content: docRef.current.content };
-              }
+      while (pendingSaveRef.current) {
+        const pending = pendingSaveRef.current;
+        try {
+          // eslint-disable-next-line no-await-in-loop -- drains a serialized save queue in order
+          const meta = await window.api.saveSpec(pending.id, pending.content);
+          if (pendingSaveRef.current === pending) pendingSaveRef.current = null;
+          if (docRef.current && docRef.current.meta.id === pending.id) {
+            loadedContentRef.current = pending.content;
+            if (docRef.current.content !== pending.content && pendingSaveRef.current === null) {
+              pendingSaveRef.current = { id: docRef.current.meta.id, content: docRef.current.content };
             }
-            saveFailedRef.current = false;
-            setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
-            setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
-          } catch (err) {
-            if (!saveFailedRef.current) {
-              saveFailedRef.current = true;
-              setToast(`保存に失敗しました: ${errorMessage(err)}`);
-            }
-            if (retryTimerRef.current === null) {
-              retryTimerRef.current = window.setTimeout(() => {
-                retryTimerRef.current = null;
-                if (pendingSaveRef.current) void flushSaveRef.current();
-              }, 3000);
-            }
-            return false;
           }
+          saveFailedRef.current = false;
+          setSpecs((prev) => prev.map((spec) => (spec.id === meta.id ? meta : spec)).sort(byUpdatedDesc));
+          setDoc((prev) => (prev && prev.meta.id === meta.id ? { ...prev, meta } : prev));
+        } catch (err) {
+          if (!saveFailedRef.current) {
+            saveFailedRef.current = true;
+            setToast(`保存に失敗しました: ${errorMessage(err)}`);
+          }
+          if (retryTimerRef.current === null) {
+            retryTimerRef.current = window.setTimeout(() => {
+              retryTimerRef.current = null;
+              if (pendingSaveRef.current) void flushSaveRef.current();
+            }, 3000);
+          }
+          return false;
         }
-        return true;
-      } finally {
-        flushPromiseRef.current = null;
-        setSaving(false);
       }
+      return true;
     })();
-    flushPromiseRef.current = run;
-    return run;
+    // 空キューでは run の本体が await に当たらず同期完了する。async 関数内の
+    // finally で参照を消すと、直後の登録が完了済み Promise を残して以後の保存を
+    // 全て飲み込むため、解放は登録後に繋いだ .finally(非同期実行)で行う。
+    const tracked = run.finally(() => {
+      if (flushPromiseRef.current === tracked) flushPromiseRef.current = null;
+      setSaving(false);
+    });
+    flushPromiseRef.current = tracked;
+    return tracked;
   }, []);
   flushSaveRef.current = flushSave;
 
