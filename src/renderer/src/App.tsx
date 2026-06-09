@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
 import {
   DEFAULT_SETTINGS,
-  LEGACY_GEMINI_PROFILE_ID,
   llmProfileDisplayName,
   rendererLlmRouting,
   type MermaidRenderer,
@@ -947,11 +946,24 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     [applyLlmSettings],
   );
 
+  const routingSeqRef = useRef(0);
+  const routingQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const handleSetRouting = useCallback(
     (mainId: string, fallbackIds: string[]): void => {
-      window.api.setLlmRouting(mainId, fallbackIds).then(applyLlmSettings, (err: unknown) => {
-        setToast(ipcErrorMessage(err));
-      });
+      // 連打時に直前のクリックを織り込んだ状態から次の計算ができるよう楽観更新し、
+      // IPC は直列化して最後の応答だけを正とする
+      const seq = (routingSeqRef.current += 1);
+      setLlm((prev) => ({ ...prev, llmMainProfileId: mainId, llmFallbackProfileIds: fallbackIds }));
+      routingQueueRef.current = routingQueueRef.current.then(() =>
+        window.api.setLlmRouting(mainId, fallbackIds).then(
+          (settings) => {
+            if (routingSeqRef.current === seq) applyLlmSettings(settings);
+          },
+          (err: unknown) => {
+            if (routingSeqRef.current === seq) setToast(ipcErrorMessage(err));
+          },
+        ),
+      );
     },
     [applyLlmSettings],
   );
@@ -987,13 +999,11 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
     void window.api.setSetting("readingWidth", defaults.readingWidth).catch(() => undefined);
     void window.api.setSetting("mermaidRenderer", DEFAULT_SETTINGS.mermaidRenderer).catch(() => undefined);
-    // ルーティングを内蔵 Gemini に戻す。登録済みプロファイルとキーは資産なので消さない
-    void window.api
-      .setSetting("geminiModel", DEFAULT_SETTINGS.geminiModel)
-      .catch(() => undefined)
-      .then(() => window.api.setLlmRouting(LEGACY_GEMINI_PROFILE_ID, []))
-      .then(applyLlmSettings)
-      .catch(() => undefined);
+    // 内蔵 Gemini プロファイルを初期状態に復元してメインへ戻す。
+    // 追加登録されたプロファイルとキーは資産なので消さない
+    window.api.resetLlmRouting().then(applyLlmSettings, (err: unknown) => {
+      setToast(ipcErrorMessage(err));
+    });
   }, [applyLlmSettings]);
 
   const currentMatch = matches[matchCursor];

@@ -16,6 +16,7 @@ const api: KongyoApi = {
   upsertLlmProfile: (input) => ipcRenderer.invoke("llm:upsert-profile", input),
   deleteLlmProfile: (id) => ipcRenderer.invoke("llm:delete-profile", { id }),
   setLlmRouting: (mainId, fallbackIds) => ipcRenderer.invoke("llm:set-routing", { mainId, fallbackIds }),
+  resetLlmRouting: () => ipcRenderer.invoke("llm:reset-routing"),
   reviewSpec: (content) => ipcRenderer.invoke("assist:review", { content }),
   weaveSpec: (input) => ipcRenderer.invoke("assist:weave", input),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),

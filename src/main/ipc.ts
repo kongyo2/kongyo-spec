@@ -16,7 +16,7 @@ import {
   toRendererSettings,
 } from "@shared/schemas/settings";
 import { reviewSpec, weaveSpec } from "./assist";
-import { deleteLlmProfile, setLlmRouting, upsertLlmProfile } from "./llmProfiles";
+import { deleteLlmProfile, resetLlmRouting, setLlmRouting, upsertLlmProfile } from "./llmProfiles";
 import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
 import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
 
@@ -58,6 +58,8 @@ export function registerIpc(): void {
   ipcMain.handle("llm:set-routing", (_event, raw: unknown) =>
     toRendererSettings(setLlmRouting(parseSetLlmRoutingInput(raw))),
   );
+
+  ipcMain.handle("llm:reset-routing", () => toRendererSettings(resetLlmRouting()));
 
   ipcMain.on("settings:get-theme", (event) => {
     event.returnValue = readSettings().theme;

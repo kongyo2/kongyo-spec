@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_SETTINGS,
+  LEGACY_GEMINI_PROFILE_ID,
   legacyGeminiProfile,
   MAX_LLM_PROFILES,
   type LlmProfile,
@@ -13,6 +15,13 @@ function persist<K extends keyof Settings>(key: K, value: Settings[K]): void {
   if (!writeSetting(key, value)) {
     throw new Error("設定ストアが利用できないため保存できませんでした。");
   }
+}
+
+function persistProfiles(profiles: LlmProfile[]): void {
+  if (profiles.some((profile) => profile.apiKey !== null) && !isSecretEncryptionAvailable()) {
+    throw new Error("この環境では OS の安全な保存領域を利用できないため、API キーを含むモデル設定を保存できません。");
+  }
+  persist("llmProfiles", profiles);
 }
 
 function materializedProfiles(settings: Settings): LlmProfile[] {
@@ -42,7 +51,7 @@ export function upsertLlmProfile(input: UpsertLlmProfileInput): Settings {
   };
   if (index === -1) profiles.push(next);
   else profiles[index] = next;
-  persist("llmProfiles", profiles);
+  persistProfiles(profiles);
   if (settings.llmMainProfileId === null) persist("llmMainProfileId", profiles[0]!.id);
   return readSettings();
 }
@@ -50,7 +59,7 @@ export function upsertLlmProfile(input: UpsertLlmProfileInput): Settings {
 export function deleteLlmProfile(id: string): Settings {
   const settings = readSettings();
   const profiles = materializedProfiles(settings).filter((profile) => profile.id !== id);
-  persist("llmProfiles", profiles);
+  persistProfiles(profiles);
   const fallbackIds = settings.llmFallbackProfileIds.filter(
     (fallbackId) => fallbackId !== id && profiles.some((profile) => profile.id === fallbackId),
   );
@@ -74,4 +83,18 @@ export function setLlmRouting(input: SetLlmRoutingInput): Settings {
   persist("llmMainProfileId", mainId);
   persist("llmFallbackProfileIds", fallbackIds);
   return readSettings();
+}
+
+export function resetLlmRouting(): Settings {
+  persist("geminiModel", DEFAULT_SETTINGS.geminiModel);
+  const settings = readSettings();
+  if (settings.llmProfiles.length > 0) {
+    const pristine = legacyGeminiProfile(DEFAULT_SETTINGS.geminiModel);
+    const profiles = [...settings.llmProfiles];
+    const index = profiles.findIndex((profile) => profile.id === LEGACY_GEMINI_PROFILE_ID);
+    if (index === -1) profiles.unshift(pristine);
+    else profiles[index] = pristine;
+    persistProfiles(profiles);
+  }
+  return setLlmRouting({ mainId: LEGACY_GEMINI_PROFILE_ID, fallbackIds: [] });
 }

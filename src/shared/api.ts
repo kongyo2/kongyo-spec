@@ -45,6 +45,7 @@ export interface KongyoApi {
   upsertLlmProfile(input: UpsertLlmProfileInput): Promise<RendererSettings>;
   deleteLlmProfile(id: string): Promise<RendererSettings>;
   setLlmRouting(mainId: string | null, fallbackIds: string[]): Promise<RendererSettings>;
+  resetLlmRouting(): Promise<RendererSettings>;
   reviewSpec(content: string): Promise<AssistReview>;
   weaveSpec(input: WeaveSpecInput): Promise<AssistWeave>;
   openExternal(url: string): Promise<void>;
