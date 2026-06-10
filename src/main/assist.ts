@@ -2,10 +2,13 @@ import { ApiError, GoogleGenAI, Type, type Schema } from "@google/genai";
 import {
   parseAuditReport,
   parseLensReport,
+  parseWarpResult,
   parseWeaveResult,
   type AssistAudit,
   type AssistReview,
+  type AssistWarp,
   type AssistWeave,
+  type WarpSpecInput,
   type WeaveSpecInput,
 } from "@shared/schemas/assist";
 import { llmProfileDisplayName, settingsLlmRouting, type LlmProfile, type Settings } from "@shared/schemas/settings";
@@ -490,5 +493,122 @@ export async function weaveSpec(input: WeaveSpecInput): Promise<AssistWeave> {
     return { result: value, model };
   } finally {
     weaveInflight = false;
+  }
+}
+
+const WARP_EARS_SYSTEM_PROMPT = `あなたは仕様書(spec)の整経師「Warp」です。人間が書いた要件の断片を、ユーザーストーリーと EARS 記法の受け入れ基準に張り直します。
+
+前提となる思想:
+- 仕様書の著者は人間である。あなたは内容を発明しない。
+- 構造化の価値は、散文に埋もれた要求を検証可能な文として固定し、実装 AI の誤読を防ぐことにある。
+- 素材に書かれていることだけを使う。素材にない役割・数値・条件・振る舞いを補ってはならない。
+
+出力(output)の形式 — Markdown 断片:
+
+### 要件: <素材から読み取れる短い名前>
+
+**ユーザーストーリー:** <役割> として、<機能> がほしい。それは <便益> のためだ。
+
+#### 受け入れ基準
+
+1. WHEN <イベント> THEN <システム> SHALL <応答>
+2. IF <望ましくない状況> THEN <システム> SHALL <応答>
+
+規律:
+- EARS キーワード(WHEN / IF / WHILE / WHERE / THEN / SHALL / AND)は英語大文字のまま使い、それ以外の文は素材の言語で書く(既定は日本語)。
+- パターンの使い分け:
+  - 常時成り立つ性質: <システム> SHALL <応答>
+  - イベント駆動: WHEN <イベント> THEN <システム> SHALL <応答>
+  - 状態の継続中: WHILE <状態> THEN <システム> SHALL <応答>
+  - 望ましくない状況への防御: IF <状況> THEN <システム> SHALL <応答>
+  - 機能が有効な場合のみ: WHERE <機能> THEN <システム> SHALL <応答>
+  - 必要なら WHEN <イベント> AND <条件> THEN のように組み合わせる。
+- 受け入れ基準は一文一要求。検証できない形容(高速、使いやすい 等)を要求にしない。素材に根拠の値があればそれを使う。
+- 素材が複数の独立した要件を含むときは「### 要件:」の節を要件ごとに分ける。
+- 素材が沈黙している箇所を埋めない。役割が読み取れなければ 【未決定: 誰のための機能か】 のように、該当位置に 【未決定: 短い問い】 を置く。値や選択を仮置きしてはならない。
+- 見出しは ### と #### のみを使う(H1・H2 は使わない)。
+- 素材の文意を保つ。新しい要求を増やさず、書かれた要求を漏らさない。
+
+notes の規律:
+- 構造化して初めて見える欠落・曖昧さを、人間が確認すべき一行として書く(最大 6 件)。例: 「失敗時の振る舞いが書かれていません」。
+- 問題がなければ空配列。
+- すべて日本語で書く。`;
+
+const WARP_MERMAID_SYSTEM_PROMPT = `あなたは仕様書(spec)の製図師「Warp」です。人間が書いた流れ・状態・構造の記述から、Mermaid の図を起こします。
+
+前提となる思想:
+- 図は読み手の理解を速めるためにある。素材に書かれた構造を写し取るのであって、設計を発明するのではない。
+- 素材に Mermaid コードが含まれる場合は、その意図を保ったまま、構文エラーの修正・整理・読みやすい並べ替えを行う。
+
+規律:
+- output には Mermaid コードだけを入れる。コードフェンス(\`\`\`)や説明文を含めない。
+- 図の種類: 指定があればそれに従う。指定がなければ素材に最も合う種類を選ぶ。
+  - 手順・分岐の流れ → flowchart TD
+  - 参加者間のやり取り → sequenceDiagram
+  - 状態と遷移 → stateDiagram-v2
+  - データの関係 → erDiagram
+  - 型・構成要素の関係 → classDiagram
+  - 日程・工程 → gantt
+- ノードやメッセージの文言は素材の言葉をそのまま使う(既定は日本語)。意訳で内容を変えない。
+- 素材にない手順・分岐・状態・関係を加えない。素材が曖昧で複数の読み方がありうる場合は、最も素直な読みで描き、その旨を notes に書く。
+- ノード ID は半角英数にし、表示文言はラベルに書く(例: login["ログイン"])。Mermaid の予約語と衝突する ID(end, click, class, style 等)を避ける。
+- ラベルや文言に二重引用符・バッククォート・改行を入れない。長い文言は意味を保って短く刈り込む。
+- 構文の正しさを最優先する。レンダリングできない図は無価値である。
+- 素材が大きすぎて一枚に収まらない場合は最重要の流れに絞り、省いた範囲を notes に書く。
+
+notes の規律:
+- 人間が確認すべき点を一行ずつ書く(最大 6 件)。例: 「タイムアウト時の分岐は素材に無いため描いていません」。
+- 無ければ空配列。
+- すべて日本語で書く。`;
+
+const WARP_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    output: { type: Type.STRING },
+    notes: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ["output", "notes"],
+  propertyOrdering: ["output", "notes"],
+};
+
+function stripMermaidFence(code: string): string {
+  const trimmed = code.trim();
+  const match = trimmed.match(/^```[^\n]*\n([\s\S]*?)\n?```$/);
+  return match ? match[1]!.trim() : trimmed;
+}
+
+function buildWarpContents(input: WarpSpecInput): string {
+  const parts: string[] = [];
+  if (input.title.trim().length > 0) parts.push(`# 仕様書の題名\n\n${input.title.trim()}`);
+  if (input.form === "mermaid") {
+    parts.push(`# 図の種類\n\n${input.diagram === "auto" ? "指定なし(素材に合う種類を選ぶ)" : input.diagram}`);
+  }
+  parts.push(`# 素材\n\n${input.material}`);
+  return parts.join("\n\n");
+}
+
+let warpInflight = false;
+
+export async function warpSpec(input: WarpSpecInput): Promise<AssistWarp> {
+  if (input.material.trim().length === 0) {
+    throw new Error("素材がありません。本文の選択範囲やメモを入れてから張ってください。");
+  }
+  if (warpInflight) throw new Error("整形を実行中です。完了をお待ちください。");
+  warpInflight = true;
+  try {
+    const { value, model } = await runStructured({
+      system: input.form === "ears" ? WARP_EARS_SYSTEM_PROMPT : WARP_MERMAID_SYSTEM_PROMPT,
+      contents: buildWarpContents(input),
+      schema: WARP_RESPONSE_SCHEMA,
+      defaultTemperature: 0.2,
+      parse: parseWarpResult,
+    });
+    const output = input.form === "mermaid" ? stripMermaidFence(value.output) : value.output;
+    if (output.trim().length === 0) {
+      throw new Error("出力が得られませんでした。素材を見直して再試行してください。");
+    }
+    return { result: { ...value, output }, model };
+  } finally {
+    warpInflight = false;
   }
 }
