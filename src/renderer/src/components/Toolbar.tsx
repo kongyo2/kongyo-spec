@@ -2,18 +2,21 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
+  Columns2,
   type LucideIcon,
   Monitor,
   Moon,
+  Radar,
   Search,
   Settings,
   Spool,
   Sun,
   Telescope,
 } from "lucide-react";
+import type { EditorViewMode } from "@shared/schemas/settings";
 import type { ThemePreference } from "../lib/theme";
 
-export type EditorMode = "preview" | "source";
+export type EditorMode = EditorViewMode;
 
 interface ToolbarProps {
   specTitle: string;
@@ -28,6 +31,8 @@ interface ToolbarProps {
   lensOpen: boolean;
   lensAvailable: boolean;
   loomOpen: boolean;
+  frayOpen: boolean;
+  frayCount: number;
   pendingCount: number;
   onMode: (mode: EditorMode) => void;
   onPrev: () => void;
@@ -35,6 +40,7 @@ interface ToolbarProps {
   onSearch: () => void;
   onToggleLens: () => void;
   onToggleLoom: () => void;
+  onToggleFray: () => void;
   onJumpPending: () => void;
   onCycleTheme: () => void;
   onOpenSettings: () => void;
@@ -68,6 +74,8 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     lensOpen,
     lensAvailable,
     loomOpen,
+    frayOpen,
+    frayCount,
     pendingCount,
     onMode,
     onPrev,
@@ -75,6 +83,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     onSearch,
     onToggleLens,
     onToggleLoom,
+    onToggleFray,
     onJumpPending,
     onCycleTheme,
     onOpenSettings,
@@ -139,6 +148,17 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
           </button>
           <button
             type="button"
+            className={`mode-split${mode === "split" ? " active" : ""}`}
+            aria-pressed={mode === "split"}
+            aria-label="Split — 左右分割表示 (Ctrl/Cmd+\)"
+            title="左右分割 — 編集とプレビューを並べる"
+            onClick={() => onMode("split")}
+          >
+            <Columns2 size={13} aria-hidden="true" />
+            Split
+          </button>
+          <button
+            type="button"
             className={mode === "source" ? "active" : ""}
             aria-pressed={mode === "source"}
             onClick={() => onMode("source")}
@@ -161,7 +181,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
           title="仕様を織る — 素材と決定から仕様文を組み上げる"
         >
           <Spool size={14} aria-hidden="true" />
-          Loom
+          <span className="toggle-text">Loom</span>
         </button>
         <button
           type="button"
@@ -173,7 +193,20 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
           title="仕様書を診る — 過剰な具体と未決定を検出"
         >
           <Telescope size={14} aria-hidden="true" />
-          Lens
+          <span className="toggle-text">Lens</span>
+        </button>
+        <button
+          type="button"
+          className={`icon-button lens-toggle${frayOpen ? " active" : ""}`}
+          onClick={onToggleFray}
+          disabled={!lensAvailable}
+          aria-pressed={frayOpen}
+          aria-label={`Fray — ほつれを検出 (Ctrl/Cmd+G)${frayCount > 0 ? ` — ${frayCount} 件` : ""}`}
+          title="ほつれを検出 — 矛盾・リンク切れ・表記ゆれを検査"
+        >
+          <Radar size={14} aria-hidden="true" />
+          <span className="toggle-text">Fray</span>
+          {frayCount > 0 ? <span className="fray-count">{frayCount > 99 ? "99+" : frayCount}</span> : null}
         </button>
         <button
           type="button"
@@ -183,7 +216,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
           title="テーマ切り替え"
         >
           <ThemeIcon size={14} aria-hidden="true" />
-          {THEME_TEXT[themePreference]}
+          <span className="toggle-text">{THEME_TEXT[themePreference]}</span>
         </button>
         <button
           type="button"

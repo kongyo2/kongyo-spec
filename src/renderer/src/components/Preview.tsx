@@ -25,6 +25,7 @@ interface PreviewProps {
   onHeadings: (headings: HeadingInfo[]) => void;
   onActiveHeading: (id: string | null) => void;
   onLinkActivate: (href: string) => void;
+  scrollSyncRef?: React.MutableRefObject<((ratio: number) => void) | null>;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -91,6 +92,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     onHeadings,
     onActiveHeading,
     onLinkActivate,
+    scrollSyncRef,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -189,6 +191,19 @@ export function Preview(props: PreviewProps): React.ReactElement {
     if (renderedKeyRef.current !== renderKey) return;
     if (scrollToId(container, pendingAnchor)) anchorHandledRef.current();
   }, [html, pendingAnchor, renderKey]);
+
+  useEffect(() => {
+    if (!scrollSyncRef) return;
+    scrollSyncRef.current = (ratio: number): void => {
+      const container = containerRef.current;
+      if (!container) return;
+      const range = container.scrollHeight - container.clientHeight;
+      container.scrollTop = range > 0 ? ratio * range : 0;
+    };
+    return () => {
+      scrollSyncRef.current = null;
+    };
+  }, [scrollSyncRef]);
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     const target = event.target as HTMLElement;

@@ -59,6 +59,7 @@ interface EditorProps {
   jump: { start: number; end: number } | null;
   onJumpHandled: () => void;
   onSelectionChange?: (start: number, end: number) => void;
+  onScrollRatio?: (ratio: number) => void;
 }
 
 export function Editor({
@@ -68,6 +69,7 @@ export function Editor({
   jump,
   onJumpHandled,
   onSelectionChange,
+  onScrollRatio,
 }: EditorProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -113,6 +115,10 @@ export function Editor({
     if (!textarea || !backdrop) return;
     backdrop.scrollTop = textarea.scrollTop;
     backdrop.scrollLeft = textarea.scrollLeft;
+    if (onScrollRatio) {
+      const range = textarea.scrollHeight - textarea.clientHeight;
+      onScrollRatio(range > 0 ? textarea.scrollTop / range : 0);
+    }
   };
 
   useEffect(() => {

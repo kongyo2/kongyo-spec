@@ -12,6 +12,15 @@ export type ReadingWidth = z.infer<typeof ReadingWidthSchema>;
 export const MermaidRendererSchema = z.enum(["classic", "beautiful"]);
 export type MermaidRenderer = z.infer<typeof MermaidRendererSchema>;
 
+export const LineHeightSchema = z.enum(["compact", "normal", "relaxed"]);
+export type LineHeight = z.infer<typeof LineHeightSchema>;
+
+export const EditorViewModeSchema = z.enum(["preview", "split", "source"]);
+export type EditorViewMode = z.infer<typeof EditorViewModeSchema>;
+
+export const SPLIT_RATIO = { min: 0.25, max: 0.75, default: 0.5 } as const;
+const SplitRatioSchema = z.number().min(SPLIT_RATIO.min).max(SPLIT_RATIO.max);
+
 const ModelNameSchema = z
   .string()
   .trim()
@@ -70,8 +79,13 @@ export const SettingsSchema = z.object({
   accent: AccentSchema.default("indigo"),
   editorFontSize: EditorFontSizeSchema.default(EDITOR_FONT_SIZE.default),
   previewFontSize: PreviewFontSizeSchema.default(PREVIEW_FONT_SIZE.default),
+  editorLineHeight: LineHeightSchema.default("normal"),
+  previewLineHeight: LineHeightSchema.default("normal"),
   readingWidth: ReadingWidthSchema.default("normal"),
   mermaidRenderer: MermaidRendererSchema.default("classic"),
+  defaultViewMode: EditorViewModeSchema.default("preview"),
+  splitRatio: SplitRatioSchema.default(SPLIT_RATIO.default),
+  frayAutoCheck: z.boolean().default(true),
   lastActiveSpecId: z.string().min(1).max(200).nullable().default(null),
   windowBounds: WindowBoundsSchema.nullable().default(null),
   geminiApiKey: ApiKeySchema.max(512).nullable().default(null),
@@ -199,8 +213,13 @@ export const SetSettingInputSchema = z.discriminatedUnion("key", [
   z.object({ key: z.literal("accent"), value: AccentSchema }),
   z.object({ key: z.literal("editorFontSize"), value: EditorFontSizeSchema }),
   z.object({ key: z.literal("previewFontSize"), value: PreviewFontSizeSchema }),
+  z.object({ key: z.literal("editorLineHeight"), value: LineHeightSchema }),
+  z.object({ key: z.literal("previewLineHeight"), value: LineHeightSchema }),
   z.object({ key: z.literal("readingWidth"), value: ReadingWidthSchema }),
   z.object({ key: z.literal("mermaidRenderer"), value: MermaidRendererSchema }),
+  z.object({ key: z.literal("defaultViewMode"), value: EditorViewModeSchema }),
+  z.object({ key: z.literal("splitRatio"), value: SplitRatioSchema }),
+  z.object({ key: z.literal("frayAutoCheck"), value: z.boolean() }),
   z.object({ key: z.literal("lastActiveSpecId"), value: z.string().min(1).max(200).nullable() }),
   z.object({ key: z.literal("windowBounds"), value: WindowBoundsSchema.nullable() }),
   z.object({ key: z.literal("geminiApiKey"), value: ApiKeySchema.max(512).nullable() }),
