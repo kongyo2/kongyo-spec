@@ -270,6 +270,85 @@ export function parseWarpSpecInput(raw: unknown): WarpSpecInput {
   return WarpSpecInputSchema.parse(raw);
 }
 
+export const TAILOR_TASK_SIZES = ["S", "M", "L"] as const;
+export const TailorTaskSizeSchema = z.enum(TAILOR_TASK_SIZES);
+export type TailorTaskSize = z.infer<typeof TailorTaskSizeSchema>;
+
+export const MAX_TAILOR_TASKS = 16;
+
+const StringListSchema = (maxItem: number, keep: number) =>
+  z
+    .array(z.string().max(maxItem))
+    .max(64)
+    .nullish()
+    .transform((items) =>
+      (items ?? [])
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+        .slice(0, keep),
+    );
+
+export const TailorTaskSchema = z.object({
+  title: TrimmedSchema(300),
+  summary: TrimmedSchema(2000),
+  acceptance: StringListSchema(800, 8),
+  verification: TrimmedSchema(800),
+  dependsOn: z
+    .array(z.number().int().min(1).max(999))
+    .max(24)
+    .nullish()
+    .transform((items) => items ?? []),
+  size: z
+    .preprocess((value) => (typeof value === "string" ? value.trim().toUpperCase() : value), TailorTaskSizeSchema)
+    .catch("M"),
+});
+export type TailorTask = z.infer<typeof TailorTaskSchema>;
+
+export const TailorPlanSchema = z
+  .object({
+    approach: TrimmedSchema(4000),
+    tasks: z
+      .array(TailorTaskSchema)
+      .max(64)
+      .transform((items) => items.filter((task) => task.title.length > 0).slice(0, MAX_TAILOR_TASKS)),
+    blockers: StringListSchema(800, 10),
+    notes: StringListSchema(800, 6),
+  })
+  .transform((plan) => ({
+    ...plan,
+    // 存在しないタスク番号・自己参照への依存は捨てる
+    tasks: plan.tasks.map((task, index) => ({
+      ...task,
+      dependsOn: [...new Set(task.dependsOn)]
+        .filter((num) => num >= 1 && num <= plan.tasks.length && num !== index + 1)
+        .sort((a, b) => a - b),
+    })),
+  }));
+export type TailorPlan = z.infer<typeof TailorPlanSchema>;
+
+export function parseTailorPlan(raw: unknown): TailorPlan {
+  return TailorPlanSchema.parse(raw);
+}
+
+export const TailorSpecInputSchema = ReviewSpecInputSchema;
+export function parseTailorSpecInput(raw: unknown): ReviewSpecInput {
+  return TailorSpecInputSchema.parse(raw);
+}
+
+export interface AssistTailor {
+  plan: TailorPlan;
+  model: string;
+}
+
+export const ASSIST_KINDS = ["review", "audit", "weave", "warp", "tailor"] as const;
+export const AssistKindSchema = z.enum(ASSIST_KINDS);
+export type AssistKind = z.infer<typeof AssistKindSchema>;
+
+export const CancelAssistInputSchema = z.object({ kind: AssistKindSchema });
+export function parseCancelAssistInput(raw: unknown): z.infer<typeof CancelAssistInputSchema> {
+  return CancelAssistInputSchema.parse(raw);
+}
+
 export const WeaveQaSchema = z.object({
   question: z.string().min(1).max(2000),
   answer: z.string().min(1).max(4000),

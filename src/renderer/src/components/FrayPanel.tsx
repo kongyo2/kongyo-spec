@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Check,
   CircleAlert,
+  CircleStop,
   History,
   Info,
   KeyRound,
@@ -28,6 +29,7 @@ interface FrayPanelProps {
   apiKeySet: boolean;
   docContent: string;
   onRunAudit: () => void;
+  onCancelAudit: () => void;
   onClose: () => void;
   onJumpOffset: (start: number, end: number) => void;
   onJumpExcerpt: (excerpt: string) => void;
@@ -103,6 +105,7 @@ export function FrayPanel({
   apiKeySet,
   docContent,
   onRunAudit,
+  onCancelAudit,
   onClose,
   onJumpOffset,
   onJumpExcerpt,
@@ -121,6 +124,10 @@ export function FrayPanel({
         <LoaderCircle className="lens-spin" size={18} aria-hidden="true" />
         <p>記述同士の衝突を探しています…</p>
         <span className="lens-model-chip">{audit.model}</span>
+        <button type="button" className="loom-ghost assist-cancel" onClick={onCancelAudit}>
+          <CircleStop size={13} aria-hidden="true" />
+          中止
+        </button>
       </div>
     );
   } else if (audit.status === "error") {

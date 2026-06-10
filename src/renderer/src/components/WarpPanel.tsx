@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ArrowDownToLine,
+  CircleStop,
   DraftingCompass,
   KeyRound,
   LightbulbIcon,
@@ -55,6 +56,7 @@ interface WarpPanelProps {
   mermaidRenderer: MermaidRenderer;
   onUpdate: (patch: Partial<WarpSession>) => void;
   onRun: () => void;
+  onCancel: () => void;
   onInsert: () => void;
   onPullSelection: () => void;
   onClose: () => void;
@@ -160,6 +162,7 @@ export function WarpPanel({
   mermaidRenderer,
   onUpdate,
   onRun,
+  onCancel,
   onInsert,
   onPullSelection,
   onClose,
@@ -192,6 +195,10 @@ export function WarpPanel({
             : "素材の流れを読み取り、Mermaid に写し取っています。"}
         </p>
         <span className="lens-model-chip">{modelLabel}</span>
+        <button type="button" className="loom-ghost assist-cancel" onClick={onCancel}>
+          <CircleStop size={13} aria-hidden="true" />
+          中止
+        </button>
       </div>
     );
   } else if (session.phase === "error") {

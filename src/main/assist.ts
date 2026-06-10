@@ -1,11 +1,15 @@
 import { ApiError, GoogleGenAI, Type, type Schema } from "@google/genai";
 import {
+  MAX_TAILOR_TASKS,
   parseAuditReport,
   parseLensReport,
+  parseTailorPlan,
   parseWarpResult,
   parseWeaveResult,
   type AssistAudit,
+  type AssistKind,
   type AssistReview,
+  type AssistTailor,
   type AssistWarp,
   type AssistWeave,
   type WarpSpecInput,
@@ -100,9 +104,32 @@ class HttpStatusError extends Error {
   }
 }
 
+class CancelledError extends Error {
+  constructor() {
+    super("中止しました。");
+    this.name = "CancelledError";
+  }
+}
+
 const REQUEST_TIMEOUT_MS = 120_000;
 
+// 種別ごとに実行中の呼び出しを 1 つだけ持ち、ユーザー操作で中断できるようにする
+const inflight = new Map<AssistKind, AbortController>();
+
+export function cancelAssist(kind: AssistKind): void {
+  inflight.get(kind)?.abort();
+}
+
+const KIND_LABEL: Record<AssistKind, string> = {
+  review: "レビュー",
+  audit: "深層検査",
+  weave: "織り",
+  warp: "整形",
+  tailor: "仕立て",
+};
+
 function friendlyError(err: unknown): Error {
+  if (err instanceof CancelledError) return err;
   if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
     return new Error("応答がタイムアウトしました。エンドポイントとモデルを確認して再試行してください。");
   }
@@ -173,6 +200,7 @@ interface ProviderCall {
   contents: string;
   schema: Schema;
   temperature: number;
+  signal: AbortSignal;
 }
 
 async function callGemini(args: ProviderCall): Promise<unknown> {
@@ -193,6 +221,7 @@ async function callGemini(args: ProviderCall): Promise<unknown> {
       responseMimeType: "application/json",
       responseSchema: args.schema,
       temperature: args.temperature,
+      abortSignal: args.signal,
     },
   });
   const text = response.text;
@@ -208,12 +237,13 @@ async function postChatCompletions(
   url: string,
   headers: Record<string, string>,
   body: Record<string, unknown>,
+  signal: AbortSignal,
 ): Promise<unknown> {
   const response = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -251,7 +281,7 @@ async function callOpenAiCompatible(args: ProviderCall): Promise<unknown> {
   for (const body of attempts) {
     try {
       // eslint-disable-next-line no-await-in-loop -- 前段の 400 を確認してからパラメータを削って再試行する
-      payload = await postChatCompletions(url, headers, body);
+      payload = await postChatCompletions(url, headers, body, args.signal);
       rejected = null;
       break;
     } catch (err) {
@@ -278,58 +308,60 @@ interface StructuredTask<T> {
   parse: (raw: unknown) => T;
 }
 
-async function runStructured<T>(task: StructuredTask<T>): Promise<{ value: T; model: string }> {
-  const settings = readSettings();
-  const routing = settingsLlmRouting(settings);
-  const chain = [routing.main, ...routing.fallbacks];
-  const failures: string[] = [];
-  for (const profile of chain) {
-    const call: ProviderCall = {
-      profile,
-      settings,
-      system: task.system,
-      contents: task.contents,
-      schema: task.schema,
-      temperature: profile.temperature ?? task.defaultTemperature,
-    };
-    try {
-      // eslint-disable-next-line no-await-in-loop -- フォールバックは前段の失敗を確認してから順に試す
-      const raw = profile.provider === "gemini" ? await callGemini(call) : await callOpenAiCompatible(call);
-      let value: T;
+async function runStructured<T>(kind: AssistKind, task: StructuredTask<T>): Promise<{ value: T; model: string }> {
+  if (inflight.has(kind)) throw new Error(`${KIND_LABEL[kind]}を実行中です。完了をお待ちください。`);
+  const controller = new AbortController();
+  inflight.set(kind, controller);
+  try {
+    const settings = readSettings();
+    const routing = settingsLlmRouting(settings);
+    const chain = [routing.main, ...routing.fallbacks];
+    const failures: string[] = [];
+    for (const profile of chain) {
+      if (controller.signal.aborted) throw new CancelledError();
+      const call: ProviderCall = {
+        profile,
+        settings,
+        system: task.system,
+        contents: task.contents,
+        schema: task.schema,
+        temperature: profile.temperature ?? task.defaultTemperature,
+        signal: controller.signal,
+      };
       try {
-        value = task.parse(raw);
-      } catch {
-        throw new Error("応答が想定する形式ではありませんでした。再試行してください。");
+        // eslint-disable-next-line no-await-in-loop -- フォールバックは前段の失敗を確認してから順に試す
+        const raw = profile.provider === "gemini" ? await callGemini(call) : await callOpenAiCompatible(call);
+        let value: T;
+        try {
+          value = task.parse(raw);
+        } catch {
+          throw new Error("応答が想定する形式ではありませんでした。再試行してください。");
+        }
+        return { value, model: llmProfileDisplayName(profile) };
+      } catch (err) {
+        if (controller.signal.aborted) throw new CancelledError();
+        const friendly = friendlyError(err);
+        if (chain.length === 1) throw friendly;
+        failures.push(`${llmProfileDisplayName(profile)}: ${friendly.message}`);
       }
-      return { value, model: llmProfileDisplayName(profile) };
-    } catch (err) {
-      const friendly = friendlyError(err);
-      if (chain.length === 1) throw friendly;
-      failures.push(`${llmProfileDisplayName(profile)}: ${friendly.message}`);
     }
+    throw new Error(`すべてのモデルで失敗しました — ${failures.join(" ／ ")}`);
+  } finally {
+    inflight.delete(kind);
   }
-  throw new Error(`すべてのモデルで失敗しました — ${failures.join(" ／ ")}`);
 }
-
-let reviewInflight = false;
 
 export async function reviewSpec(content: string): Promise<AssistReview> {
   if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてからレビューしてください。");
   if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎてレビューできません(約 24 万字まで)。");
-  if (reviewInflight) throw new Error("レビューを実行中です。完了をお待ちください。");
-  reviewInflight = true;
-  try {
-    const { value, model } = await runStructured({
-      system: SYSTEM_PROMPT,
-      contents: `レビュー対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
-      schema: RESPONSE_SCHEMA,
-      defaultTemperature: 0.2,
-      parse: parseLensReport,
-    });
-    return { report: value, model };
-  } finally {
-    reviewInflight = false;
-  }
+  const { value, model } = await runStructured("review", {
+    system: SYSTEM_PROMPT,
+    contents: `レビュー対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
+    schema: RESPONSE_SCHEMA,
+    defaultTemperature: 0.2,
+    parse: parseLensReport,
+  });
+  return { report: value, model };
 }
 
 const AUDIT_SYSTEM_PROMPT = `あなたは仕様書(spec)の整合性監査人「Fray」です。布のほつれを探すように、一つの仕様書の内部で互いに衝突している記述だけを検出します。
@@ -385,25 +417,17 @@ const AUDIT_RESPONSE_SCHEMA: Schema = {
   propertyOrdering: ["verdict", "findings"],
 };
 
-let auditInflight = false;
-
 export async function auditSpec(content: string): Promise<AssistAudit> {
   if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてから検査してください。");
   if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎて検査できません(約 24 万字まで)。");
-  if (auditInflight) throw new Error("深層検査を実行中です。完了をお待ちください。");
-  auditInflight = true;
-  try {
-    const { value, model } = await runStructured({
-      system: AUDIT_SYSTEM_PROMPT,
-      contents: `検査対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
-      schema: AUDIT_RESPONSE_SCHEMA,
-      defaultTemperature: 0.2,
-      parse: parseAuditReport,
-    });
-    return { report: value, model };
-  } finally {
-    auditInflight = false;
-  }
+  const { value, model } = await runStructured("audit", {
+    system: AUDIT_SYSTEM_PROMPT,
+    contents: `検査対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
+    schema: AUDIT_RESPONSE_SCHEMA,
+    defaultTemperature: 0.2,
+    parse: parseAuditReport,
+  });
+  return { report: value, model };
 }
 
 const WEAVE_SYSTEM_PROMPT = `あなたは仕様書(spec)の織り手「Loom」です。AI 駆動開発のための仕様書を書く人間を補助します。
@@ -474,26 +498,18 @@ function buildWeaveContents(input: WeaveSpecInput): string {
   return parts.join("\n\n");
 }
 
-let weaveInflight = false;
-
 export async function weaveSpec(input: WeaveSpecInput): Promise<AssistWeave> {
   if (input.material.trim().length === 0 && input.qa.length === 0 && input.title.trim().length === 0) {
     throw new Error("素材がありません。メモや箇条書きを入れてから織ってください。");
   }
-  if (weaveInflight) throw new Error("織りを実行中です。完了をお待ちください。");
-  weaveInflight = true;
-  try {
-    const { value, model } = await runStructured({
-      system: WEAVE_SYSTEM_PROMPT,
-      contents: buildWeaveContents(input),
-      schema: WEAVE_RESPONSE_SCHEMA,
-      defaultTemperature: 0.3,
-      parse: parseWeaveResult,
-    });
-    return { result: value, model };
-  } finally {
-    weaveInflight = false;
-  }
+  const { value, model } = await runStructured("weave", {
+    system: WEAVE_SYSTEM_PROMPT,
+    contents: buildWeaveContents(input),
+    schema: WEAVE_RESPONSE_SCHEMA,
+    defaultTemperature: 0.3,
+    parse: parseWeaveResult,
+  });
+  return { result: value, model };
 }
 
 const WARP_EARS_SYSTEM_PROMPT = `あなたは仕様書(spec)の整経師「Warp」です。人間が書いた要件の断片を、ユーザーストーリーと EARS 記法の受け入れ基準に張り直します。
@@ -587,28 +603,92 @@ function buildWarpContents(input: WarpSpecInput): string {
   return parts.join("\n\n");
 }
 
-let warpInflight = false;
+const TAILOR_SYSTEM_PROMPT = `あなたは仕様書(spec)の仕立て屋「Tailor」です。人間が確定させた仕様書から、実装 AI に渡すための実装計画を裁断します。
+
+前提となる思想:
+- 仕様書は「何を作るか」を定める。計画は「どの順で、どう確かめながら作るか」を定める。どちらも新しい要求を発明しない。
+- 計画の価値は、実装 AI が一度に抱える文脈を小さく保ち、検証可能な単位で前進させることにある。
+- 仕様書が沈黙している実装詳細(ライブラリ、ファイル構成、内部設計)を計画で勝手に決めてはならない。それは実装者の領分である。
+
+approach(方針)の規律:
+- 仕様書の意図から導かれる進め方を 2〜4 文で書く。どの振る舞いから着手しなぜその順か、を中心に。
+- 仕様書に書かれていない技術選定を含めない。
+
+tasks(タスク)の規律:
+- 仕様書に書かれた振る舞い・受け入れ条件だけをタスクへ割り付ける。仕様にない作業(CI 整備、リファクタリング、ドキュメント整備など)を加えない。
+- 各タスクは完了が検証できる最小単位。1 タスク = 1 つの首尾一貫した振る舞い。書かれた要求を漏らさない。
+- title は短い一文。summary はそのタスクで実現する振る舞いを 1〜2 文で。
+- acceptance には、そのタスクが満たす受け入れ条件・要求を仕様書から逐語で引用する(要約・改変を禁止)。散文の中にあるなら一意に特定できる最小の断片でよい。対応する記述が無いタスクは作らない。
+- verification は完了を確かめる具体的な手順を一文(例: 「○○を操作し、□□が表示されることを確認する」)。仕様書にある値・条件をそのまま使う。
+- dependsOn は先行が必要なタスクの番号(1 始まり)の配列。順序に意味がなければ空配列。
+- size は相対規模: S(小さな一歩)、M(まとまった作業)、L(複数の振る舞いに跨がる)。L ばかりなら分割し直す。
+- 全体で最大 ${MAX_TAILOR_TASKS} 件。多すぎる計画は読まれない。重要な流れが通る順に並べる。
+
+blockers(着手をふさぐ未決定)の規律:
+- 本文中の 【未決定: …】、および仕様の沈黙のうち実装者が勝手に決めると手戻りが大きい事項を、人間が決めるべき問いとして一行ずつ書く。
+- 答えを提案しない。最大 8 件。無ければ空配列。
+
+notes の規律:
+- 計画に裁って初めて見える注意点を一行ずつ(最大 6 件)。例: 「タスク 3 と 5 は同じ画面に触れるため、続けて実装すると手戻りが少ない」。無ければ空配列。
+- 原文の引用を除き、すべて日本語で書く。`;
+
+const TAILOR_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    approach: { type: Type.STRING },
+    tasks: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          summary: { type: Type.STRING },
+          acceptance: { type: Type.ARRAY, items: { type: Type.STRING } },
+          verification: { type: Type.STRING },
+          dependsOn: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+          size: { type: Type.STRING, enum: ["S", "M", "L"] },
+        },
+        required: ["title", "summary", "acceptance", "verification", "dependsOn", "size"],
+        propertyOrdering: ["title", "summary", "acceptance", "verification", "dependsOn", "size"],
+      },
+    },
+    blockers: { type: Type.ARRAY, items: { type: Type.STRING } },
+    notes: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ["approach", "tasks", "blockers", "notes"],
+  propertyOrdering: ["approach", "tasks", "blockers", "notes"],
+};
+
+export async function tailorSpec(content: string): Promise<AssistTailor> {
+  if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてから計画を裁ってください。");
+  if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎます(約 24 万字まで)。");
+  const { value, model } = await runStructured("tailor", {
+    system: TAILOR_SYSTEM_PROMPT,
+    contents: `実装計画の元になる仕様書(Markdown)は以下のとおりです。\n\n${content}`,
+    schema: TAILOR_RESPONSE_SCHEMA,
+    defaultTemperature: 0.2,
+    parse: parseTailorPlan,
+  });
+  if (value.tasks.length === 0) {
+    throw new Error("タスクに裁ける記述が見つかりませんでした。振る舞いや受け入れ条件を書いてから再試行してください。");
+  }
+  return { plan: value, model };
+}
 
 export async function warpSpec(input: WarpSpecInput): Promise<AssistWarp> {
   if (input.material.trim().length === 0) {
     throw new Error("素材がありません。本文の選択範囲やメモを入れてから張ってください。");
   }
-  if (warpInflight) throw new Error("整形を実行中です。完了をお待ちください。");
-  warpInflight = true;
-  try {
-    const { value, model } = await runStructured({
-      system: input.form === "ears" ? WARP_EARS_SYSTEM_PROMPT : WARP_MERMAID_SYSTEM_PROMPT,
-      contents: buildWarpContents(input),
-      schema: WARP_RESPONSE_SCHEMA,
-      defaultTemperature: 0.2,
-      parse: parseWarpResult,
-    });
-    const output = input.form === "mermaid" ? stripMermaidFence(value.output) : value.output;
-    if (output.trim().length === 0) {
-      throw new Error("出力が得られませんでした。素材を見直して再試行してください。");
-    }
-    return { result: { ...value, output }, model };
-  } finally {
-    warpInflight = false;
+  const { value, model } = await runStructured("warp", {
+    system: input.form === "ears" ? WARP_EARS_SYSTEM_PROMPT : WARP_MERMAID_SYSTEM_PROMPT,
+    contents: buildWarpContents(input),
+    schema: WARP_RESPONSE_SCHEMA,
+    defaultTemperature: 0.2,
+    parse: parseWarpResult,
+  });
+  const output = input.form === "mermaid" ? stripMermaidFence(value.output) : value.output;
+  if (output.trim().length === 0) {
+    throw new Error("出力が得られませんでした。素材を見直して再試行してください。");
   }
+  return { result: { ...value, output }, model };
 }

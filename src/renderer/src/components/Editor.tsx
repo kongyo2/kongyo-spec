@@ -73,6 +73,9 @@ export function Editor({
 }: EditorProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  // プログラムによるジャンプ由来の scroll イベントではプレビュー同期を発火させない
+  // (ページ移動のアンカースクロールを比率同期が上書きしてしまうため)
+  const suppressSyncRef = useRef(false);
   const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
   const [html, setHtml] = useState<string>(() => plainCodeHtml(value));
 
@@ -115,6 +118,10 @@ export function Editor({
     if (!textarea || !backdrop) return;
     backdrop.scrollTop = textarea.scrollTop;
     backdrop.scrollLeft = textarea.scrollLeft;
+    if (suppressSyncRef.current) {
+      suppressSyncRef.current = false;
+      return;
+    }
     if (onScrollRatio) {
       const range = textarea.scrollHeight - textarea.clientHeight;
       onScrollRatio(range > 0 ? textarea.scrollTop / range : 0);
@@ -137,7 +144,9 @@ export function Editor({
     textarea.focus({ preventScroll: true });
     textarea.setSelectionRange(start, end);
     onSelectionChange?.(start, end);
-    textarea.scrollTop = Math.max(0, offsetBottom - textarea.clientHeight / 2);
+    const targetTop = Math.max(0, offsetBottom - textarea.clientHeight / 2);
+    if (textarea.scrollTop !== targetTop) suppressSyncRef.current = true;
+    textarea.scrollTop = targetTop;
     const backdrop = backdropRef.current;
     if (backdrop) {
       backdrop.scrollTop = textarea.scrollTop;

@@ -11,6 +11,10 @@ export function Outline({ headings, activeId }: OutlineProps): React.ReactElemen
     scrollToId(document.querySelector(".preview") ?? document, id);
   };
 
+  // ページ単位(h3 起点)でも全文(h2 起点)でも同じ見た目になるよう、
+  // 最上位の見出しレベルを基準にした相対インデントで描く
+  const minLevel = headings.reduce((min, heading) => Math.min(min, heading.level), 6);
+
   return (
     <aside className="outline" aria-label="On this page">
       <div className="sidebar-heading">On this page</div>
@@ -21,7 +25,9 @@ export function Outline({ headings, activeId }: OutlineProps): React.ReactElemen
           {headings.map((heading) => (
             <li
               key={heading.id}
-              className={`outline-item level-${heading.level}${heading.id === activeId ? " active" : ""}`}
+              className={`outline-item indent-${Math.min(heading.level - minLevel, 3)}${
+                heading.id === activeId ? " active" : ""
+              }`}
             >
               <button type="button" onClick={() => handleClick(heading.id)}>
                 {heading.text}
