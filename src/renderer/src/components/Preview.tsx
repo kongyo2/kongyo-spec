@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MermaidRenderer } from "@shared/schemas/settings";
+import { copyText } from "../lib/clipboard";
 import { safeDecode, scrollToId } from "../lib/dom";
 import { renderCached } from "../lib/markdown";
 import { renderMermaidIn } from "../lib/mermaid";
@@ -16,6 +17,8 @@ interface PreviewProps {
   pageContent: string;
   headingIds: string[];
   linkDefs: string;
+  /** この値が変わったときだけスクロール位置を先頭へ戻す(ページ移動など)。編集中の再レンダリングでは保持する */
+  scrollResetKey: string;
   theme: ResolvedTheme;
   mermaidRenderer: MermaidRenderer;
   searchQuery: string;
@@ -26,28 +29,6 @@ interface PreviewProps {
   onActiveHeading: (id: string | null) => void;
   onLinkActivate: (href: string) => void;
   scrollSyncRef?: React.MutableRefObject<((ratio: number) => void) | null>;
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    const area = document.createElement("textarea");
-    area.value = text;
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.appendChild(area);
-    area.select();
-    let ok = false;
-    try {
-      ok = document.execCommand("copy");
-    } catch {
-      ok = false;
-    }
-    document.body.removeChild(area);
-    return ok;
-  }
 }
 
 function decorateCodeBlocks(container: HTMLElement): void {
@@ -83,6 +64,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     pageContent,
     headingIds,
     linkDefs,
+    scrollResetKey,
     theme,
     mermaidRenderer,
     searchQuery,
@@ -126,14 +108,22 @@ export function Preview(props: PreviewProps): React.ReactElement {
     };
   }, [pageContent, headingIds, linkDefs]);
 
+  const resetKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    container.scrollTop = 0;
+    // ページ移動・ドキュメント切替のときだけ先頭へ。タイピング由来の再レンダリングでは
+    // スクロール位置を保つ(毎回先頭へ戻ると Split 編集が成立しない)
+    if (resetKeyRef.current !== scrollResetKey) {
+      resetKeyRef.current = scrollResetKey;
+      container.scrollTop = 0;
+    }
     decorateCodeBlocks(container);
 
-    const headings = Array.from(container.querySelectorAll<HTMLElement>("h3, h4, h5, h6"));
+    let headings = Array.from(container.querySelectorAll<HTMLElement>("h2, h3, h4, h5, h6"));
+    // ページ先頭がそのページ自身の見出しで始まる場合、目次に同じ題を重ねない
+    if (headings[0] && headings[0] === container.firstElementChild) headings = headings.slice(1);
     headingsRef.current(
       headings.map((heading) => ({
         id: heading.id,
@@ -154,7 +144,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
     handleScroll();
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
-  }, [html]);
+  }, [html, scrollResetKey]);
 
   useEffect(() => {
     const container = containerRef.current;

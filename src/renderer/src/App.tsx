@@ -30,9 +30,11 @@ import { Preview, type HeadingInfo } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
 import { Settings as SettingsScreen, type LlmSettings, type SettingChange } from "./components/Settings";
 import { SpecsSidebar } from "./components/SpecsSidebar";
+import { TailorPanel, type TailorState } from "./components/TailorPanel";
 import { Toolbar, type EditorMode } from "./components/Toolbar";
 import { INITIAL_WARP_SESSION, WarpPanel, type WarpSession } from "./components/WarpPanel";
 import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
+import { copyText } from "./lib/clipboard";
 import { safeDecode } from "./lib/dom";
 import { errorMessage, ipcErrorMessage } from "./lib/errors";
 import { detectFray, type FrayIssue } from "./lib/fray";
@@ -43,6 +45,7 @@ import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { findPendingDecisions, nextPendingDecision } from "./lib/pending";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
+import { buildHandoffPrompt, mergePlanIntoContent, PLAN_HEADING, tailorPlanToMarkdown } from "./lib/tailor";
 import {
   applyTheme,
   clearLegacyTheme,
@@ -136,6 +139,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const [audit, setAudit] = useState<AuditState>({ status: "idle" });
   const auditTokenRef = useRef(0);
   const auditRunningRef = useRef(false);
+  const [tailorOpen, setTailorOpen] = useState(false);
+  const [tailor, setTailor] = useState<TailorState>({ status: "idle" });
+  const tailorRef = useRef(tailor);
+  tailorRef.current = tailor;
+  const tailorTokenRef = useRef(0);
+  const tailorRunningRef = useRef(false);
   const [editorJump, setEditorJump] = useState<{ start: number; end: number } | null>(null);
   const [aiKeySet, setAiKeySet] = useState(initialSettings.geminiApiKeySet);
   const [mermaidRenderer, setMermaidRenderer] = useState<MermaidRenderer>(initialSettings.mermaidRenderer);
@@ -184,6 +193,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const pages = useMemo(() => splitPages(doc?.content ?? ""), [doc?.content]);
   const pageHeadingIds = useMemo(() => computePageHeadingIds(pages.map((page) => page.content)), [pages]);
+  // 全ページを通しで採番しているため、平坦化すると全文レンダリング時の ID 列になる
+  const fullHeadingIds = useMemo(() => pageHeadingIds.flat(), [pageHeadingIds]);
   const linkDefs = useMemo(() => collectLinkDefinitions(doc?.content ?? ""), [doc?.content]);
   const activePage = pages[pageIndex] ?? pages[0];
 
@@ -242,6 +253,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setWarpSession(INITIAL_WARP_SESSION);
     auditTokenRef.current += 1;
     setAudit((prev) => (prev.status === "running" ? prev : { status: "idle" }));
+    tailorTokenRef.current += 1;
+    setTailor((prev) => (prev.status === "running" ? prev : { status: "idle" }));
     selectionRef.current = null;
     setEditorJump(null);
   }, [activeId]);
@@ -482,6 +495,91 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       });
   }, [mainModelLabel]);
 
+  const runTailor = useCallback((): void => {
+    const current = docRef.current;
+    if (!current || tailorRunningRef.current) return;
+    tailorRunningRef.current = true;
+    const token = (tailorTokenRef.current += 1);
+    const tailoredContent = current.content;
+    setTailor({ status: "running", model: mainModelLabel });
+    window.api
+      .tailorSpec(tailoredContent)
+      .then(
+        ({ plan, model }) => {
+          if (tailorTokenRef.current === token) setTailor({ status: "done", plan, model, tailoredContent });
+          else setTailor((prev) => (prev.status === "running" ? { status: "idle" } : prev));
+        },
+        (err: unknown) => {
+          if (tailorTokenRef.current === token) setTailor({ status: "error", message: ipcErrorMessage(err) });
+          else setTailor((prev) => (prev.status === "running" ? { status: "idle" } : prev));
+        },
+      )
+      .finally(() => {
+        tailorRunningRef.current = false;
+      });
+  }, [mainModelLabel]);
+
+  // 中止: 先に UI を前の状態へ戻して以後の応答を無効化し、main 側の実行を打ち切る。
+  // main からの reject はトークン不一致で捨てられるため、エラー表示にはならない
+  const cancelLens = useCallback((): void => {
+    lensTokenRef.current += 1;
+    setLens({ status: "idle" });
+    void window.api.cancelAssist("review").catch(() => undefined);
+  }, []);
+
+  const cancelAudit = useCallback((): void => {
+    auditTokenRef.current += 1;
+    setAudit({ status: "idle" });
+    void window.api.cancelAssist("audit").catch(() => undefined);
+  }, []);
+
+  const cancelTailor = useCallback((): void => {
+    tailorTokenRef.current += 1;
+    setTailor({ status: "idle" });
+    void window.api.cancelAssist("tailor").catch(() => undefined);
+  }, []);
+
+  const cancelWeave = useCallback((): void => {
+    loomTokenRef.current += 1;
+    setLoomSession((prev) => ({ ...prev, phase: prev.result !== null ? "done" : "compose", error: null }));
+    void window.api.cancelAssist("weave").catch(() => undefined);
+  }, []);
+
+  const cancelWarp = useCallback((): void => {
+    warpTokenRef.current += 1;
+    setWarpSession((prev) => ({ ...prev, phase: prev.output.trim().length > 0 ? "done" : "compose", error: null }));
+    void window.api.cancelAssist("warp").catch(() => undefined);
+  }, []);
+
+  const insertTailorPlan = useCallback((): void => {
+    const current = docRef.current;
+    const state = tailorRef.current;
+    if (!current || state.status !== "done") return;
+    const section = tailorPlanToMarkdown(state.plan, state.model);
+    const { next, start, end, replaced } = mergePlanIntoContent(current.content, section);
+    setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+    if (modeRef.current === "preview") setMode("source");
+    setEditorJump({ start, end });
+    setToast(replaced ? "本文の実装計画を更新しました" : "実装計画を末尾に挿入しました");
+  }, []);
+
+  const copyTailorPlan = useCallback((): void => {
+    const state = tailorRef.current;
+    if (state.status !== "done") return;
+    void copyText(tailorPlanToMarkdown(state.plan, state.model)).then((ok) =>
+      setToast(ok ? "計画を Markdown でコピーしました" : "コピーできませんでした"),
+    );
+  }, []);
+
+  const copyHandoff = useCallback((): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const state = tailorRef.current;
+    const planSection = state.status === "done" ? tailorPlanToMarkdown(state.plan, state.model) : null;
+    const prompt = buildHandoffPrompt({ title: current.meta.title, content: current.content, planSection });
+    void copyText(prompt).then((ok) => setToast(ok ? "実装プロンプトをコピーしました" : "コピーできませんでした"));
+  }, []);
+
   const applyLensRewrite = useCallback((excerpt: string, rewrite: string): boolean => {
     const current = docRef.current;
     if (!current) return false;
@@ -515,7 +613,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       const probe = excerpt.trim();
       const targetPage = probe.length > 0 ? pages.findIndex((page) => page.content.includes(probe)) : -1;
       if (targetPage !== -1) setPageIndex(targetPage);
-      setMode("source");
+      if (modeRef.current === "preview") setMode("source");
       setEditorJump({ start, end: start + excerpt.length });
     },
     [pages],
@@ -539,9 +637,27 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     [pages],
   );
 
-  const handleEditorSelection = useCallback((start: number, end: number): void => {
-    selectionRef.current = { start, end };
-  }, []);
+  const handleEditorSelection = useCallback(
+    (start: number, end: number): void => {
+      selectionRef.current = { start, end };
+      // Source / Split ではカーソル位置にページ表示(パンくず・ナビ)を追従させる
+      if (modeRef.current === "preview") return;
+      const current = docRef.current;
+      if (!current) return;
+      const bounded = Math.min(start, current.content.length);
+      let line = 0;
+      for (let i = 0; i < bounded; i++) {
+        if (current.content.charCodeAt(i) === 10) line += 1;
+      }
+      let target = 0;
+      for (let i = 0; i < pages.length; i++) {
+        if (pages[i]!.startLine <= line) target = i;
+        else break;
+      }
+      setPageIndex((prev) => (prev === target ? prev : target));
+    },
+    [pages],
+  );
 
   const updateLoomSession = useCallback((patch: Partial<LoomSession>): void => {
     setLoomSession((prev) => ({ ...prev, ...patch }));
@@ -622,8 +738,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const grabEditorSelection = useCallback((): string | null => {
     const current = docRef.current;
     if (!current) return null;
-    if (modeRef.current !== "source") {
-      setToast("Source モードで取り込みたい範囲を選択してください");
+    if (modeRef.current === "preview") {
+      setToast("Source / Split モードで取り込みたい範囲を選択してください");
       return null;
     }
     const selection = selectionRef.current;
@@ -694,7 +810,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       } else {
         const nextPage = pages[pageIndex + 1];
         const caret =
-          modeRef.current === "source"
+          modeRef.current !== "preview"
             ? (selectionRef.current?.end ?? content.length)
             : nextPage
               ? lineStartOffset(content, nextPage.startLine)
@@ -708,7 +824,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         jumpStart = caret + lead.length;
       }
       setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
-      setMode("source");
+      if (modeRef.current === "preview") setMode("source");
       setEditorJump({ start: jumpStart, end: jumpStart + text.length });
       return replaceRanges ? { kind: "replaced", count: replaceRanges.length } : { kind: "inserted", fellBack };
     },
@@ -818,6 +934,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   }, [insertComposed]);
 
   const pendingCount = useMemo(() => findPendingDecisions(doc?.content ?? "").length, [doc?.content]);
+  const planInDoc = useMemo(() => pages.some((page) => page.depth === 2 && page.title === PLAN_HEADING), [pages]);
 
   // タイピングを妨げないよう、ほつれ検査は低優先度の遅延値に対して走らせる
   const deferredContent = useDeferredValue(doc?.content ?? "");
@@ -837,6 +954,27 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const handleEditorScrollRatio = useCallback((ratio: number): void => {
     previewSyncRef.current?.(ratio);
   }, []);
+
+  // ページ移動。Preview ではページ差し替え、Source / Split ではエディタとプレビューを
+  // 該当節へスクロールする(Split のプレビューは全文表示のため)
+  const goToPage = useCallback(
+    (index: number): void => {
+      const bounded = Math.max(0, Math.min(index, pages.length - 1));
+      setPageIndex(bounded);
+      const current = docRef.current;
+      if (!current || modeRef.current === "preview") return;
+      const page = pages[bounded];
+      if (!page) return;
+      const offset = lineStartOffset(current.content, page.startLine);
+      setEditorJump({ start: offset, end: offset });
+      if (modeRef.current === "split") {
+        const anchor = pageHeadingIds[bounded]?.[0];
+        if (anchor !== undefined) setPendingAnchor({ docId: current.meta.id, id: anchor });
+        else previewSyncRef.current?.(0);
+      }
+    },
+    [pages, pageHeadingIds],
+  );
 
   const splitDragRef = useRef<DOMRect | null>(null);
   const handleDividerDown = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
@@ -864,7 +1002,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     const ranges = findPendingDecisions(current.content);
     const target = nextPendingDecision(ranges, selectionRef.current?.end ?? 0);
     if (!target) return;
-    setMode("source");
+    if (modeRef.current === "preview") setMode("source");
     setEditorJump({ start: target.start, end: target.end });
   }, []);
 
@@ -875,6 +1013,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setLoomOpen(false);
         setFrayOpen(false);
         setWarpOpen(false);
+        setTailorOpen(false);
       }
       return !prev;
     });
@@ -887,6 +1026,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setLensOpen(false);
         setFrayOpen(false);
         setWarpOpen(false);
+        setTailorOpen(false);
       }
       return !prev;
     });
@@ -899,6 +1039,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setLensOpen(false);
         setLoomOpen(false);
         setWarpOpen(false);
+        setTailorOpen(false);
       }
       return !prev;
     });
@@ -911,6 +1052,20 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setLensOpen(false);
         setLoomOpen(false);
         setFrayOpen(false);
+        setTailorOpen(false);
+      }
+      return !prev;
+    });
+  }, []);
+
+  const toggleTailor = useCallback((): void => {
+    if (docRef.current === null) return;
+    setTailorOpen((prev) => {
+      if (!prev) {
+        setLensOpen(false);
+        setLoomOpen(false);
+        setFrayOpen(false);
+        setWarpOpen(false);
       }
       return !prev;
     });
@@ -961,6 +1116,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       } else if (mod && event.key.toLowerCase() === "g") {
         event.preventDefault();
         toggleFray();
+      } else if (mod && event.key.toLowerCase() === "i") {
+        event.preventDefault();
+        toggleTailor();
       } else if (mod && event.key === "\\") {
         event.preventDefault();
         if (docRef.current !== null) setMode((prev) => (prev === "split" ? "preview" : "split"));
@@ -970,7 +1128,17 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openSearch, closeSearch, search.open, settingsOpen, toggleLens, toggleLoom, toggleFray, toggleWarp]);
+  }, [
+    openSearch,
+    closeSearch,
+    search.open,
+    settingsOpen,
+    toggleLens,
+    toggleLoom,
+    toggleFray,
+    toggleWarp,
+    toggleTailor,
+  ]);
 
   const stepMatch = (delta: number): void => {
     if (matches.length === 0) return;
@@ -1306,6 +1474,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const loomVisible = loomOpen && doc !== null;
   const frayVisible = frayOpen && doc !== null;
   const warpVisible = warpOpen && doc !== null;
+  const tailorVisible = tailorOpen && doc !== null;
   const llmSettings: LlmSettings = {
     geminiApiKeySet: aiKeySet,
     profiles: llmRouting.roster,
@@ -1315,7 +1484,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   };
 
   return (
-    <div className={`app${lensVisible || loomVisible || frayVisible || warpVisible ? " lens-open" : ""}`}>
+    <div
+      className={`app${lensVisible || loomVisible || frayVisible || warpVisible || tailorVisible ? " lens-open" : ""}`}
+    >
       <aside className="left-pane">
         <div className="brand">
           <span className="brand-mark">
@@ -1339,7 +1510,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             setDialog({ kind: "delete", id, title: spec?.title ?? "" });
           }}
         />
-        <PagesNav pages={pages} activeIndex={pageIndex} onSelect={setPageIndex} />
+        <PagesNav pages={pages} activeIndex={pageIndex} onSelect={goToPage} />
       </aside>
 
       <main className="center-pane">
@@ -1358,16 +1529,18 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           loomOpen={loomVisible}
           warpOpen={warpVisible}
           frayOpen={frayVisible}
+          tailorOpen={tailorVisible}
           frayCount={frayAutoCheck ? frayIssues.length : 0}
           pendingCount={pendingCount}
           onMode={setMode}
-          onPrev={() => setPageIndex((index) => Math.max(0, index - 1))}
-          onNext={() => setPageIndex((index) => Math.min(pages.length - 1, index + 1))}
+          onPrev={() => goToPage(pageIndex - 1)}
+          onNext={() => goToPage(pageIndex + 1)}
           onSearch={openSearch}
           onToggleLens={toggleLens}
           onToggleLoom={toggleLoom}
           onToggleWarp={toggleWarp}
           onToggleFray={toggleFray}
+          onToggleTailor={toggleTailor}
           onJumpPending={jumpToPending}
           onCycleTheme={() => setThemePreference((prev) => nextPreference(prev))}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1407,6 +1580,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               pageContent={activePage?.content ?? ""}
               headingIds={pageHeadingIds[pageIndex] ?? []}
               linkDefs={linkDefs}
+              scrollResetKey={`${doc.meta.id}:${pageIndex}`}
               theme={resolvedTheme}
               mermaidRenderer={mermaidRenderer}
               searchQuery={search.open ? search.query : ""}
@@ -1443,9 +1617,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               />
               <div className="split-pane">
                 <Preview
-                  pageContent={activePage?.content ?? ""}
-                  headingIds={pageHeadingIds[pageIndex] ?? []}
-                  linkDefs={linkDefs}
+                  pageContent={doc.content}
+                  headingIds={fullHeadingIds}
+                  linkDefs=""
+                  scrollResetKey={doc.meta.id}
                   theme={resolvedTheme}
                   mermaidRenderer={mermaidRenderer}
                   searchQuery={search.open ? search.query : ""}
@@ -1479,6 +1654,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           apiKeySet={aiReady}
           docContent={doc.content}
           onRun={runLens}
+          onCancel={cancelLens}
           onClose={() => setLensOpen(false)}
           onApply={applyLensRewrite}
           onJump={jumpToLensExcerpt}
@@ -1492,6 +1668,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onUpdate={updateLoomSession}
           onWeave={runWeave}
           onRetry={retryWeave}
+          onCancel={cancelWeave}
           onInsert={insertWoven}
           onPullSelection={pullSelectionToLoom}
           onClose={() => setLoomOpen(false)}
@@ -1505,6 +1682,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           apiKeySet={aiReady}
           docContent={doc.content}
           onRunAudit={runAudit}
+          onCancelAudit={cancelAudit}
           onClose={() => setFrayOpen(false)}
           onJumpOffset={jumpToOffset}
           onJumpExcerpt={jumpToLensExcerpt}
@@ -1519,9 +1697,27 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           mermaidRenderer={mermaidRenderer}
           onUpdate={updateWarpSession}
           onRun={runWarp}
+          onCancel={cancelWarp}
           onInsert={insertWarpOutput}
           onPullSelection={pullSelectionToWarp}
           onClose={() => setWarpOpen(false)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      ) : tailorVisible && doc ? (
+        <TailorPanel
+          state={tailor}
+          modelLabel={mainModelLabel}
+          apiKeySet={aiReady}
+          docContent={doc.content}
+          pendingCount={pendingCount}
+          planInDoc={planInDoc}
+          onRun={runTailor}
+          onCancel={cancelTailor}
+          onClose={() => setTailorOpen(false)}
+          onInsert={insertTailorPlan}
+          onCopyPlan={copyTailorPlan}
+          onCopyHandoff={copyHandoff}
+          onJumpExcerpt={jumpToLensExcerpt}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : (

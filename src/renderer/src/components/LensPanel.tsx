@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Check,
+  CircleStop,
   CornerDownRight,
   History,
   KeyRound,
@@ -25,6 +26,7 @@ interface LensPanelProps {
   apiKeySet: boolean;
   docContent: string;
   onRun: () => void;
+  onCancel: () => void;
   onClose: () => void;
   onApply: (excerpt: string, rewrite: string) => boolean;
   onJump: (excerpt: string) => void;
@@ -145,6 +147,7 @@ export function LensPanel({
   apiKeySet,
   docContent,
   onRun,
+  onCancel,
   onClose,
   onApply,
   onJump,
@@ -174,6 +177,10 @@ export function LensPanel({
         <p className="lens-intro-title">仕様書を読んでいます…</p>
         <p className="lens-intro-text">削るべき具体と、決めるべき問いを探しています。</p>
         <span className="lens-model-chip">{state.model}</span>
+        <button type="button" className="loom-ghost assist-cancel" onClick={onCancel}>
+          <CircleStop size={13} aria-hidden="true" />
+          中止
+        </button>
       </div>
     );
   } else if (state.status === "error") {

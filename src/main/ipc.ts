@@ -1,7 +1,9 @@
 import { ipcMain, shell } from "electron";
 import {
   parseAuditSpecInput,
+  parseCancelAssistInput,
   parseReviewSpecInput,
+  parseTailorSpecInput,
   parseWarpSpecInput,
   parseWeaveSpecInput,
 } from "@shared/schemas/assist";
@@ -20,7 +22,7 @@ import {
   parseUpsertLlmProfileInput,
   toRendererSettings,
 } from "@shared/schemas/settings";
-import { auditSpec, reviewSpec, warpSpec, weaveSpec } from "./assist";
+import { auditSpec, cancelAssist, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
 import { deleteLlmProfile, resetLlmRouting, setLlmRouting, upsertLlmProfile } from "./llmProfiles";
 import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
 import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
@@ -55,6 +57,10 @@ export function registerIpc(): void {
   ipcMain.handle("assist:weave", (_event, raw: unknown) => weaveSpec(parseWeaveSpecInput(raw)));
 
   ipcMain.handle("assist:warp", (_event, raw: unknown) => warpSpec(parseWarpSpecInput(raw)));
+
+  ipcMain.handle("assist:tailor", (_event, raw: unknown) => tailorSpec(parseTailorSpecInput(raw).content));
+
+  ipcMain.handle("assist:cancel", (_event, raw: unknown) => cancelAssist(parseCancelAssistInput(raw).kind));
 
   ipcMain.handle("llm:upsert-profile", (_event, raw: unknown) =>
     toRendererSettings(upsertLlmProfile(parseUpsertLlmProfileInput(raw))),

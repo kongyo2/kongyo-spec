@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import {
   ArrowDownToLine,
+  CircleStop,
   Combine,
   KeyRound,
   LoaderCircle,
@@ -46,6 +47,7 @@ interface LoomPanelProps {
   onUpdate: (patch: Partial<LoomSession>) => void;
   onWeave: (kind: WeaveKind) => void;
   onRetry: () => void;
+  onCancel: () => void;
   onInsert: () => void;
   onPullSelection: () => void;
   onClose: () => void;
@@ -68,6 +70,7 @@ export function LoomPanel({
   onUpdate,
   onWeave,
   onRetry,
+  onCancel,
   onInsert,
   onPullSelection,
   onClose,
@@ -102,6 +105,10 @@ export function LoomPanel({
         <p className="lens-intro-title">織っています…</p>
         <p className="lens-intro-text">あなたの言葉を仕様の形に。決めるべき問いを集めています。</p>
         <span className="lens-model-chip">{modelLabel}</span>
+        <button type="button" className="loom-ghost assist-cancel" onClick={onCancel}>
+          <CircleStop size={13} aria-hidden="true" />
+          中止
+        </button>
       </div>
     );
   } else if (session.phase === "error") {

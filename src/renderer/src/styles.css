@@ -1387,15 +1387,15 @@ mark.search-hit-current {
     color var(--t-fast);
 }
 
-.outline-item.level-4 button {
+.outline-item.indent-1 button {
   padding-left: 20px;
 }
 
-.outline-item.level-5 button {
+.outline-item.indent-2 button {
   padding-left: 30px;
 }
 
-.outline-item.level-6 button {
+.outline-item.indent-3 button {
   padding-left: 40px;
 }
 
@@ -4130,6 +4130,183 @@ mark.pending-decision {
 
 .settings-toggle:hover:not(.on) {
   border-color: var(--accent);
+}
+
+/* ---------- Assist 共通: 実行の中止 ---------- */
+.assist-cancel {
+  margin-top: 14px;
+}
+
+/* ---------- Tailor ---------- */
+.tailor-intro {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.tailor-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tailor-task {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-sm);
+  animation: lens-card-in 0.3s var(--ease-out) both;
+}
+
+.tailor-task-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tailor-task-num {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+
+.tailor-task-title {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-strong);
+  line-height: 1.5;
+}
+
+.tailor-size {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.tailor-size.size-l {
+  color: var(--lens-overspec);
+  border-color: color-mix(in srgb, var(--lens-overspec) 45%, transparent);
+}
+
+.tailor-task-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.tailor-acceptance {
+  --kind: var(--lens-decision);
+}
+
+.tailor-verify {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.tailor-verify svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent-text);
+}
+
+.tailor-deps {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
+
+.tailor-blockers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--lens-overspec) 40%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--lens-overspec) 8%, transparent);
+}
+
+.tailor-blockers-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--lens-overspec);
+}
+
+.tailor-blockers ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.tailor-blockers li {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--fg);
+}
+
+.tailor-actions {
+  flex-wrap: wrap;
+}
+
+.tailor-handoff {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.tailor-handoff-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.tailor-pending-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--lens-overspec);
+}
+
+.tailor-pending-warn svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.tailor-handoff-copy {
+  align-self: flex-start;
 }
 
 /* Toolbar density — drop button labels before the toolbar wraps */

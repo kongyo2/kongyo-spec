@@ -1,6 +1,8 @@
 import type {
   AssistAudit,
+  AssistKind,
   AssistReview,
+  AssistTailor,
   AssistWarp,
   AssistWeave,
   WarpSpecInput,
@@ -57,6 +59,8 @@ export interface KongyoApi {
   auditSpec(content: string): Promise<AssistAudit>;
   weaveSpec(input: WeaveSpecInput): Promise<AssistWeave>;
   warpSpec(input: WarpSpecInput): Promise<AssistWarp>;
+  tailorSpec(content: string): Promise<AssistTailor>;
+  cancelAssist(kind: AssistKind): Promise<void>;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;

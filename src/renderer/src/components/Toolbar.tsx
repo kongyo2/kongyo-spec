@@ -8,6 +8,7 @@ import {
   Monitor,
   Moon,
   Radar,
+  Scissors,
   Search,
   Settings,
   Spool,
@@ -34,6 +35,7 @@ interface ToolbarProps {
   loomOpen: boolean;
   warpOpen: boolean;
   frayOpen: boolean;
+  tailorOpen: boolean;
   frayCount: number;
   pendingCount: number;
   onMode: (mode: EditorMode) => void;
@@ -44,6 +46,7 @@ interface ToolbarProps {
   onToggleLoom: () => void;
   onToggleWarp: () => void;
   onToggleFray: () => void;
+  onToggleTailor: () => void;
   onJumpPending: () => void;
   onCycleTheme: () => void;
   onOpenSettings: () => void;
@@ -79,6 +82,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     loomOpen,
     warpOpen,
     frayOpen,
+    tailorOpen,
     frayCount,
     pendingCount,
     onMode,
@@ -89,6 +93,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     onToggleLoom,
     onToggleWarp,
     onToggleFray,
+    onToggleTailor,
     onJumpPending,
     onCycleTheme,
     onOpenSettings,
@@ -224,6 +229,18 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
           <Radar size={14} aria-hidden="true" />
           <span className="toggle-text">Fray</span>
           {frayCount > 0 ? <span className="fray-count">{frayCount > 99 ? "99+" : frayCount}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={`icon-button lens-toggle${tailorOpen ? " active" : ""}`}
+          onClick={onToggleTailor}
+          disabled={!lensAvailable}
+          aria-pressed={tailorOpen}
+          aria-label="Tailor — 実装計画を裁つ (Ctrl/Cmd+I)"
+          title="実装計画を裁つ — タスク分解と実装 AI への引き渡し"
+        >
+          <Scissors size={14} aria-hidden="true" />
+          <span className="toggle-text">Tailor</span>
         </button>
         <button
           type="button"
