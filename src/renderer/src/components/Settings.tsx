@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Check,
+  Code,
+  Columns2,
+  Eye,
   ListOrdered,
   type LucideIcon,
   Minus,
@@ -9,6 +12,7 @@ import {
   Moon,
   Palette,
   Pencil,
+  PenLine,
   Plus,
   RotateCcw,
   Sparkles,
@@ -21,6 +25,8 @@ import {
 import {
   type Accent,
   EDITOR_FONT_SIZE,
+  type EditorViewMode,
+  type LineHeight,
   LLM_TEMPERATURE,
   llmProfileDisplayName,
   type LlmProvider,
@@ -32,7 +38,7 @@ import {
   type ThemePreference,
   type UpsertLlmProfileInput,
 } from "@shared/schemas/settings";
-import { ACCENTS, type AppearanceSettings, READING_WIDTHS } from "../lib/appearance";
+import { ACCENTS, type AppearanceSettings, LINE_HEIGHTS, READING_WIDTHS } from "../lib/appearance";
 import type { ResolvedTheme } from "../lib/theme";
 
 export type SettingChange =
@@ -40,8 +46,12 @@ export type SettingChange =
   | { key: "accent"; value: Accent }
   | { key: "editorFontSize"; value: number }
   | { key: "previewFontSize"; value: number }
+  | { key: "editorLineHeight"; value: LineHeight }
+  | { key: "previewLineHeight"; value: LineHeight }
   | { key: "readingWidth"; value: ReadingWidth }
-  | { key: "mermaidRenderer"; value: MermaidRenderer };
+  | { key: "mermaidRenderer"; value: MermaidRenderer }
+  | { key: "defaultViewMode"; value: EditorViewMode }
+  | { key: "frayAutoCheck"; value: boolean };
 
 export interface LlmSettings {
   geminiApiKeySet: boolean;
@@ -56,6 +66,8 @@ interface SettingsProps {
   appearance: AppearanceSettings;
   resolvedTheme: ResolvedTheme;
   mermaidRenderer: MermaidRenderer;
+  defaultViewMode: EditorViewMode;
+  frayAutoCheck: boolean;
   llm: LlmSettings;
   onChange: (change: SettingChange) => void;
   onSaveApiKey: (key: string | null) => Promise<boolean>;
@@ -66,11 +78,12 @@ interface SettingsProps {
   onClose: () => void;
 }
 
-type Section = "appearance" | "typography" | "ai" | "about";
+type Section = "appearance" | "typography" | "editing" | "ai" | "about";
 
 const SECTIONS: { id: Section; label: string; hint: string; icon: LucideIcon }[] = [
   { id: "appearance", label: "外観", hint: "テーマとアクセント", icon: Palette },
-  { id: "typography", label: "タイポグラフィ", hint: "文字サイズと横幅", icon: Type },
+  { id: "typography", label: "タイポグラフィ", hint: "文字サイズと行間", icon: Type },
+  { id: "editing", label: "編集", hint: "表示モードと検査", icon: PenLine },
   { id: "ai", label: "AI アシスト", hint: "モデル · Loom · Lens", icon: Telescope },
   { id: "about", label: "情報", hint: "バージョンと構成", icon: Sparkles },
 ];
@@ -87,6 +100,14 @@ const MERMAID_OPTIONS: { value: MermaidRenderer; label: string }[] = [
   { value: "classic", label: "標準" },
   { value: "beautiful", label: "Beautiful" },
 ];
+
+const VIEW_MODE_OPTIONS: { value: EditorViewMode; label: string; icon: LucideIcon }[] = [
+  { value: "preview", label: "Preview", icon: Eye },
+  { value: "split", label: "Split", icon: Columns2 },
+  { value: "source", label: "Source", icon: Code },
+];
+
+const LINE_HEIGHT_OPTIONS = LINE_HEIGHTS.map((preset) => ({ value: preset.id, label: preset.label }));
 
 const PROVIDER_LABEL: Record<LlmProvider, string> = {
   gemini: "Gemini",
@@ -203,6 +224,29 @@ function Segmented<T extends string>({
         );
       })}
     </div>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: (next: boolean) => void;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      className={`settings-toggle${checked ? " on" : ""}`}
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onToggle(!checked)}
+    >
+      <span className="settings-toggle-knob" aria-hidden="true" />
+    </button>
   );
 }
 
@@ -370,7 +414,8 @@ function ProfileEditor({
 }
 
 function focusableWithin(container: HTMLElement): HTMLElement[] {
-  const selector = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const selector =
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((el) => el.getClientRects().length > 0);
 }
 
@@ -379,6 +424,8 @@ export function Settings({
   appearance,
   resolvedTheme,
   mermaidRenderer,
+  defaultViewMode,
+  frayAutoCheck,
   llm,
   onChange,
   onSaveApiKey,
@@ -465,7 +512,13 @@ export function Settings({
     return () => previouslyFocused?.focus();
   }, []);
 
-  const trapFocus = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+  const handleShellKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "Escape" && profileDraft !== null) {
+      // モデル編集中の Escape はドラフトのキャンセルに留め、設定全体は閉じない
+      event.stopPropagation();
+      setProfileDraft(null);
+      return;
+    }
     if (event.key !== "Tab") return;
     const shell = shellRef.current;
     if (!shell) return;
@@ -492,7 +545,13 @@ export function Settings({
   const active = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0]!;
 
   return (
-    <div className="settings-overlay" onClick={onClose}>
+    <div
+      className="settings-overlay"
+      onMouseDown={(event) => {
+        // シェル内から外へドラッグしたときに閉じないよう、押下点がオーバーレイ自身のときだけ閉じる
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         ref={shellRef}
         className="settings-shell"
@@ -500,8 +559,7 @@ export function Settings({
         aria-modal="true"
         aria-label="設定"
         tabIndex={-1}
-        onKeyDown={trapFocus}
-        onClick={(event) => event.stopPropagation()}
+        onKeyDown={handleShellKeyDown}
       >
         <nav className="settings-nav" aria-label="設定カテゴリ">
           <div className="settings-nav-head">
@@ -593,6 +651,14 @@ export function Settings({
                     onChange={(value) => onChange({ key: "editorFontSize", value })}
                   />
                 </Row>
+                <Row title="エディタの行間" desc="ソース編集時の行の高さ">
+                  <Segmented
+                    label="エディタの行間"
+                    value={appearance.editorLineHeight}
+                    options={LINE_HEIGHT_OPTIONS}
+                    onSelect={(value) => onChange({ key: "editorLineHeight", value })}
+                  />
+                </Row>
                 <Row title="プレビューの文字サイズ" desc="レンダリング本文のフォント">
                   <Stepper
                     label="プレビューの文字サイズ"
@@ -602,12 +668,41 @@ export function Settings({
                     onChange={(value) => onChange({ key: "previewFontSize", value })}
                   />
                 </Row>
+                <Row title="プレビューの行間" desc="レンダリング本文の行の高さ">
+                  <Segmented
+                    label="プレビューの行間"
+                    value={appearance.previewLineHeight}
+                    options={LINE_HEIGHT_OPTIONS}
+                    onSelect={(value) => onChange({ key: "previewLineHeight", value })}
+                  />
+                </Row>
                 <Row title="本文の横幅" desc="プレビュー本文の最大幅">
                   <Segmented
                     label="本文の横幅"
                     value={appearance.readingWidth}
                     options={READING_WIDTHS.map((preset) => ({ value: preset.id, label: preset.label }))}
                     onSelect={(value) => onChange({ key: "readingWidth", value })}
+                  />
+                </Row>
+              </div>
+            ) : section === "editing" ? (
+              <div className="settings-panel" key="editing">
+                <Row title="既定の表示モード" desc="仕様書を開いたときの表示。Split は編集とプレビューを左右に並べます">
+                  <Segmented
+                    label="既定の表示モード"
+                    value={defaultViewMode}
+                    options={VIEW_MODE_OPTIONS}
+                    onSelect={(value) => onChange({ key: "defaultViewMode", value })}
+                  />
+                </Row>
+                <Row
+                  title="ほつれの自動検査"
+                  desc="入力中にリンク切れ・見出し構造・表記ゆれを検査し、ツールバーの Fray に件数を表示します"
+                >
+                  <Toggle
+                    label="ほつれの自動検査"
+                    checked={frayAutoCheck}
+                    onToggle={(value) => onChange({ key: "frayAutoCheck", value })}
                   />
                 </Row>
               </div>

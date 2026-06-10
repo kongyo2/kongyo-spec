@@ -1,7 +1,9 @@
 import { ApiError, GoogleGenAI, Type, type Schema } from "@google/genai";
 import {
+  parseAuditReport,
   parseLensReport,
   parseWeaveResult,
+  type AssistAudit,
   type AssistReview,
   type AssistWeave,
   type WeaveSpecInput,
@@ -324,6 +326,80 @@ export async function reviewSpec(content: string): Promise<AssistReview> {
     return { report: value, model };
   } finally {
     reviewInflight = false;
+  }
+}
+
+const AUDIT_SYSTEM_PROMPT = `あなたは仕様書(spec)の整合性監査人「Fray」です。布のほつれを探すように、一つの仕様書の内部で互いに衝突している記述だけを検出します。
+
+前提となる思想:
+- 仕様書が内部で矛盾していると、実装 AI はどちらかを黙って選び、誤った実装が確定する。
+- あなたの仕事は矛盾の指摘だけである。どちらが正しいかを決めることも、書き直すことも、欠落を埋めることもしない。
+- 文書の外の知識と照合しない。文書の中の記述同士の衝突だけを見る。
+
+次の 3 種類だけを報告する:
+
+1. kind="value"(値の食い違い)
+   同じ対象に対して異なる数値・期限・上限・形式が書かれている。
+   例: 3 章では「タイムアウトは 30 秒」、5 章では「60 秒以内に応答」。
+
+2. kind="behavior"(振る舞いの衝突)
+   同じ状況に対して両立しない動作・要求が書かれている。
+   例: ある節では「確認なしで削除する」、別の節では「削除前に必ず確認する」。必須と任意の食い違いも含む。
+
+3. kind="term"(用語の衝突)
+   同じ名前が別の概念に使われている、または文脈から同一とわかる概念に別の名前が使われていて、読者が別物と誤解しうる。
+   単なる表記ゆれ(全角半角、長音の有無)は対象外。意味の取り違えが起きるものだけを報告する。
+
+報告の規律:
+- 確信があるものだけを報告する。解釈次第で両立しうるものは報告しない。
+- excerptA と excerptB は本文からの逐語的な引用(要約・改変・省略記号の挿入を禁止)。衝突する二つの記述をそれぞれ一意に特定できる最小限の長さにする。
+- reason には、なぜ両立しないかを一文で書く。
+- 全体で最大 8 件。影響が大きい順に並べる。矛盾がなければ findings は空配列でよい。
+- 原文の引用を除き、すべて日本語で書く。
+
+verdict には文書全体の整合性への一行の所見を書く(80 字以内、断定調)。`;
+
+const AUDIT_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    verdict: { type: Type.STRING },
+    findings: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          kind: { type: Type.STRING, enum: ["value", "behavior", "term"] },
+          excerptA: { type: Type.STRING },
+          excerptB: { type: Type.STRING },
+          reason: { type: Type.STRING },
+        },
+        required: ["kind", "excerptA", "excerptB", "reason"],
+        propertyOrdering: ["kind", "excerptA", "excerptB", "reason"],
+      },
+    },
+  },
+  required: ["verdict", "findings"],
+  propertyOrdering: ["verdict", "findings"],
+};
+
+let auditInflight = false;
+
+export async function auditSpec(content: string): Promise<AssistAudit> {
+  if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてから検査してください。");
+  if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎて検査できません(約 24 万字まで)。");
+  if (auditInflight) throw new Error("深層検査を実行中です。完了をお待ちください。");
+  auditInflight = true;
+  try {
+    const { value, model } = await runStructured({
+      system: AUDIT_SYSTEM_PROMPT,
+      contents: `検査対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
+      schema: AUDIT_RESPONSE_SCHEMA,
+      defaultTemperature: 0.2,
+      parse: parseAuditReport,
+    });
+    return { report: value, model };
+  } finally {
+    auditInflight = false;
   }
 }
 

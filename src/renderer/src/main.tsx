@@ -57,6 +57,8 @@ async function bootstrap(): Promise<void> {
       accent: settings.accent,
       editorFontSize: settings.editorFontSize,
       previewFontSize: settings.previewFontSize,
+      editorLineHeight: settings.editorLineHeight,
+      previewLineHeight: settings.previewLineHeight,
       readingWidth: settings.readingWidth,
     },
     resolved,

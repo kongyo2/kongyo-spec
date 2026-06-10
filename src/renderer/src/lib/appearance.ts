@@ -1,7 +1,10 @@
-import type { Accent, ReadingWidth, Settings } from "@shared/schemas/settings";
+import type { Accent, LineHeight, ReadingWidth, Settings } from "@shared/schemas/settings";
 import type { ResolvedTheme } from "./theme";
 
-export type AppearanceSettings = Pick<Settings, "accent" | "editorFontSize" | "previewFontSize" | "readingWidth">;
+export type AppearanceSettings = Pick<
+  Settings,
+  "accent" | "editorFontSize" | "previewFontSize" | "editorLineHeight" | "previewLineHeight" | "readingWidth"
+>;
 
 interface AccentTone {
   base: string;
@@ -68,6 +71,23 @@ export const READING_WIDTHS: readonly ReadingWidthPreset[] = [
   { id: "wide", label: "Wide", px: 1040 },
 ];
 
+export interface LineHeightPreset {
+  id: LineHeight;
+  label: string;
+  editor: number;
+  preview: number;
+}
+
+export const LINE_HEIGHTS: readonly LineHeightPreset[] = [
+  { id: "compact", label: "詰める", editor: 1.55, preview: 1.55 },
+  { id: "normal", label: "標準", editor: 1.75, preview: 1.72 },
+  { id: "relaxed", label: "ゆったり", editor: 2.0, preview: 1.95 },
+];
+
+function lineHeightPreset(id: LineHeight): LineHeightPreset {
+  return LINE_HEIGHTS.find((preset) => preset.id === id) ?? LINE_HEIGHTS[1]!;
+}
+
 function accentPreset(id: Accent): AccentPreset {
   return ACCENTS.find((preset) => preset.id === id) ?? ACCENTS[0]!;
 }
@@ -114,5 +134,7 @@ export function applyAppearance(appearance: AppearanceSettings, resolvedTheme: R
   applyAccent(root, appearance.accent, resolvedTheme);
   root.style.setProperty("--editor-font-size", `${appearance.editorFontSize}px`);
   root.style.setProperty("--preview-font-size", `${appearance.previewFontSize}px`);
+  root.style.setProperty("--editor-line-height", String(lineHeightPreset(appearance.editorLineHeight).editor));
+  root.style.setProperty("--preview-line-height", String(lineHeightPreset(appearance.previewLineHeight).preview));
   root.style.setProperty("--content-width", `${readingWidthPx(appearance.readingWidth)}px`);
 }

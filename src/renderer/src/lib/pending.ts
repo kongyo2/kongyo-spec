@@ -7,8 +7,12 @@ export interface PendingRange {
 
 const FENCE_LINE_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 
-function fencedCodeSpans(content: string): PendingRange[] {
-  const spans: PendingRange[] = [];
+export interface FenceSpan extends PendingRange {
+  closed: boolean;
+}
+
+export function fencedCodeSpans(content: string): FenceSpan[] {
+  const spans: FenceSpan[] = [];
   let fence: { char: string; length: number; start: number } | null = null;
   let offset = 0;
   for (const line of content.split("\n")) {
@@ -21,13 +25,13 @@ function fencedCodeSpans(content: string): PendingRange[] {
           fence = { char: marker[0]!, length: marker.length, start: offset };
         }
       } else if (marker[0] === fence.char && marker.length >= fence.length && match[2]!.trim().length === 0) {
-        spans.push({ start: fence.start, end: offset + line.length });
+        spans.push({ start: fence.start, end: offset + line.length, closed: true });
         fence = null;
       }
     }
     offset += line.length + 1;
   }
-  if (fence !== null) spans.push({ start: fence.start, end: content.length });
+  if (fence !== null) spans.push({ start: fence.start, end: content.length, closed: false });
   return spans;
 }
 
@@ -113,7 +117,7 @@ function indentedCodeSpans(content: string, blocked: PendingRange[]): PendingRan
   return spans;
 }
 
-function codeSpans(content: string): PendingRange[] {
+export function codeSpans(content: string): PendingRange[] {
   const fenced = fencedCodeSpans(content);
   const blocks = [...fenced, ...indentedCodeSpans(content, fenced)];
   return [...blocks, ...inlineCodeSpans(content, blocks)];

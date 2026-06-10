@@ -1,4 +1,4 @@
-import type { AssistReview, AssistWeave, WeaveSpecInput } from "./schemas/assist";
+import type { AssistAudit, AssistReview, AssistWeave, WeaveSpecInput } from "./schemas/assist";
 import type {
   RendererSettings,
   SettingKey,
@@ -47,6 +47,7 @@ export interface KongyoApi {
   setLlmRouting(mainId: string | null, fallbackIds: string[]): Promise<RendererSettings>;
   resetLlmRouting(): Promise<RendererSettings>;
   reviewSpec(content: string): Promise<AssistReview>;
+  auditSpec(content: string): Promise<AssistAudit>;
   weaveSpec(input: WeaveSpecInput): Promise<AssistWeave>;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;

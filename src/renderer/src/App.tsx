@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
 import {
   DEFAULT_SETTINGS,
+  type EditorViewMode,
   llmProfileDisplayName,
   rendererLlmRouting,
+  SPLIT_RATIO,
   type MermaidRenderer,
   type RendererSettings,
   type UpsertLlmProfileInput,
@@ -18,6 +20,7 @@ import {
 import { Dialog, type DialogState } from "./components/Dialog";
 import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
+import { FrayPanel, type AuditState } from "./components/FrayPanel";
 import { LensPanel, type LensState } from "./components/LensPanel";
 import { INITIAL_LOOM_SESSION, LoomPanel, type LoomSession, type WeaveKind } from "./components/LoomPanel";
 import { Outline } from "./components/Outline";
@@ -30,6 +33,7 @@ import { Toolbar, type EditorMode } from "./components/Toolbar";
 import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
 import { safeDecode } from "./lib/dom";
 import { errorMessage, ipcErrorMessage } from "./lib/errors";
+import { detectFray, type FrayIssue } from "./lib/fray";
 import { computePageHeadingIds } from "./lib/headings";
 import { isMarkdownFile, MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_TOTAL_IMPORT_BYTES } from "./lib/import";
 import { buildImportPlan, type DroppedFile } from "./lib/importPlan";
@@ -110,12 +114,26 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     accent: initialSettings.accent,
     editorFontSize: initialSettings.editorFontSize,
     previewFontSize: initialSettings.previewFontSize,
+    editorLineHeight: initialSettings.editorLineHeight,
+    previewLineHeight: initialSettings.previewLineHeight,
     readingWidth: initialSettings.readingWidth,
   }));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [defaultViewMode, setDefaultViewMode] = useState<EditorViewMode>(initialSettings.defaultViewMode);
+  const defaultViewModeRef = useRef(defaultViewMode);
+  defaultViewModeRef.current = defaultViewMode;
+  const [splitRatio, setSplitRatio] = useState(initialSettings.splitRatio);
+  const splitRatioRef = useRef(splitRatio);
+  splitRatioRef.current = splitRatio;
+  const [frayAutoCheck, setFrayAutoCheck] = useState(initialSettings.frayAutoCheck);
 
   const [lensOpen, setLensOpen] = useState(false);
   const [lens, setLens] = useState<LensState>({ status: "idle" });
+
+  const [frayOpen, setFrayOpen] = useState(false);
+  const [audit, setAudit] = useState<AuditState>({ status: "idle" });
+  const auditTokenRef = useRef(0);
+  const auditRunningRef = useRef(false);
   const [editorJump, setEditorJump] = useState<{ start: number; end: number } | null>(null);
   const [aiKeySet, setAiKeySet] = useState(initialSettings.geminiApiKeySet);
   const [mermaidRenderer, setMermaidRenderer] = useState<MermaidRenderer>(initialSettings.mermaidRenderer);
@@ -212,6 +230,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setLens((prev) => (prev.status === "running" ? prev : { status: "idle" }));
     loomTokenRef.current += 1;
     setLoomSession(INITIAL_LOOM_SESSION);
+    auditTokenRef.current += 1;
+    setAudit((prev) => (prev.status === "running" ? prev : { status: "idle" }));
     selectionRef.current = null;
     setEditorJump(null);
   }, [activeId]);
@@ -290,7 +310,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setActiveId(id);
         setDoc({ meta: reconciledMeta, content: document.content });
         setPageIndex(0);
-        setMode("preview");
+        setMode(defaultViewModeRef.current);
         setActiveHeadingId(null);
         setPendingAnchor(null);
         return true;
@@ -428,6 +448,30 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       });
   }, [mainModelLabel]);
 
+  const runAudit = useCallback((): void => {
+    const current = docRef.current;
+    if (!current || auditRunningRef.current) return;
+    auditRunningRef.current = true;
+    const token = (auditTokenRef.current += 1);
+    const auditedContent = current.content;
+    setAudit({ status: "running", model: mainModelLabel });
+    window.api
+      .auditSpec(auditedContent)
+      .then(
+        ({ report, model }) => {
+          if (auditTokenRef.current === token) setAudit({ status: "done", report, model, auditedContent });
+          else setAudit((prev) => (prev.status === "running" ? { status: "idle" } : prev));
+        },
+        (err: unknown) => {
+          if (auditTokenRef.current === token) setAudit({ status: "error", message: ipcErrorMessage(err) });
+          else setAudit((prev) => (prev.status === "running" ? { status: "idle" } : prev));
+        },
+      )
+      .finally(() => {
+        auditRunningRef.current = false;
+      });
+  }, [mainModelLabel]);
+
   const applyLensRewrite = useCallback((excerpt: string, rewrite: string): boolean => {
     const current = docRef.current;
     if (!current) return false;
@@ -463,6 +507,24 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       if (targetPage !== -1) setPageIndex(targetPage);
       setMode("source");
       setEditorJump({ start, end: start + excerpt.length });
+    },
+    [pages],
+  );
+
+  const jumpToOffset = useCallback(
+    (start: number, end: number): void => {
+      const current = docRef.current;
+      if (!current) return;
+      const bounded = Math.min(start, current.content.length);
+      const lineIndex = current.content.slice(0, bounded).split("\n").length - 1;
+      let targetPage = 0;
+      for (let i = 0; i < pages.length; i++) {
+        if (pages[i]!.startLine <= lineIndex) targetPage = i;
+        else break;
+      }
+      setPageIndex(targetPage);
+      if (modeRef.current === "preview") setMode("source");
+      setEditorJump({ start: bounded, end: Math.min(end, current.content.length) });
     },
     [pages],
   );
@@ -644,6 +706,45 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const pendingCount = useMemo(() => findPendingDecisions(doc?.content ?? "").length, [doc?.content]);
 
+  // タイピングを妨げないよう、ほつれ検査は低優先度の遅延値に対して走らせる
+  const deferredContent = useDeferredValue(doc?.content ?? "");
+  const frayEnabled = (frayAutoCheck || frayOpen) && doc !== null;
+  const frayIssues = useMemo<FrayIssue[]>(() => {
+    if (!frayEnabled || deferredContent.trim().length === 0) return [];
+    const deferredPages = splitPages(deferredContent);
+    const headingIds = computePageHeadingIds(deferredPages.map((page) => page.content)).flat();
+    return detectFray({
+      content: deferredContent,
+      specIds: specs.map((spec) => spec.id),
+      headingIds,
+    });
+  }, [deferredContent, frayEnabled, specs]);
+
+  const previewSyncRef = useRef<((ratio: number) => void) | null>(null);
+  const handleEditorScrollRatio = useCallback((ratio: number): void => {
+    previewSyncRef.current?.(ratio);
+  }, []);
+
+  const splitDragRef = useRef<DOMRect | null>(null);
+  const handleDividerDown = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
+    const container = event.currentTarget.parentElement;
+    if (!container) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    splitDragRef.current = container.getBoundingClientRect();
+  }, []);
+  const handleDividerMove = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
+    const rect = splitDragRef.current;
+    if (!rect || rect.width <= 0) return;
+    const ratio = (event.clientX - rect.left) / rect.width;
+    setSplitRatio(Math.min(SPLIT_RATIO.max, Math.max(SPLIT_RATIO.min, ratio)));
+  }, []);
+  const handleDividerUp = useCallback((): void => {
+    if (splitDragRef.current === null) return;
+    splitDragRef.current = null;
+    void window.api.setSetting("splitRatio", splitRatioRef.current).catch(() => undefined);
+  }, []);
+
   const jumpToPending = useCallback((): void => {
     const current = docRef.current;
     if (!current) return;
@@ -657,7 +758,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const toggleLens = useCallback((): void => {
     if (docRef.current === null) return;
     setLensOpen((prev) => {
-      if (!prev) setLoomOpen(false);
+      if (!prev) {
+        setLoomOpen(false);
+        setFrayOpen(false);
+      }
       return !prev;
     });
   }, []);
@@ -665,7 +769,21 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const toggleLoom = useCallback((): void => {
     if (docRef.current === null) return;
     setLoomOpen((prev) => {
-      if (!prev) setLensOpen(false);
+      if (!prev) {
+        setLensOpen(false);
+        setFrayOpen(false);
+      }
+      return !prev;
+    });
+  }, []);
+
+  const toggleFray = useCallback((): void => {
+    if (docRef.current === null) return;
+    setFrayOpen((prev) => {
+      if (!prev) {
+        setLensOpen(false);
+        setLoomOpen(false);
+      }
       return !prev;
     });
   }, []);
@@ -709,13 +827,19 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       } else if (mod && event.key.toLowerCase() === "j") {
         event.preventDefault();
         toggleLoom();
+      } else if (mod && event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        toggleFray();
+      } else if (mod && event.key === "\\") {
+        event.preventDefault();
+        if (docRef.current !== null) setMode((prev) => (prev === "split" ? "preview" : "split"));
       } else if (event.key === "Escape" && search.open) {
         closeSearch();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openSearch, closeSearch, search.open, settingsOpen, toggleLens, toggleLoom]);
+  }, [openSearch, closeSearch, search.open, settingsOpen, toggleLens, toggleLoom, toggleFray]);
 
   const stepMatch = (delta: number): void => {
     if (matches.length === 0) return;
@@ -907,6 +1031,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setAppearance((prev) => ({ ...prev, previewFontSize: change.value }));
         void window.api.setSetting("previewFontSize", change.value).catch(() => undefined);
         return;
+      case "editorLineHeight":
+        setAppearance((prev) => ({ ...prev, editorLineHeight: change.value }));
+        void window.api.setSetting("editorLineHeight", change.value).catch(() => undefined);
+        return;
+      case "previewLineHeight":
+        setAppearance((prev) => ({ ...prev, previewLineHeight: change.value }));
+        void window.api.setSetting("previewLineHeight", change.value).catch(() => undefined);
+        return;
       case "readingWidth":
         setAppearance((prev) => ({ ...prev, readingWidth: change.value }));
         void window.api.setSetting("readingWidth", change.value).catch(() => undefined);
@@ -914,6 +1046,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       case "mermaidRenderer":
         setMermaidRenderer(change.value);
         void window.api.setSetting("mermaidRenderer", change.value).catch(() => undefined);
+        return;
+      case "defaultViewMode":
+        setDefaultViewMode(change.value);
+        void window.api.setSetting("defaultViewMode", change.value).catch(() => undefined);
+        return;
+      case "frayAutoCheck":
+        setFrayAutoCheck(change.value);
+        void window.api.setSetting("frayAutoCheck", change.value).catch(() => undefined);
         return;
     }
   }, []);
@@ -993,15 +1133,25 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       accent: DEFAULT_SETTINGS.accent,
       editorFontSize: DEFAULT_SETTINGS.editorFontSize,
       previewFontSize: DEFAULT_SETTINGS.previewFontSize,
+      editorLineHeight: DEFAULT_SETTINGS.editorLineHeight,
+      previewLineHeight: DEFAULT_SETTINGS.previewLineHeight,
       readingWidth: DEFAULT_SETTINGS.readingWidth,
     };
     setAppearance(defaults);
     setMermaidRenderer(DEFAULT_SETTINGS.mermaidRenderer);
+    setDefaultViewMode(DEFAULT_SETTINGS.defaultViewMode);
+    setSplitRatio(DEFAULT_SETTINGS.splitRatio);
+    setFrayAutoCheck(DEFAULT_SETTINGS.frayAutoCheck);
     void window.api.setSetting("accent", defaults.accent).catch(() => undefined);
     void window.api.setSetting("editorFontSize", defaults.editorFontSize).catch(() => undefined);
     void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
+    void window.api.setSetting("editorLineHeight", defaults.editorLineHeight).catch(() => undefined);
+    void window.api.setSetting("previewLineHeight", defaults.previewLineHeight).catch(() => undefined);
     void window.api.setSetting("readingWidth", defaults.readingWidth).catch(() => undefined);
     void window.api.setSetting("mermaidRenderer", DEFAULT_SETTINGS.mermaidRenderer).catch(() => undefined);
+    void window.api.setSetting("defaultViewMode", DEFAULT_SETTINGS.defaultViewMode).catch(() => undefined);
+    void window.api.setSetting("splitRatio", DEFAULT_SETTINGS.splitRatio).catch(() => undefined);
+    void window.api.setSetting("frayAutoCheck", DEFAULT_SETTINGS.frayAutoCheck).catch(() => undefined);
     // 内蔵 Gemini プロファイルを初期状態に復元してメインへ戻す。
     // 追加登録されたプロファイルとキーは資産なので消さない。
     // ルーティング更新と同じキューに直列化し、キュー済みの変更がリセットを上書きしないようにする
@@ -1023,6 +1173,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const previewAnchor = pendingAnchor && doc && pendingAnchor.docId === doc.meta.id ? pendingAnchor.id : null;
   const lensVisible = lensOpen && doc !== null;
   const loomVisible = loomOpen && doc !== null;
+  const frayVisible = frayOpen && doc !== null;
   const llmSettings: LlmSettings = {
     geminiApiKeySet: aiKeySet,
     profiles: llmRouting.roster,
@@ -1032,7 +1183,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   };
 
   return (
-    <div className={`app${lensVisible || loomVisible ? " lens-open" : ""}`}>
+    <div className={`app${lensVisible || loomVisible || frayVisible ? " lens-open" : ""}`}>
       <aside className="left-pane">
         <div className="brand">
           <span className="brand-mark">
@@ -1073,6 +1224,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           lensOpen={lensVisible}
           lensAvailable={doc !== null}
           loomOpen={loomVisible}
+          frayOpen={frayVisible}
+          frayCount={frayAutoCheck ? frayIssues.length : 0}
           pendingCount={pendingCount}
           onMode={setMode}
           onPrev={() => setPageIndex((index) => Math.max(0, index - 1))}
@@ -1080,6 +1233,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onSearch={openSearch}
           onToggleLens={toggleLens}
           onToggleLoom={toggleLoom}
+          onToggleFray={toggleFray}
           onJumpPending={jumpToPending}
           onCycleTheme={() => setThemePreference((prev) => nextPreference(prev))}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1129,6 +1283,48 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               onActiveHeading={setActiveHeadingId}
               onLinkActivate={handleLinkActivate}
             />
+          ) : mode === "split" ? (
+            <div className="split-view" style={{ "--split-ratio": `${splitRatio * 100}%` } as React.CSSProperties}>
+              <div className="split-pane">
+                <Editor
+                  value={doc.content}
+                  theme={resolvedTheme}
+                  jump={editorJump}
+                  onJumpHandled={() => setEditorJump(null)}
+                  onSelectionChange={handleEditorSelection}
+                  onScrollRatio={handleEditorScrollRatio}
+                  onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}
+                />
+              </div>
+              <div
+                className="split-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="分割位置を調整"
+                title="ドラッグで分割位置を調整"
+                onPointerDown={handleDividerDown}
+                onPointerMove={handleDividerMove}
+                onPointerUp={handleDividerUp}
+                onPointerCancel={handleDividerUp}
+              />
+              <div className="split-pane">
+                <Preview
+                  pageContent={activePage?.content ?? ""}
+                  headingIds={pageHeadingIds[pageIndex] ?? []}
+                  linkDefs={linkDefs}
+                  theme={resolvedTheme}
+                  mermaidRenderer={mermaidRenderer}
+                  searchQuery={search.open ? search.query : ""}
+                  searchCurrentInPage={searchCurrentInPage}
+                  pendingAnchor={previewAnchor}
+                  onAnchorHandled={() => setPendingAnchor(null)}
+                  onHeadings={setHeadings}
+                  onActiveHeading={setActiveHeadingId}
+                  onLinkActivate={handleLinkActivate}
+                  scrollSyncRef={previewSyncRef}
+                />
+              </div>
+            </div>
           ) : (
             <Editor
               value={doc.content}
@@ -1167,6 +1363,19 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onClose={() => setLoomOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
+      ) : frayVisible && doc ? (
+        <FrayPanel
+          issues={frayIssues}
+          audit={audit}
+          modelLabel={mainModelLabel}
+          apiKeySet={aiReady}
+          docContent={doc.content}
+          onRunAudit={runAudit}
+          onClose={() => setFrayOpen(false)}
+          onJumpOffset={jumpToOffset}
+          onJumpExcerpt={jumpToLensExcerpt}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
       ) : (
         <Outline headings={headings} activeId={activeHeadingId} />
       )}
@@ -1190,6 +1399,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           appearance={appearance}
           resolvedTheme={resolvedTheme}
           mermaidRenderer={mermaidRenderer}
+          defaultViewMode={defaultViewMode}
+          frayAutoCheck={frayAutoCheck}
           llm={llmSettings}
           onChange={handleSettingChange}
           onSaveApiKey={handleSaveApiKey}

@@ -1,5 +1,5 @@
 import { ipcMain, shell } from "electron";
-import { parseReviewSpecInput, parseWeaveSpecInput } from "@shared/schemas/assist";
+import { parseAuditSpecInput, parseReviewSpecInput, parseWeaveSpecInput } from "@shared/schemas/assist";
 import {
   parseCreateSpecInput,
   parseImportSpecsInput,
@@ -15,7 +15,7 @@ import {
   parseUpsertLlmProfileInput,
   toRendererSettings,
 } from "@shared/schemas/settings";
-import { reviewSpec, weaveSpec } from "./assist";
+import { auditSpec, reviewSpec, weaveSpec } from "./assist";
 import { deleteLlmProfile, resetLlmRouting, setLlmRouting, upsertLlmProfile } from "./llmProfiles";
 import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
 import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
@@ -44,6 +44,8 @@ export function registerIpc(): void {
   ipcMain.handle("settings:get", () => toRendererSettings(readSettings()));
 
   ipcMain.handle("assist:review", (_event, raw: unknown) => reviewSpec(parseReviewSpecInput(raw).content));
+
+  ipcMain.handle("assist:audit", (_event, raw: unknown) => auditSpec(parseAuditSpecInput(raw).content));
 
   ipcMain.handle("assist:weave", (_event, raw: unknown) => weaveSpec(parseWeaveSpecInput(raw)));
 
