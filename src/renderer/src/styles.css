@@ -3537,6 +3537,126 @@ kbd {
   margin-top: 2px;
 }
 
+/* ---------- Warp (定型への張り直し) ---------- */
+.warp-form-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 3px;
+  background: var(--seg-track);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.warp-form-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 8px;
+  font-size: 11.5px;
+  font-weight: 540;
+  border-radius: 8px;
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast),
+    box-shadow var(--t-fast);
+}
+
+.warp-form-switch button:hover {
+  color: var(--fg);
+  background: var(--seg-hover);
+}
+
+.warp-form-switch button.active {
+  background: var(--seg-active);
+  color: var(--fg-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.warp-diagram-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.warp-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  padding: 12px;
+  overflow: auto;
+  max-height: 320px;
+}
+
+.warp-preview svg {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+}
+
+.warp-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  font-size: 11.5px;
+  color: var(--muted-2);
+}
+
+.warp-preview-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--danger-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.warp-preview-error svg {
+  flex: none;
+  margin: 2px 0 0;
+}
+
+.warp-output {
+  min-height: 160px;
+}
+
+.warp-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.warp-notes li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--fg);
+}
+
+.warp-notes li svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--lens-decision);
+}
+
 /* ---------- Pending decisions (未決定) ---------- */
 .pending-badge {
   display: inline-flex;

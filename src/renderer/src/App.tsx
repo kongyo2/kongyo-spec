@@ -12,6 +12,7 @@ import {
 } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import {
+  MAX_WARP_MATERIAL_CHARS,
   MAX_WEAVE_CONTEXT_CHARS,
   MAX_WEAVE_MATERIAL_CHARS,
   MAX_WEAVE_WOVEN_CHARS,
@@ -30,6 +31,7 @@ import { SearchBar } from "./components/SearchBar";
 import { Settings as SettingsScreen, type LlmSettings, type SettingChange } from "./components/Settings";
 import { SpecsSidebar } from "./components/SpecsSidebar";
 import { Toolbar, type EditorMode } from "./components/Toolbar";
+import { INITIAL_WARP_SESSION, WarpPanel, type WarpSession } from "./components/WarpPanel";
 import { applyAppearance, type AppearanceSettings } from "./lib/appearance";
 import { safeDecode } from "./lib/dom";
 import { errorMessage, ipcErrorMessage } from "./lib/errors";
@@ -153,6 +155,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const loomTokenRef = useRef(0);
   const loomRunningRef = useRef(false);
   const lastWeaveKindRef = useRef<WeaveKind>("compose");
+  const [warpOpen, setWarpOpen] = useState(false);
+  const [warpSession, setWarpSession] = useState<WarpSession>(INITIAL_WARP_SESSION);
+  const warpSessionRef = useRef(warpSession);
+  warpSessionRef.current = warpSession;
+  const warpTokenRef = useRef(0);
+  const warpRunningRef = useRef(false);
   const selectionRef = useRef<{ start: number; end: number } | null>(null);
   const modeRef = useRef<EditorMode>("preview");
   modeRef.current = mode;
@@ -230,6 +238,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setLens((prev) => (prev.status === "running" ? prev : { status: "idle" }));
     loomTokenRef.current += 1;
     setLoomSession(INITIAL_LOOM_SESSION);
+    warpTokenRef.current += 1;
+    setWarpSession(INITIAL_WARP_SESSION);
     auditTokenRef.current += 1;
     setAudit((prev) => (prev.status === "running" ? prev : { status: "idle" }));
     selectionRef.current = null;
@@ -609,19 +619,24 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     runWeave(lastWeaveKindRef.current);
   }, [runWeave]);
 
-  const pullSelectionToLoom = useCallback((): void => {
+  const grabEditorSelection = useCallback((): string | null => {
     const current = docRef.current;
-    if (!current) return;
+    if (!current) return null;
     if (modeRef.current !== "source") {
       setToast("Source モードで取り込みたい範囲を選択してください");
-      return;
+      return null;
     }
     const selection = selectionRef.current;
     if (!selection || selection.start === selection.end) {
       setToast("選択範囲がありません。エディタで範囲を選択してください");
-      return;
+      return null;
     }
-    const text = current.content.slice(selection.start, selection.end);
+    return current.content.slice(selection.start, selection.end);
+  }, []);
+
+  const pullSelectionToLoom = useCallback((): void => {
+    const text = grabEditorSelection();
+    if (text === null) return;
     const prev = loomSessionRef.current;
     if (prev.replaceTargets.includes(text)) {
       setToast("その範囲は取り込み済みです");
@@ -633,76 +648,174 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       return;
     }
     setLoomSession({ ...prev, material: merged, replaceTargets: [...prev.replaceTargets, text] });
-  }, []);
+  }, [grabEditorSelection]);
+
+  const insertComposed = useCallback(
+    (
+      text: string,
+      rawTargets: string[],
+    ): { kind: "replaced"; count: number } | { kind: "inserted"; fellBack: boolean } | null => {
+      const current = docRef.current;
+      if (!current || text.length === 0) return null;
+      const content = current.content;
+      let fellBack = false;
+      let replaceRanges: { start: number; end: number }[] | null = null;
+      const targets = rawTargets.filter((target) => target.length > 0);
+      if (targets.length > 0) {
+        const resolved: { start: number; end: number }[] = [];
+        let unique = true;
+        for (const target of targets) {
+          const first = content.indexOf(target);
+          if (first === -1 || content.indexOf(target, first + 1) !== -1) {
+            unique = false;
+            break;
+          }
+          resolved.push({ start: first, end: first + target.length });
+        }
+        if (unique) {
+          resolved.sort((a, b) => a.start - b.start);
+          for (let i = 1; i < resolved.length && unique; i++) {
+            if (resolved[i]!.start < resolved[i - 1]!.end) unique = false;
+          }
+        }
+        if (unique) replaceRanges = resolved;
+        else fellBack = true;
+      }
+      let next: string;
+      let jumpStart: number;
+      if (replaceRanges) {
+        const primary = replaceRanges[0]!;
+        next = content;
+        for (let i = replaceRanges.length - 1; i >= 1; i--) {
+          next = spliceOut(next, replaceRanges[i]!);
+        }
+        next = next.slice(0, primary.start) + text + next.slice(primary.end);
+        jumpStart = primary.start;
+      } else {
+        const nextPage = pages[pageIndex + 1];
+        const caret =
+          modeRef.current === "source"
+            ? (selectionRef.current?.end ?? content.length)
+            : nextPage
+              ? lineStartOffset(content, nextPage.startLine)
+              : content.length;
+        const before = content.slice(0, caret);
+        const after = content.slice(caret);
+        const lead = before.length === 0 || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+        const trail =
+          after.length === 0 ? "\n" : after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
+        next = before + lead + text + trail + after;
+        jumpStart = caret + lead.length;
+      }
+      setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+      setMode("source");
+      setEditorJump({ start: jumpStart, end: jumpStart + text.length });
+      return replaceRanges ? { kind: "replaced", count: replaceRanges.length } : { kind: "inserted", fellBack };
+    },
+    [pages, pageIndex],
+  );
 
   const insertWoven = useCallback((): void => {
-    const current = docRef.current;
-    if (!current) return;
     const session = loomSessionRef.current;
     const text = session.woven.trim();
-    if (text.length === 0) return;
-    const content = current.content;
-    let notice: string | null = null;
-    let replaceRanges: { start: number; end: number }[] | null = null;
-    const targets = session.replaceTargets.filter((target) => target.length > 0);
-    if (targets.length > 0) {
-      const resolved: { start: number; end: number }[] = [];
-      let unique = true;
-      for (const target of targets) {
-        const first = content.indexOf(target);
-        if (first === -1 || content.indexOf(target, first + 1) !== -1) {
-          unique = false;
-          break;
-        }
-        resolved.push({ start: first, end: first + target.length });
-      }
-      if (unique) {
-        resolved.sort((a, b) => a.start - b.start);
-        for (let i = 1; i < resolved.length && unique; i++) {
-          if (resolved[i]!.start < resolved[i - 1]!.end) unique = false;
-        }
-      }
-      if (unique) replaceRanges = resolved;
-      else notice = "置き換え対象を特定できないため、挿入に切り替えました";
-    }
-    let next: string;
-    let jumpStart: number;
-    if (replaceRanges) {
-      const primary = replaceRanges[0]!;
-      next = content;
-      for (let i = replaceRanges.length - 1; i >= 1; i--) {
-        next = spliceOut(next, replaceRanges[i]!);
-      }
-      next = next.slice(0, primary.start) + text + next.slice(primary.end);
-      jumpStart = primary.start;
-    } else {
-      const nextPage = pages[pageIndex + 1];
-      const caret =
-        modeRef.current === "source"
-          ? (selectionRef.current?.end ?? content.length)
-          : nextPage
-            ? lineStartOffset(content, nextPage.startLine)
-            : content.length;
-      const before = content.slice(0, caret);
-      const after = content.slice(caret);
-      const lead = before.length === 0 || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
-      const trail = after.length === 0 ? "\n" : after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
-      next = before + lead + text + trail + after;
-      jumpStart = caret + lead.length;
-    }
-    setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+    const result = insertComposed(text, session.replaceTargets);
+    if (result === null) return;
     setLoomSession(INITIAL_LOOM_SESSION);
-    setMode("source");
-    setEditorJump({ start: jumpStart, end: jumpStart + text.length });
     setToast(
-      notice ??
-        (replaceRanges
-          ? replaceRanges.length > 1
-            ? `${replaceRanges.length} 箇所を 1 つに織り直しました`
-            : "選択箇所を置き換えました"
-          : "織り上がりを挿入しました"),
+      result.kind === "replaced"
+        ? result.count > 1
+          ? `${result.count} 箇所を 1 つに織り直しました`
+          : "選択箇所を置き換えました"
+        : result.fellBack
+          ? "置き換え対象を特定できないため、挿入に切り替えました"
+          : "織り上がりを挿入しました",
     );
-  }, [pages, pageIndex]);
+  }, [insertComposed]);
+
+  const updateWarpSession = useCallback((patch: Partial<WarpSession>): void => {
+    setWarpSession((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const runWarp = useCallback((): void => {
+    const current = docRef.current;
+    if (!current || warpRunningRef.current) return;
+    const session = warpSessionRef.current;
+    if (session.material.trim().length === 0) {
+      setToast("素材がありません。本文の選択範囲やメモを入れてから張ってください");
+      return;
+    }
+    if (session.material.length > MAX_WARP_MATERIAL_CHARS) {
+      setToast("素材が上限(約 2.4 万字)を超えています。削ってから張ってください");
+      return;
+    }
+    warpRunningRef.current = true;
+    const token = (warpTokenRef.current += 1);
+    setWarpSession((prev) => ({ ...prev, phase: "running", error: null }));
+    window.api
+      .warpSpec({
+        form: session.form,
+        material: session.material,
+        title: current.meta.title.slice(0, 200),
+        diagram: session.diagram,
+      })
+      .then(
+        ({ result, model }) => {
+          if (warpTokenRef.current !== token) return;
+          setWarpSession((prev) => ({
+            ...prev,
+            phase: "done",
+            output: result.output,
+            notes: result.notes,
+            servedBy: model,
+            error: null,
+          }));
+        },
+        (err: unknown) => {
+          if (warpTokenRef.current !== token) return;
+          setWarpSession((prev) => ({ ...prev, phase: "error", error: ipcErrorMessage(err) }));
+        },
+      )
+      .finally(() => {
+        warpRunningRef.current = false;
+      });
+  }, []);
+
+  const pullSelectionToWarp = useCallback((): void => {
+    const text = grabEditorSelection();
+    if (text === null) return;
+    const prev = warpSessionRef.current;
+    if (prev.replaceTargets.includes(text)) {
+      setToast("その範囲は取り込み済みです");
+      return;
+    }
+    const merged = prev.material.trim().length > 0 ? `${prev.material.replace(/\s+$/, "")}\n\n${text}` : text;
+    if (merged.length > MAX_WARP_MATERIAL_CHARS) {
+      setToast("素材が上限(約 2.4 万字)を超えるため取り込めません");
+      return;
+    }
+    setWarpSession({ ...prev, material: merged, replaceTargets: [...prev.replaceTargets, text] });
+  }, [grabEditorSelection]);
+
+  const insertWarpOutput = useCallback((): void => {
+    const session = warpSessionRef.current;
+    const body = session.output.trim();
+    if (body.length === 0) return;
+    const text = session.form === "mermaid" ? `\`\`\`mermaid\n${body}\n\`\`\`` : body;
+    const result = insertComposed(text, session.replaceTargets);
+    if (result === null) return;
+    setWarpSession(INITIAL_WARP_SESSION);
+    setToast(
+      result.kind === "replaced"
+        ? result.count > 1
+          ? `${result.count} 箇所を張り替えました`
+          : "選択箇所を張り替えました"
+        : result.fellBack
+          ? "置き換え対象を特定できないため、挿入に切り替えました"
+          : session.form === "mermaid"
+            ? "図を挿入しました"
+            : "要件を挿入しました",
+    );
+  }, [insertComposed]);
 
   const pendingCount = useMemo(() => findPendingDecisions(doc?.content ?? "").length, [doc?.content]);
 
@@ -761,6 +874,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       if (!prev) {
         setLoomOpen(false);
         setFrayOpen(false);
+        setWarpOpen(false);
       }
       return !prev;
     });
@@ -772,6 +886,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       if (!prev) {
         setLensOpen(false);
         setFrayOpen(false);
+        setWarpOpen(false);
       }
       return !prev;
     });
@@ -783,6 +898,19 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       if (!prev) {
         setLensOpen(false);
         setLoomOpen(false);
+        setWarpOpen(false);
+      }
+      return !prev;
+    });
+  }, []);
+
+  const toggleWarp = useCallback((): void => {
+    if (docRef.current === null) return;
+    setWarpOpen((prev) => {
+      if (!prev) {
+        setLensOpen(false);
+        setLoomOpen(false);
+        setFrayOpen(false);
       }
       return !prev;
     });
@@ -827,6 +955,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       } else if (mod && event.key.toLowerCase() === "j") {
         event.preventDefault();
         toggleLoom();
+      } else if (mod && event.key.toLowerCase() === "e") {
+        event.preventDefault();
+        toggleWarp();
       } else if (mod && event.key.toLowerCase() === "g") {
         event.preventDefault();
         toggleFray();
@@ -839,7 +970,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openSearch, closeSearch, search.open, settingsOpen, toggleLens, toggleLoom, toggleFray]);
+  }, [openSearch, closeSearch, search.open, settingsOpen, toggleLens, toggleLoom, toggleFray, toggleWarp]);
 
   const stepMatch = (delta: number): void => {
     if (matches.length === 0) return;
@@ -1174,6 +1305,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const lensVisible = lensOpen && doc !== null;
   const loomVisible = loomOpen && doc !== null;
   const frayVisible = frayOpen && doc !== null;
+  const warpVisible = warpOpen && doc !== null;
   const llmSettings: LlmSettings = {
     geminiApiKeySet: aiKeySet,
     profiles: llmRouting.roster,
@@ -1183,7 +1315,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   };
 
   return (
-    <div className={`app${lensVisible || loomVisible || frayVisible ? " lens-open" : ""}`}>
+    <div className={`app${lensVisible || loomVisible || frayVisible || warpVisible ? " lens-open" : ""}`}>
       <aside className="left-pane">
         <div className="brand">
           <span className="brand-mark">
@@ -1224,6 +1356,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           lensOpen={lensVisible}
           lensAvailable={doc !== null}
           loomOpen={loomVisible}
+          warpOpen={warpVisible}
           frayOpen={frayVisible}
           frayCount={frayAutoCheck ? frayIssues.length : 0}
           pendingCount={pendingCount}
@@ -1233,6 +1366,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onSearch={openSearch}
           onToggleLens={toggleLens}
           onToggleLoom={toggleLoom}
+          onToggleWarp={toggleWarp}
           onToggleFray={toggleFray}
           onJumpPending={jumpToPending}
           onCycleTheme={() => setThemePreference((prev) => nextPreference(prev))}
@@ -1374,6 +1508,20 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onClose={() => setFrayOpen(false)}
           onJumpOffset={jumpToOffset}
           onJumpExcerpt={jumpToLensExcerpt}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      ) : warpVisible && doc ? (
+        <WarpPanel
+          session={warpSession}
+          modelLabel={mainModelLabel}
+          apiKeySet={aiReady}
+          theme={resolvedTheme}
+          mermaidRenderer={mermaidRenderer}
+          onUpdate={updateWarpSession}
+          onRun={runWarp}
+          onInsert={insertWarpOutput}
+          onPullSelection={pullSelectionToWarp}
+          onClose={() => setWarpOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : (

@@ -92,12 +92,7 @@ function findLiveBlock(container: HTMLElement, source: string): HTMLElement | nu
   );
 }
 
-export async function renderMermaidIn(
-  container: HTMLElement,
-  theme: ResolvedTheme,
-  renderer: MermaidRenderer,
-): Promise<void> {
-  if (document.fonts?.ready) await document.fonts.ready;
+function syncConfig(theme: ResolvedTheme, renderer: MermaidRenderer): boolean {
   const configChanged = initializedTheme !== null && (initializedTheme !== theme || activeRenderer !== renderer);
   ensureInit(theme);
   activeRenderer = renderer;
@@ -105,6 +100,35 @@ export async function renderMermaidIn(
     svgCache.clear();
     generation += 1;
   }
+  return configChanged;
+}
+
+export async function renderMermaidSvg(
+  source: string,
+  theme: ResolvedTheme,
+  renderer: MermaidRenderer,
+): Promise<string> {
+  if (document.fonts?.ready) await document.fonts.ready;
+  syncConfig(theme, renderer);
+  if (renderer === "beautiful") {
+    try {
+      return (await renderBeautiful(source)).trim();
+    } catch {
+      // beautiful-mermaid が対応しない図(gantt, pie など)は標準レンダラへ退避する
+    }
+  }
+  counter += 1;
+  const id = `mermaid-live-${Date.now().toString(36)}-${counter}`;
+  return (await mermaid.render(id, source)).svg;
+}
+
+export async function renderMermaidIn(
+  container: HTMLElement,
+  theme: ResolvedTheme,
+  renderer: MermaidRenderer,
+): Promise<void> {
+  if (document.fonts?.ready) await document.fonts.ready;
+  const configChanged = syncConfig(theme, renderer);
   const gen = generation;
   if (configChanged) {
     container.querySelectorAll<HTMLElement>("pre.mermaid-block.mermaid-rendered").forEach((block) => {

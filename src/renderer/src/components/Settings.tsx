@@ -709,8 +709,8 @@ export function Settings({
             ) : section === "ai" ? (
               <div className="settings-panel" key="ai">
                 <p className="settings-ai-philosophy">
-                  仕様書の著者はあなたです。Loom はあなたの言葉だけを仕様に織り上げ、Lens
-                  は削るべき過剰な具体と人間が決めるべき問いだけを返します。
+                  仕様書の著者はあなたです。Loom はあなたの言葉だけを仕様に織り上げ、Warp はそれを EARS や Mermaid
+                  の定型に張り直し、Lens は削るべき過剰な具体と人間が決めるべき問いだけを返します。
                 </p>
                 <div className="settings-row stack">
                   <div className="settings-row-label">
@@ -767,8 +767,8 @@ export function Settings({
                   <div className="settings-row-label">
                     <span className="settings-row-title">モデル</span>
                     <span className="settings-row-desc">
-                      Loom と Lens が使うモデル。モデル名・temperature・エンドポイントは自由に設定でき、OpenAI 互換 API
-                      も登録できます。メインが失敗するとフォールバックを ON にした順に試します。
+                      Loom・Warp・Lens が使うモデル。モデル名・temperature・エンドポイントは自由に設定でき、OpenAI 互換
+                      API も登録できます。メインが失敗するとフォールバックを ON にした順に試します。
                     </span>
                   </div>
                   <div className="settings-llm-list" role="list">

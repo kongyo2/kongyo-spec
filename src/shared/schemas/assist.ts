@@ -212,6 +212,64 @@ export interface AssistWeave {
   model: string;
 }
 
+export const WARP_FORMS = ["ears", "mermaid"] as const;
+export const WarpFormSchema = z.enum(WARP_FORMS);
+export type WarpForm = z.infer<typeof WarpFormSchema>;
+
+export const MERMAID_DIAGRAM_KINDS = [
+  "auto",
+  "flowchart",
+  "sequenceDiagram",
+  "stateDiagram-v2",
+  "erDiagram",
+  "classDiagram",
+  "gantt",
+] as const;
+export const MermaidDiagramKindSchema = z.enum(MERMAID_DIAGRAM_KINDS);
+export type MermaidDiagramKind = z.infer<typeof MermaidDiagramKindSchema>;
+
+export const MAX_WARP_MATERIAL_CHARS = 24_000;
+export const MAX_WARP_OUTPUT_CHARS = 32_000;
+
+export const WarpResultSchema = z.object({
+  output: z
+    .string()
+    .max(MAX_WARP_OUTPUT_CHARS)
+    .nullish()
+    .transform((value) => (value ?? "").replace(/^\n+/, "").replace(/\s+$/, "")),
+  notes: z
+    .array(z.string().max(600))
+    .max(12)
+    .nullish()
+    .transform((items) =>
+      (items ?? [])
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+        .slice(0, 6),
+    ),
+});
+export type WarpResult = z.infer<typeof WarpResultSchema>;
+
+export function parseWarpResult(raw: unknown): WarpResult {
+  return WarpResultSchema.parse(raw);
+}
+
+export interface AssistWarp {
+  result: WarpResult;
+  model: string;
+}
+
+export const WarpSpecInputSchema = z.object({
+  form: WarpFormSchema,
+  material: z.string().min(1).max(MAX_WARP_MATERIAL_CHARS),
+  title: z.string().max(200).default(""),
+  diagram: MermaidDiagramKindSchema.default("auto"),
+});
+export type WarpSpecInput = z.infer<typeof WarpSpecInputSchema>;
+export function parseWarpSpecInput(raw: unknown): WarpSpecInput {
+  return WarpSpecInputSchema.parse(raw);
+}
+
 export const WeaveQaSchema = z.object({
   question: z.string().min(1).max(2000),
   answer: z.string().min(1).max(4000),

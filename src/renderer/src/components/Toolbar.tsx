@@ -3,6 +3,7 @@ import {
   ChevronRight,
   CircleHelp,
   Columns2,
+  DraftingCompass,
   type LucideIcon,
   Monitor,
   Moon,
@@ -31,6 +32,7 @@ interface ToolbarProps {
   lensOpen: boolean;
   lensAvailable: boolean;
   loomOpen: boolean;
+  warpOpen: boolean;
   frayOpen: boolean;
   frayCount: number;
   pendingCount: number;
@@ -40,6 +42,7 @@ interface ToolbarProps {
   onSearch: () => void;
   onToggleLens: () => void;
   onToggleLoom: () => void;
+  onToggleWarp: () => void;
   onToggleFray: () => void;
   onJumpPending: () => void;
   onCycleTheme: () => void;
@@ -74,6 +77,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     lensOpen,
     lensAvailable,
     loomOpen,
+    warpOpen,
     frayOpen,
     frayCount,
     pendingCount,
@@ -83,6 +87,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     onSearch,
     onToggleLens,
     onToggleLoom,
+    onToggleWarp,
     onToggleFray,
     onJumpPending,
     onCycleTheme,
@@ -182,6 +187,18 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         >
           <Spool size={14} aria-hidden="true" />
           <span className="toggle-text">Loom</span>
+        </button>
+        <button
+          type="button"
+          className={`icon-button lens-toggle${warpOpen ? " active" : ""}`}
+          onClick={onToggleWarp}
+          disabled={!lensAvailable}
+          aria-pressed={warpOpen}
+          aria-label="Warp — 定型に張る (Ctrl/Cmd+E)"
+          title="定型に張る — ユーザーストーリー+EARS や Mermaid 図へ"
+        >
+          <DraftingCompass size={14} aria-hidden="true" />
+          <span className="toggle-text">Warp</span>
         </button>
         <button
           type="button"

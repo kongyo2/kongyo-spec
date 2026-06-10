@@ -1,4 +1,11 @@
-import type { AssistAudit, AssistReview, AssistWeave, WeaveSpecInput } from "./schemas/assist";
+import type {
+  AssistAudit,
+  AssistReview,
+  AssistWarp,
+  AssistWeave,
+  WarpSpecInput,
+  WeaveSpecInput,
+} from "./schemas/assist";
 import type {
   RendererSettings,
   SettingKey,
@@ -49,6 +56,7 @@ export interface KongyoApi {
   reviewSpec(content: string): Promise<AssistReview>;
   auditSpec(content: string): Promise<AssistAudit>;
   weaveSpec(input: WeaveSpecInput): Promise<AssistWeave>;
+  warpSpec(input: WarpSpecInput): Promise<AssistWarp>;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;

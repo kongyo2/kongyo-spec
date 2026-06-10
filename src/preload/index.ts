@@ -20,6 +20,7 @@ const api: KongyoApi = {
   reviewSpec: (content) => ipcRenderer.invoke("assist:review", { content }),
   auditSpec: (content) => ipcRenderer.invoke("assist:audit", { content }),
   weaveSpec: (input) => ipcRenderer.invoke("assist:weave", input),
+  warpSpec: (input) => ipcRenderer.invoke("assist:warp", input),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),
   onFlushBeforeClose: (callback) => {
     const handler = (): void => callback();
