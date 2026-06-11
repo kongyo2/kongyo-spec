@@ -4,6 +4,7 @@ import {
   CircleHelp,
   Columns2,
   DraftingCompass,
+  History,
   type LucideIcon,
   Monitor,
   Moon,
@@ -36,6 +37,7 @@ interface ToolbarProps {
   warpOpen: boolean;
   frayOpen: boolean;
   tailorOpen: boolean;
+  selvageOpen: boolean;
   frayCount: number;
   pendingCount: number;
   onMode: (mode: EditorMode) => void;
@@ -47,6 +49,7 @@ interface ToolbarProps {
   onToggleWarp: () => void;
   onToggleFray: () => void;
   onToggleTailor: () => void;
+  onToggleSelvage: () => void;
   onJumpPending: () => void;
   onCycleTheme: () => void;
   onOpenSettings: () => void;
@@ -83,6 +86,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     warpOpen,
     frayOpen,
     tailorOpen,
+    selvageOpen,
     frayCount,
     pendingCount,
     onMode,
@@ -94,6 +98,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     onToggleWarp,
     onToggleFray,
     onToggleTailor,
+    onToggleSelvage,
     onJumpPending,
     onCycleTheme,
     onOpenSettings,
@@ -241,6 +246,18 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         >
           <Scissors size={14} aria-hidden="true" />
           <span className="toggle-text">Tailor</span>
+        </button>
+        <button
+          type="button"
+          className={`icon-button lens-toggle${selvageOpen ? " active" : ""}`}
+          onClick={onToggleSelvage}
+          disabled={!lensAvailable}
+          aria-pressed={selvageOpen}
+          aria-label="Selvage — 版の履歴 (Ctrl/Cmd+H)"
+          title="版の履歴 — 自動で留めた版へ差分を見て巻き戻す"
+        >
+          <History size={14} aria-hidden="true" />
+          <span className="toggle-text">Selvage</span>
         </button>
         <button
           type="button"

@@ -4,7 +4,9 @@ import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { app } from "electron";
 import { parseFile, stringifyFile } from "@shared/frontmatter";
+import type { RestoreResult } from "@shared/schemas/history";
 import { byUpdatedDesc, parseFrontmatter, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
+import { deleteHistory, readSnapshot, recordAutoSnapshot, takeSnapshot } from "./historyStore";
 
 export interface ImportSpecEntry {
   id: string;
@@ -313,9 +315,24 @@ export async function saveSpec(id: string, content: string): Promise<SpecMeta> {
   if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
   return withLock(id, async () => {
     const existing = await readSpec(id);
+    // 上書きで失われる直前の内容を Selvage(版の履歴)に間引きしつつ留める
+    if (existing.content !== content) await recordAutoSnapshot(id, existing.content);
     const meta: SpecMeta = { ...existing.meta, updatedAt: nowIso() };
     await writeSpec(meta, content);
     return meta;
+  });
+}
+
+export async function restoreSpec(id: string, snapshotId: string): Promise<RestoreResult> {
+  if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
+  return withLock(id, async () => {
+    const snapshot = await readSnapshot(id, snapshotId);
+    const existing = await readSpec(id);
+    // 巻き戻し自体をやり直せるよう、復元前の現在内容を必ず留めてから書き換える
+    if (existing.content !== snapshot.content) await takeSnapshot(id, existing.content, "guard", null);
+    const meta: SpecMeta = { ...existing.meta, updatedAt: nowIso() };
+    await writeSpec(meta, snapshot.content);
+    return { meta, content: snapshot.content };
   });
 }
 
@@ -334,5 +351,6 @@ export async function deleteSpec(id: string): Promise<void> {
   await withLock(id, async () => {
     await fs.rm(fileFor(id), { force: true });
     await fs.rm(assetsDirFor(id), { recursive: true, force: true });
+    await deleteHistory(id);
   });
 }

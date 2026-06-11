@@ -18,6 +18,7 @@ import {
   MAX_WEAVE_WOVEN_CHARS,
   type WeaveQa,
 } from "@shared/schemas/assist";
+import type { SnapshotDocument } from "@shared/schemas/history";
 import { Dialog, type DialogState } from "./components/Dialog";
 import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
@@ -28,6 +29,7 @@ import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
 import { Preview, type HeadingInfo } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
+import { SelvagePanel, type SelvageState } from "./components/SelvagePanel";
 import { Settings as SettingsScreen, type LlmSettings, type SettingChange } from "./components/Settings";
 import { SpecsSidebar } from "./components/SpecsSidebar";
 import { TailorPanel, type TailorState } from "./components/TailorPanel";
@@ -145,6 +147,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   tailorRef.current = tailor;
   const tailorTokenRef = useRef(0);
   const tailorRunningRef = useRef(false);
+  const [selvageOpen, setSelvageOpen] = useState(false);
+  const [selvage, setSelvage] = useState<SelvageState>({ snapshots: null, error: null });
+  const [selvageBusy, setSelvageBusy] = useState(false);
+  const selvageBusyRef = useRef(false);
   const [editorJump, setEditorJump] = useState<{ start: number; end: number } | null>(null);
   const [aiKeySet, setAiKeySet] = useState(initialSettings.geminiApiKeySet);
   const [mermaidRenderer, setMermaidRenderer] = useState<MermaidRenderer>(initialSettings.mermaidRenderer);
@@ -255,6 +261,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setAudit((prev) => (prev.status === "running" ? prev : { status: "idle" }));
     tailorTokenRef.current += 1;
     setTailor((prev) => (prev.status === "running" ? prev : { status: "idle" }));
+    setSelvage({ snapshots: null, error: null });
     selectionRef.current = null;
     setEditorJump(null);
   }, [activeId]);
@@ -933,6 +940,125 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     );
   }, [insertComposed]);
 
+  const reloadSnapshots = useCallback((): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const specId = current.meta.id;
+    window.api.listSnapshots(specId).then(
+      (snapshots) => {
+        if (docRef.current?.meta.id === specId) setSelvage({ snapshots, error: null });
+      },
+      (err: unknown) => {
+        if (docRef.current?.meta.id === specId) {
+          setSelvage((prev) => ({ snapshots: prev.snapshots ?? [], error: ipcErrorMessage(err) }));
+        }
+      },
+    );
+  }, []);
+
+  // パネルを開いた時・仕様書を切り替えた時は即読み直す
+  useEffect(() => {
+    if (!selvageOpen || activeId === null) return;
+    reloadSnapshots();
+  }, [selvageOpen, activeId, reloadSnapshots]);
+
+  // 保存のたび自動スナップショットが増えている可能性がある。打鍵ごとの保存で
+  // I/O が嵩まないよう、updatedAt の変化からひと呼吸置いて読み直す
+  const docUpdatedAt = doc?.meta.updatedAt;
+  useEffect(() => {
+    if (!selvageOpen || docUpdatedAt === undefined) return;
+    const handle = window.setTimeout(reloadSnapshots, 1200);
+    return () => window.clearTimeout(handle);
+  }, [selvageOpen, docUpdatedAt, reloadSnapshots]);
+
+  const takeManualSnapshot = useCallback(
+    (label: string | null): void => {
+      const current = docRef.current;
+      if (!current) return;
+      const specId = current.meta.id;
+      window.api.takeSnapshot(specId, current.content, label).then(
+        () => {
+          setToast("いまの版を留めました");
+          if (docRef.current?.meta.id === specId) reloadSnapshots();
+        },
+        (err: unknown) => setToast(`留められませんでした: ${ipcErrorMessage(err)}`),
+      );
+    },
+    [reloadSnapshots],
+  );
+
+  const loadSnapshot = useCallback((snapshotId: string): Promise<SnapshotDocument> => {
+    const current = docRef.current;
+    if (!current) return Promise.reject(new Error("仕様書が開かれていません"));
+    return window.api.readSnapshot(current.meta.id, snapshotId);
+  }, []);
+
+  const restoreFromSnapshot = useCallback(
+    (snapshotId: string): void => {
+      const current = docRef.current;
+      if (!current || selvageBusyRef.current) return;
+      selvageBusyRef.current = true;
+      setSelvageBusy(true);
+      const specId = current.meta.id;
+      void (async () => {
+        try {
+          // 復元前の編集も guard スナップショットに含まれるよう、先にディスクへ流す
+          if (current.content !== loadedContentRef.current) {
+            pendingSaveRef.current = { id: specId, content: current.content };
+          }
+          const flushed = await flushSave();
+          if (!flushed) {
+            setToast("未保存の変更を書き込めないため、復元を中止しました");
+            return;
+          }
+          if (docRef.current?.meta.id !== specId) return;
+          const result = await window.api.restoreSnapshot(specId, snapshotId);
+          if (docRef.current?.meta.id !== specId) return;
+          loadedContentRef.current = result.content;
+          pendingSaveRef.current = null;
+          setDoc((prev) => (prev && prev.meta.id === specId ? { meta: result.meta, content: result.content } : prev));
+          setSpecs((prev) => prev.map((spec) => (spec.id === specId ? result.meta : spec)).sort(byUpdatedDesc));
+          setToast("選んだ版に戻しました。直前の状態も Selvage に残っています");
+          reloadSnapshots();
+        } catch (err) {
+          setToast(`復元できませんでした: ${ipcErrorMessage(err)}`);
+        } finally {
+          selvageBusyRef.current = false;
+          setSelvageBusy(false);
+        }
+      })();
+    },
+    [flushSave, reloadSnapshots],
+  );
+
+  const copySnapshot = useCallback((snapshotId: string): void => {
+    const current = docRef.current;
+    if (!current) return;
+    window.api.readSnapshot(current.meta.id, snapshotId).then(
+      (snapshot) =>
+        void copyText(snapshot.content).then((ok) =>
+          setToast(ok ? "この版の本文をコピーしました" : "コピーできませんでした"),
+        ),
+      (err: unknown) => setToast(ipcErrorMessage(err)),
+    );
+  }, []);
+
+  const removeSnapshot = useCallback(
+    (snapshotId: string): void => {
+      const current = docRef.current;
+      if (!current) return;
+      const specId = current.meta.id;
+      window.api.deleteSnapshot(specId, snapshotId).then(
+        () => {
+          setToast("版を削除しました");
+          if (docRef.current?.meta.id === specId) reloadSnapshots();
+        },
+        (err: unknown) => setToast(`削除できませんでした: ${ipcErrorMessage(err)}`),
+      );
+    },
+    [reloadSnapshots],
+  );
+
   const pendingCount = useMemo(() => findPendingDecisions(doc?.content ?? "").length, [doc?.content]);
   const planInDoc = useMemo(() => pages.some((page) => page.depth === 2 && page.title === PLAN_HEADING), [pages]);
 
@@ -1014,6 +1140,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setFrayOpen(false);
         setWarpOpen(false);
         setTailorOpen(false);
+        setSelvageOpen(false);
       }
       return !prev;
     });
@@ -1027,6 +1154,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setFrayOpen(false);
         setWarpOpen(false);
         setTailorOpen(false);
+        setSelvageOpen(false);
       }
       return !prev;
     });
@@ -1040,6 +1168,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setLoomOpen(false);
         setWarpOpen(false);
         setTailorOpen(false);
+        setSelvageOpen(false);
       }
       return !prev;
     });
@@ -1053,6 +1182,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setLoomOpen(false);
         setFrayOpen(false);
         setTailorOpen(false);
+        setSelvageOpen(false);
       }
       return !prev;
     });
@@ -1066,6 +1196,21 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setLoomOpen(false);
         setFrayOpen(false);
         setWarpOpen(false);
+        setSelvageOpen(false);
+      }
+      return !prev;
+    });
+  }, []);
+
+  const toggleSelvage = useCallback((): void => {
+    if (docRef.current === null) return;
+    setSelvageOpen((prev) => {
+      if (!prev) {
+        setLensOpen(false);
+        setLoomOpen(false);
+        setFrayOpen(false);
+        setWarpOpen(false);
+        setTailorOpen(false);
       }
       return !prev;
     });
@@ -1119,6 +1264,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       } else if (mod && event.key.toLowerCase() === "i") {
         event.preventDefault();
         toggleTailor();
+      } else if (mod && event.key.toLowerCase() === "h") {
+        event.preventDefault();
+        toggleSelvage();
       } else if (mod && event.key === "\\") {
         event.preventDefault();
         if (docRef.current !== null) setMode((prev) => (prev === "split" ? "preview" : "split"));
@@ -1138,6 +1286,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     toggleFray,
     toggleWarp,
     toggleTailor,
+    toggleSelvage,
   ]);
 
   const stepMatch = (delta: number): void => {
@@ -1475,6 +1624,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const frayVisible = frayOpen && doc !== null;
   const warpVisible = warpOpen && doc !== null;
   const tailorVisible = tailorOpen && doc !== null;
+  const selvageVisible = selvageOpen && doc !== null;
   const llmSettings: LlmSettings = {
     geminiApiKeySet: aiKeySet,
     profiles: llmRouting.roster,
@@ -1485,7 +1635,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   return (
     <div
-      className={`app${lensVisible || loomVisible || frayVisible || warpVisible || tailorVisible ? " lens-open" : ""}`}
+      className={`app${lensVisible || loomVisible || frayVisible || warpVisible || tailorVisible || selvageVisible ? " lens-open" : ""}`}
     >
       <aside className="left-pane">
         <div className="brand">
@@ -1530,6 +1680,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           warpOpen={warpVisible}
           frayOpen={frayVisible}
           tailorOpen={tailorVisible}
+          selvageOpen={selvageVisible}
           frayCount={frayAutoCheck ? frayIssues.length : 0}
           pendingCount={pendingCount}
           onMode={setMode}
@@ -1541,6 +1692,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onToggleWarp={toggleWarp}
           onToggleFray={toggleFray}
           onToggleTailor={toggleTailor}
+          onToggleSelvage={toggleSelvage}
           onJumpPending={jumpToPending}
           onCycleTheme={() => setThemePreference((prev) => nextPreference(prev))}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1719,6 +1871,19 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onCopyHandoff={copyHandoff}
           onJumpExcerpt={jumpToLensExcerpt}
           onOpenSettings={() => setSettingsOpen(true)}
+        />
+      ) : selvageVisible && doc ? (
+        <SelvagePanel
+          state={selvage}
+          docContent={doc.content}
+          busy={selvageBusy}
+          onTake={takeManualSnapshot}
+          onLoad={loadSnapshot}
+          onRestore={restoreFromSnapshot}
+          onCopy={copySnapshot}
+          onDelete={removeSnapshot}
+          onReload={reloadSnapshots}
+          onClose={() => setSelvageOpen(false)}
         />
       ) : (
         <Outline headings={headings} activeId={activeHeadingId} />
