@@ -22,12 +22,39 @@ export interface DiffStats {
 const MAX_EDIT_DISTANCE = 1200;
 // 折りたたみ行 1 行に満たない節約しかできない省略はしない
 const MIN_FOLD_RUN = 4;
+// 両文書の合計がこれを超えたら diffLines を呼ばない(粗い差分でも全行を
+// オブジェクト化して走査するため、超巨大入力では renderer が固まる)
+export const MAX_DIFF_TOTAL_LINES = 30_000;
 
 function splitLines(text: string): string[] {
   if (text.length === 0) return [];
   const lines = text.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
   return lines;
+}
+
+// 配列を作らずに行数だけ数える(POSIX 流: 末尾改行は行終端)
+function countTextLines(text: string): number {
+  if (text.length === 0) return 0;
+  let lines = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) lines += 1;
+  }
+  if (!text.endsWith("\n")) lines += 1;
+  return lines;
+}
+
+export interface DiffSizes {
+  oldLines: number;
+  newLines: number;
+  tooLarge: boolean;
+}
+
+/** diffLines を呼ぶ前の軽量な規模チェック。tooLarge なら差分計算を諦めること */
+export function diffSizes(oldText: string, newText: string): DiffSizes {
+  const oldLines = countTextLines(oldText);
+  const newLines = countTextLines(newText);
+  return { oldLines, newLines, tooLarge: oldLines + newLines > MAX_DIFF_TOTAL_LINES };
 }
 
 function coarseDiff(a: string[], b: string[]): DiffOp[] {

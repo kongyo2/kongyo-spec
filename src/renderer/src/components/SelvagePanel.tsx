@@ -6,7 +6,7 @@ import {
   type SnapshotKind,
   type SnapshotMeta,
 } from "@shared/schemas/history";
-import { diffLines, diffStats, foldContext, type DiffRow } from "../lib/diff";
+import { diffLines, diffSizes, diffStats, foldContext, type DiffRow, type DiffStats } from "../lib/diff";
 import { ipcErrorMessage } from "../lib/errors";
 
 export interface SelvageState {
@@ -35,6 +35,12 @@ const KIND_LABEL: Record<SnapshotKind, string> = {
 
 // 巨大な差分でパネルが固まらないよう、描画する行数は抑える
 const MAX_RENDER_ROWS = 400;
+
+type DiffComputation =
+  | { id: string; kind: "identical" }
+  | { id: string; kind: "newline-only" }
+  | { id: string; kind: "too-large"; oldLines: number; newLines: number }
+  | { id: string; kind: "diff"; rows: DiffRow[]; truncated: number; stats: DiffStats };
 
 function relativeTime(iso: string): string {
   const elapsed = Date.now() - Date.parse(iso);
@@ -135,17 +141,25 @@ export function SelvagePanel({
   }, [state.snapshots, selectedId]);
 
   const deferredContent = useDeferredValue(docContent);
-  const diff = useMemo(() => {
+  const diff = useMemo((): DiffComputation | null => {
     if (!loaded) return null;
+    // 「同一」はバイト単位で判定する(行差分は末尾改行だけの違いを拾えない)
+    if (loaded.content === deferredContent) return { id: loaded.id, kind: "identical" };
+    const sizes = diffSizes(deferredContent, loaded.content);
+    if (sizes.tooLarge) {
+      return { id: loaded.id, kind: "too-large", oldLines: sizes.oldLines, newLines: sizes.newLines };
+    }
     // old=現在 / new=その版: 緑は戻すと復活する行、赤は戻すと消える行
     const ops = diffLines(deferredContent, loaded.content);
+    const stats = diffStats(ops);
+    if (stats.added === 0 && stats.removed === 0) return { id: loaded.id, kind: "newline-only" };
     const rows = foldContext(ops);
     return {
       id: loaded.id,
+      kind: "diff",
       rows: rows.slice(0, MAX_RENDER_ROWS),
       truncated: Math.max(0, rows.length - MAX_RENDER_ROWS),
-      stats: diffStats(ops),
-      identical: ops.every((op) => op.kind === "same"),
+      stats,
     };
   }, [loaded, deferredContent]);
 
@@ -207,10 +221,17 @@ export function SelvagePanel({
                       <LoaderCircle className="lens-spin" size={14} aria-hidden="true" />
                       <p>差分を計算しています…</p>
                     </div>
-                  ) : diff.identical ? (
+                  ) : diff.kind === "identical" ? (
                     <p className="selvage-identical">
                       <Check size={13} aria-hidden="true" />
                       現在の本文と同じ内容です
+                    </p>
+                  ) : diff.kind === "newline-only" ? (
+                    <p className="selvage-diff-summary">違いは末尾の改行だけです</p>
+                  ) : diff.kind === "too-large" ? (
+                    <p className="selvage-diff-summary">
+                      文書が大きいため差分表示を省略しました(現在 {diff.oldLines.toLocaleString()} 行 ↔ この版{" "}
+                      {diff.newLines.toLocaleString()} 行)。復元とコピーはできます
                     </p>
                   ) : (
                     <>
@@ -262,7 +283,7 @@ export function SelvagePanel({
                         <button
                           type="button"
                           className="selvage-restore"
-                          disabled={busy || !detailReady || loadError !== null || diff?.identical === true}
+                          disabled={busy || !detailReady || loadError !== null || diff?.kind === "identical"}
                           title="現在の状態も復元前に自動で留まります"
                           onClick={() => setConfirmAction("restore")}
                         >

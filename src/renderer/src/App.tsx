@@ -1012,8 +1012,18 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             return;
           }
           if (docRef.current?.meta.id !== specId) return;
+          const flushedContent = docRef.current.content;
           const result = await window.api.restoreSnapshot(specId, snapshotId);
           if (docRef.current?.meta.id !== specId) return;
+          if (docRef.current.content !== flushedContent) {
+            // エディタは復元中 readOnly だが、万一すり抜けた編集があれば編集を優先して
+            // ディスクへ書き戻す(復元で上書きされた内容は次の保存の自動版として残る)
+            pendingSaveRef.current = { id: specId, content: docRef.current.content };
+            void flushSave();
+            setToast("復元中に編集があったため適用を中止しました。編集内容を保持しています");
+            reloadSnapshots();
+            return;
+          }
           loadedContentRef.current = result.content;
           pendingSaveRef.current = null;
           setDoc((prev) => (prev && prev.meta.id === specId ? { meta: result.meta, content: result.content } : prev));
@@ -1750,6 +1760,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
                   value={doc.content}
                   theme={resolvedTheme}
                   jump={editorJump}
+                  readOnly={selvageBusy}
                   onJumpHandled={() => setEditorJump(null)}
                   onSelectionChange={handleEditorSelection}
                   onScrollRatio={handleEditorScrollRatio}
@@ -1791,6 +1802,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               value={doc.content}
               theme={resolvedTheme}
               jump={editorJump}
+              readOnly={selvageBusy}
               onJumpHandled={() => setEditorJump(null)}
               onSelectionChange={handleEditorSelection}
               onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}
