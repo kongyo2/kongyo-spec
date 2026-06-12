@@ -19,15 +19,15 @@ npm run dev          # dev サーバー + ウィンドウ (ヘッドレス環境
 
 ## アーキテクチャ
 
-Electron 3 プロセス構成。renderer は sandbox 有効・Node 不可で、main との通信は preload が公開する `window.api` のみ。
+Electron の main / renderer 2 プロセス + 隔離された preload コンテキスト (独立プロセスではない)。renderer は sandbox 有効・Node 不可で、main への IPC は preload が公開する `window.api` 経由。IPC 以外では、画像読み込みだけが `specfile://` カスタムプロトコルで main を通る (後述)。
 
 - `src/shared/` — 両プロセスから参照される唯一の境界。`api.ts` の `KongyoApi` インターフェースと、`schemas/` の zod スキーマ (IPC 入力検証・LLM 応答検証・永続化形式がすべてここに集まる)。
 - `src/main/` — ファイル I/O (`specsStore`)、スナップショット履歴 (`historyStore`)、設定 (`settingsStore`、node:sqlite + safeStorage で API キー暗号化)、LLM 呼び出し (`assist.ts`)。IPC チャネルは `ipc.ts` に登録 (例外: 終了時フラッシュの `app:flush-*` だけは `index.ts` の `createWindow` 内で登録)。
-- `src/renderer/` — React UI。状態管理ライブラリはなく `App.tsx` が全状態のハブで、各パネルは props で受け取る。純粋ロジックは `lib/` に切り出す。
+- `src/renderer/` — React UI。状態管理ライブラリはなく、仕様書・設定・アシストセッションなど共有状態は `App.tsx` がハブとして持ち、各パネルへ props で渡す。パネル内で閉じる UI 状態は各コンポーネントが持つ (むやみに App へ持ち上げない)。純粋ロジックは `lib/` に切り出す。
 
-**IPC を追加する手順**: ① `shared/api.ts` にメソッド型 → ② 入力を取るチャネルなら `shared/schemas/` に zod パーサ → ③ `preload/index.ts` に `ipcRenderer.invoke` → ④ `main/ipc.ts` に `ipcMain.handle`。入力があるなら必ず zod parse を通す。`specs:list` のような入力なしチャネルに ② は不要。
+**request/response IPC (invoke/handle 型) を追加する手順**: ① `shared/api.ts` にメソッド型 → ② 入力を取るチャネルなら `shared/schemas/` に zod パーサ → ③ `preload/index.ts` に `ipcRenderer.invoke` → ④ `main/ipc.ts` に `ipcMain.handle`。入力があるなら必ず zod parse を通す。`specs:list` のような入力なしチャネルに ② は不要。イベント型チャネル (`settings:get-theme` の sendSync、`app:flush-*` の通知) は invoke/handle ではなく `ipcRenderer.send` / `ipcMain.on` / `webContents.send` を使う。
 
-**データモデル**: 仕様書と履歴はファイルベース (DB なし)。1 仕様書 = `userData/specs/<id>.md` (frontmatter 付き)。履歴は `userData/specs/history/<specId>/` に世代別 markdown。設定だけは SQLite (`userData/kongyo-spec.db`、settingsStore)。仕様書本文は H1/H2 見出しで「仮想ページ」に分割して表示する (`renderer/lib/pages.ts`)。画像は `specfile://` カスタムプロトコル経由で specs ディレクトリ内のみ配信。
+**データモデル**: 仕様書と履歴はファイルベース (DB なし)。1 仕様書 = `userData/specs/<id>.md` (frontmatter 付き)。履歴は `userData/specs/history/<specId>/` に世代別 markdown。設定だけは SQLite (`userData/kongyo-spec.db`、settingsStore)。仕様書本文は H1/H2 見出しで「仮想ページ」に分割して表示する (`renderer/lib/pages.ts`)。画像は相対 URL を `specfile://` に書き換えて配信 (`renderer/lib/markdown.ts` → `main/index.ts` の `resolveSpecAsset`。字句的なパス検査で specs ディレクトリ外を拒否するが、symlink は解決しない)。
 
 **markdown パイプライン**: unified (remark-gfm / remark-math → rehype-katex / shiki) + mermaid。`renderer/lib/markdown.ts` の `renderCached` がページ単位でキャッシュする。
 
