@@ -266,7 +266,10 @@ export async function recordAutoSnapshot(specId: string, prevContent: string): P
       await takeSnapshot(specId, prevContent, "auto", null);
       return;
     }
-    if (latest.meta.kind === "auto" && Date.now() - Date.parse(latest.meta.takenAt) < autoSnapshotIntervalMs()) {
+    // 種別を問わず、最新版から設定間隔が明けるまでは自動版を増やさない。手動・guard・
+    // assist の版もその時点の内容を留めており、本体ファイルには常に最新があるため、
+    // ここで抑制しても失われるものはない (設定が約束する「最短間隔」を一貫させる)
+    if (Date.now() - Date.parse(latest.meta.takenAt) < autoSnapshotIntervalMs()) {
       return;
     }
     if (latest.content === prevContent) return;

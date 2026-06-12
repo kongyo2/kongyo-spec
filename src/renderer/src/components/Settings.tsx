@@ -874,7 +874,7 @@ export function Settings({
               <div className="settings-panel" key="history">
                 <Row
                   title="自動スナップショットの間隔"
-                  desc="保存のたびに上書きで失われる直前の内容を Selvage に留める最短間隔。短いほど細かく戻れます"
+                  desc="上書きで失われる直前の内容を Selvage に留める最短間隔。手動や AI 適用で版を留めた直後も、これが明けるまで自動版は増えません"
                 >
                   <PresetSeg
                     label="自動スナップショットの間隔"
@@ -885,7 +885,7 @@ export function Settings({
                 </Row>
                 <Row
                   title="版の保持上限"
-                  desc="仕様書ごとに残す版の数。超えると自動版の古いものから削られます。ピン留めした版と手動版は守られます"
+                  desc="仕様書ごとに残す版の数。超えると自動版の古いものから順に削られ、手動版は最後まで残します。ピン留めした版だけは削除されません"
                 >
                   <PresetSeg
                     label="版の保持上限"
