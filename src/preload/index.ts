@@ -12,9 +12,11 @@ const api: KongyoApi = {
   deleteSpec: (id) => ipcRenderer.invoke("specs:delete", { id }),
   listSnapshots: (specId) => ipcRenderer.invoke("history:list", { specId }),
   readSnapshot: (specId, snapshotId) => ipcRenderer.invoke("history:read", { specId, snapshotId }),
-  takeSnapshot: (specId, content, label) => ipcRenderer.invoke("history:take", { specId, content, label }),
+  takeSnapshot: (specId, content, label, kind) => ipcRenderer.invoke("history:take", { specId, content, label, kind }),
   restoreSnapshot: (specId, snapshotId) => ipcRenderer.invoke("history:restore", { specId, snapshotId }),
   deleteSnapshot: (specId, snapshotId) => ipcRenderer.invoke("history:delete", { specId, snapshotId }),
+  setSnapshotPinned: (specId, snapshotId, pinned) =>
+    ipcRenderer.invoke("history:set-pinned", { specId, snapshotId, pinned }),
   getInitialTheme: () => ipcRenderer.sendSync("settings:get-theme"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   setSetting: (key, value) => ipcRenderer.invoke("settings:set", { key, value }),

@@ -7,7 +7,12 @@ import {
   parseWarpSpecInput,
   parseWeaveSpecInput,
 } from "@shared/schemas/assist";
-import { parseHistoryListInput, parseHistorySnapshotInput, parseHistoryTakeInput } from "@shared/schemas/history";
+import {
+  parseHistoryListInput,
+  parseHistoryPinInput,
+  parseHistorySnapshotInput,
+  parseHistoryTakeInput,
+} from "@shared/schemas/history";
 import {
   parseCreateSpecInput,
   parseImportSpecsInput,
@@ -24,7 +29,7 @@ import {
   toRendererSettings,
 } from "@shared/schemas/settings";
 import { auditSpec, cancelAssist, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
-import { deleteSnapshot, listSnapshots, readSnapshot, takeSnapshot } from "./historyStore";
+import { deleteSnapshot, listSnapshots, readSnapshot, setSnapshotPinned, takeSnapshot } from "./historyStore";
 import { deleteLlmProfile, resetLlmRouting, setLlmRouting, upsertLlmProfile } from "./llmProfiles";
 import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
 import {
@@ -68,7 +73,12 @@ export function registerIpc(): void {
 
   ipcMain.handle("history:take", (_event, raw: unknown) => {
     const input = parseHistoryTakeInput(raw);
-    return takeSnapshot(input.specId, input.content, "manual", input.label);
+    return takeSnapshot(input.specId, input.content, input.kind, input.label);
+  });
+
+  ipcMain.handle("history:set-pinned", (_event, raw: unknown) => {
+    const input = parseHistoryPinInput(raw);
+    return setSnapshotPinned(input.specId, input.snapshotId, input.pinned);
   });
 
   ipcMain.handle("history:restore", (_event, raw: unknown) => {

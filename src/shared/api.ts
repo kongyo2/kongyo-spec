@@ -8,7 +8,7 @@ import type {
   WarpSpecInput,
   WeaveSpecInput,
 } from "./schemas/assist";
-import type { RestoreResult, SnapshotDocument, SnapshotMeta } from "./schemas/history";
+import type { RestoreResult, SnapshotDocument, SnapshotMeta, TakeSnapshotKind } from "./schemas/history";
 import type {
   RendererSettings,
   SettingKey,
@@ -51,9 +51,10 @@ export interface KongyoApi {
   deleteSpec(id: string): Promise<void>;
   listSnapshots(specId: string): Promise<SnapshotMeta[]>;
   readSnapshot(specId: string, snapshotId: string): Promise<SnapshotDocument>;
-  takeSnapshot(specId: string, content: string, label: string | null): Promise<SnapshotMeta>;
+  takeSnapshot(specId: string, content: string, label: string | null, kind?: TakeSnapshotKind): Promise<SnapshotMeta>;
   restoreSnapshot(specId: string, snapshotId: string): Promise<RestoreResult>;
   deleteSnapshot(specId: string, snapshotId: string): Promise<void>;
+  setSnapshotPinned(specId: string, snapshotId: string, pinned: boolean): Promise<SnapshotMeta>;
   getInitialTheme(): ThemePreference;
   getSettings(): Promise<RendererSettings>;
   setSetting<K extends SettingKey>(key: K, value: Settings[K]): Promise<boolean>;

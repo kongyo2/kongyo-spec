@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Check, Copy, History, LoaderCircle, Pin, RefreshCw, Trash2, Undo2, X } from "lucide-react";
+import { Check, Copy, History, LoaderCircle, Pin, PinOff, RefreshCw, Trash2, Undo2, X } from "lucide-react";
 import {
   MAX_SNAPSHOT_LABEL_CHARS,
   type SnapshotDocument,
@@ -23,6 +23,7 @@ interface SelvagePanelProps {
   onRestore: (snapshotId: string) => void;
   onCopy: (snapshotId: string) => void;
   onDelete: (snapshotId: string) => void;
+  onTogglePin: (snapshotId: string, pinned: boolean) => void;
   onReload: () => void;
   onClose: () => void;
 }
@@ -31,6 +32,7 @@ const KIND_LABEL: Record<SnapshotKind, string> = {
   auto: "自動",
   manual: "手動",
   guard: "復元前",
+  assist: "AI 適用前",
 };
 
 // 巨大な差分でパネルが固まらないよう、描画する行数は抑える
@@ -92,6 +94,7 @@ export function SelvagePanel({
   onRestore,
   onCopy,
   onDelete,
+  onTogglePin,
   onReload,
   onClose,
 }: SelvagePanelProps): React.ReactElement {
@@ -205,6 +208,11 @@ export function SelvagePanel({
               >
                 <span className="selvage-card-head">
                   <span className={`selvage-kind-chip kind-${snapshot.kind}`}>{KIND_LABEL[snapshot.kind]}</span>
+                  {snapshot.pinned ? (
+                    <span className="selvage-pinned" title="ピン留め: 上限でも自動削除されません">
+                      <Pin size={11} aria-hidden="true" />
+                    </span>
+                  ) : null}
                   <span className="selvage-card-time" title={absoluteTime(snapshot.takenAt)}>
                     {relativeTime(snapshot.takenAt)}
                   </span>
@@ -293,6 +301,23 @@ export function SelvagePanel({
                         <button
                           type="button"
                           className="loom-ghost"
+                          title={
+                            snapshot.pinned
+                              ? "ピン留めを外し、上限時の自動削除の対象に戻します"
+                              : "履歴の上限に達しても自動削除されないよう保護します"
+                          }
+                          onClick={() => onTogglePin(snapshot.id, !snapshot.pinned)}
+                        >
+                          {snapshot.pinned ? (
+                            <PinOff size={13} aria-hidden="true" />
+                          ) : (
+                            <Pin size={13} aria-hidden="true" />
+                          )}
+                          {snapshot.pinned ? "ピンを外す" : "ピン留め"}
+                        </button>
+                        <button
+                          type="button"
+                          className="loom-ghost"
                           title="この版の本文をクリップボードへ"
                           onClick={() => onCopy(snapshot.id)}
                         >
@@ -368,7 +393,9 @@ export function SelvagePanel({
               留める
             </button>
           </div>
-          <p className="selvage-hint">編集を進めると約 5 分おきに自動で留まります。復元の直前も自動で残ります。</p>
+          <p className="selvage-hint">
+            編集を進めると約 5 分おきに自動で留まります。AI アシストの反映前と復元の直前も自動で残ります。
+          </p>
         </section>
         <section className="fray-section">
           <h3 className="fray-section-title">

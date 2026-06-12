@@ -14,9 +14,10 @@ import {
 // 自動スナップショットの最小間隔。最新の自動版がこれより新しい間は撮らない。
 // 編集の最終状態は本体ファイルに常にあるため、ここで失われるものはない
 const AUTO_SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
-// 仕様書ごとの保持上限。超過時は自動・復元前の古い版から削り、手動版は最後まで残す
+// 仕様書ごとの保持上限。超過時は自動・復元前の古い版から削り、手動版は最後まで
+// 残す。ピン留めされた版は種別を問わず削除対象にしない
 const MAX_SNAPSHOTS_PER_SPEC = 80;
-// frontmatter は短い行が 7 つだけ(label も 120 字上限)で、この先頭チャンクに必ず収まる
+// frontmatter は短い行が 8 つだけ(label も 120 字上限)で、この先頭チャンクに必ず収まる
 const META_READ_BYTES = 4096;
 
 let cachedDir: string | null = null;
@@ -139,6 +140,7 @@ async function writeSnapshot(meta: SnapshotMeta, content: string): Promise<void>
       label: meta.label ?? "",
       lines: String(meta.lines),
       chars: String(meta.chars),
+      pinned: meta.pinned ? "true" : "",
     },
     content,
   );
@@ -179,7 +181,8 @@ async function pruneSnapshots(specId: string): Promise<void> {
   const metas = await listSnapshots(specId);
   const excess = metas.length - MAX_SNAPSHOTS_PER_SPEC;
   if (excess <= 0) return;
-  const oldestFirst = [...metas].reverse();
+  // ピン留めはユーザーが「消さない」と宣言した版。上限超過の犠牲にしない
+  const oldestFirst = [...metas].reverse().filter((meta) => !meta.pinned);
   const expendable = [
     ...oldestFirst.filter((meta) => meta.kind !== "manual"),
     ...oldestFirst.filter((meta) => meta.kind === "manual"),
@@ -207,6 +210,7 @@ export async function takeSnapshot(
     label,
     lines: countLines(content),
     chars: content.length,
+    pinned: false,
   };
   await writeSnapshot(meta, content);
   latestCache.set(specId, { meta, content });
@@ -220,6 +224,20 @@ export async function deleteSnapshot(specId: string, snapshotId: string): Promis
   assertSafe(specId, snapshotId);
   await fs.rm(fileFor(specId, snapshotId), { force: true });
   invalidateIfLatest(specId, snapshotId);
+}
+
+/** ピン留めの切り替え。frontmatter を書き換えた新しいメタを返す */
+export async function setSnapshotPinned(specId: string, snapshotId: string, pinned: boolean): Promise<SnapshotMeta> {
+  assertSafe(specId, snapshotId);
+  const snapshot = await readSnapshot(specId, snapshotId);
+  if (snapshot.meta.pinned === pinned) return snapshot.meta;
+  const meta: SnapshotMeta = { ...snapshot.meta, pinned };
+  await writeSnapshot(meta, snapshot.content);
+  const cached = latestCache.get(specId);
+  if (cached != null && cached.meta.id === snapshotId) {
+    latestCache.set(specId, { meta, content: snapshot.content });
+  }
+  return meta;
 }
 
 export async function deleteHistory(specId: string): Promise<void> {

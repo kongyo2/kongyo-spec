@@ -4,7 +4,7 @@ import { SpecFrontmatterSchema } from "./spec";
 /** 手動スナップショットのラベル上限 */
 export const MAX_SNAPSHOT_LABEL_CHARS = 120;
 
-export const SNAPSHOT_KINDS = ["auto", "manual", "guard"] as const;
+export const SNAPSHOT_KINDS = ["auto", "manual", "guard", "assist"] as const;
 export const SnapshotKindSchema = z.enum(SNAPSHOT_KINDS);
 export type SnapshotKind = z.infer<typeof SnapshotKindSchema>;
 
@@ -16,11 +16,13 @@ export const SnapshotMetaSchema = z.object({
   label: z.string().nullable(),
   lines: z.number().int().nonnegative(),
   chars: z.number().int().nonnegative(),
+  pinned: z.boolean(),
 });
 export type SnapshotMeta = z.infer<typeof SnapshotMetaSchema>;
 
 // frontmatter は文字列しか持てないため、数値は coerce し、欠損や破損は
-// 一覧から弾かずに既定値で読めるようにする(label の空文字は「ラベルなし」)
+// 一覧から弾かずに既定値で読めるようにする(label の空文字は「ラベルなし」、
+// pinned キーの無い旧形式は「ピンなし」)
 export const SnapshotFrontmatterSchema = z.object({
   id: z.string().min(1),
   specId: z.string().min(1),
@@ -32,6 +34,10 @@ export const SnapshotFrontmatterSchema = z.object({
     .transform((value) => (value.length === 0 ? null : value)),
   lines: z.coerce.number().int().nonnegative().catch(0),
   chars: z.coerce.number().int().nonnegative().catch(0),
+  pinned: z
+    .string()
+    .catch("")
+    .transform((value) => value === "true"),
 });
 
 export function parseSnapshotFrontmatter(raw: unknown): SnapshotMeta {
@@ -65,14 +71,29 @@ export function parseHistorySnapshotInput(raw: unknown): HistorySnapshotInput {
   return HistorySnapshotInputSchema.parse(raw);
 }
 
+// renderer から指定できるのは手動と AI 適用前のみ。auto / guard は main 専用
+export const TAKE_SNAPSHOT_KINDS = ["manual", "assist"] as const;
+export type TakeSnapshotKind = (typeof TAKE_SNAPSHOT_KINDS)[number];
+
 export const HistoryTakeInputSchema = z.object({
   specId: z.string().min(1).max(200),
   content: z.string(),
   label: z.string().max(MAX_SNAPSHOT_LABEL_CHARS).nullable(),
+  kind: z.enum(TAKE_SNAPSHOT_KINDS).default("manual"),
 });
 export type HistoryTakeInput = z.infer<typeof HistoryTakeInputSchema>;
 export function parseHistoryTakeInput(raw: unknown): HistoryTakeInput {
   return HistoryTakeInputSchema.parse(raw);
+}
+
+export const HistoryPinInputSchema = z.object({
+  specId: z.string().min(1).max(200),
+  snapshotId: z.string().min(1).max(200),
+  pinned: z.boolean(),
+});
+export type HistoryPinInput = z.infer<typeof HistoryPinInputSchema>;
+export function parseHistoryPinInput(raw: unknown): HistoryPinInput {
+  return HistoryPinInputSchema.parse(raw);
 }
 
 export function byTakenAtDesc(a: SnapshotMeta, b: SnapshotMeta): number {
