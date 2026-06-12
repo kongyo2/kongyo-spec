@@ -2860,6 +2860,56 @@ kbd {
   gap: 12px;
 }
 
+/* Fray 検査種別のチップトグル */
+.settings-kind-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-kind-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 540;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--muted);
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast),
+    border-color var(--t-fast);
+}
+
+.settings-kind-chip svg {
+  width: 0;
+  opacity: 0;
+  margin-right: 0;
+  transition:
+    width var(--t-fast),
+    margin-right var(--t-fast),
+    opacity var(--t-fast);
+}
+
+.settings-kind-chip:hover {
+  color: var(--fg);
+  border-color: var(--accent-line);
+}
+
+.settings-kind-chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-text);
+}
+
+.settings-kind-chip.on svg {
+  width: 12px;
+  opacity: 1;
+  margin-right: 5px;
+}
+
 .settings-key-state {
   margin-left: 8px;
   font-family: var(--mono);

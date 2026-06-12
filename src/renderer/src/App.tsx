@@ -1,13 +1,18 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Plus } from "lucide-react";
 import {
+  AUTOSAVE_DELAY_MS,
+  type AutosaveDelay,
   DEFAULT_SETTINGS,
   type EditorViewMode,
+  type FrayKinds,
   llmProfileDisplayName,
   rendererLlmRouting,
   SPLIT_RATIO,
+  TOAST_DURATION_MS,
   type MermaidRenderer,
   type RendererSettings,
+  type ToastDuration,
   type UpsertLlmProfileInput,
 } from "@shared/schemas/settings";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
@@ -132,7 +137,15 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const [splitRatio, setSplitRatio] = useState(initialSettings.splitRatio);
   const splitRatioRef = useRef(splitRatio);
   splitRatioRef.current = splitRatio;
+  const [autosaveDelay, setAutosaveDelay] = useState<AutosaveDelay>(initialSettings.autosaveDelay);
+  const [toastDuration, setToastDuration] = useState<ToastDuration>(initialSettings.toastDuration);
+  const [restoreLastSpec, setRestoreLastSpec] = useState(initialSettings.restoreLastSpec);
   const [frayAutoCheck, setFrayAutoCheck] = useState(initialSettings.frayAutoCheck);
+  const [frayKinds, setFrayKinds] = useState<FrayKinds>(initialSettings.frayKinds);
+  // main プロセス側で読まれる設定 (履歴・AI タイムアウト)。renderer は表示と書き込みのみ担う
+  const [autoSnapshotMinutes, setAutoSnapshotMinutes] = useState(initialSettings.autoSnapshotMinutes);
+  const [maxSnapshotsPerSpec, setMaxSnapshotsPerSpec] = useState(initialSettings.maxSnapshotsPerSpec);
+  const [assistTimeoutSec, setAssistTimeoutSec] = useState(initialSettings.assistTimeoutSec);
 
   const [lensOpen, setLensOpen] = useState(false);
   const [lens, setLens] = useState<LensState>({ status: "idle" });
@@ -360,7 +373,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           const extras = prev.filter((spec) => !known.has(spec.id));
           return [...extras, ...list].sort(byUpdatedDesc);
         });
-        const preferred = initialSettings.lastActiveSpecId;
+        // 「前回の続きから」が無効なら最後に開いていた仕様書ではなく最新更新を開く
+        const preferred = initialSettings.restoreLastSpec ? initialSettings.lastActiveSpecId : null;
         const target = (preferred !== null ? list.find((spec) => spec.id === preferred) : undefined) ?? list[0];
         if (target && docRef.current === null && pendingOpenIdRef.current === null) await openSpec(target.id);
       } catch (err) {
@@ -375,9 +389,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   useEffect(() => {
     if (toast === null) return;
-    const handle = window.setTimeout(() => setToast(null), 4000);
+    const handle = window.setTimeout(() => setToast(null), TOAST_DURATION_MS[toastDuration]);
     return () => window.clearTimeout(handle);
-  }, [toast]);
+  }, [toast, toastDuration]);
 
   useEffect(() => {
     if (!doc) return;
@@ -390,9 +404,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setSaving(true);
     const handle = window.setTimeout(() => {
       void flushSave();
-    }, 600);
+    }, AUTOSAVE_DELAY_MS[autosaveDelay]);
     return () => window.clearTimeout(handle);
-  }, [doc, flushSave]);
+  }, [doc, flushSave, autosaveDelay]);
 
   useEffect(() => {
     return window.api.onFlushBeforeClose(() => {
@@ -1133,12 +1147,15 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (!frayEnabled || deferredContent.trim().length === 0) return [];
     const deferredPages = splitPages(deferredContent);
     const headingIds = computePageHeadingIds(deferredPages.map((page) => page.content)).flat();
-    return detectFray({
-      content: deferredContent,
-      specIds: specs.map((spec) => spec.id),
-      headingIds,
-    });
-  }, [deferredContent, frayEnabled, specs]);
+    return detectFray(
+      {
+        content: deferredContent,
+        specIds: specs.map((spec) => spec.id),
+        headingIds,
+      },
+      frayKinds,
+    );
+  }, [deferredContent, frayEnabled, specs, frayKinds]);
 
   // ほつれ検査の修正を本文へ適用する。検査はひと呼吸遅れた deferredContent に
   // 対して走るため、オフセットを信用せず置換前の文字列と照合してから書き換える
@@ -1590,9 +1607,37 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         setDefaultViewMode(change.value);
         void window.api.setSetting("defaultViewMode", change.value).catch(() => undefined);
         return;
+      case "autosaveDelay":
+        setAutosaveDelay(change.value);
+        void window.api.setSetting("autosaveDelay", change.value).catch(() => undefined);
+        return;
+      case "toastDuration":
+        setToastDuration(change.value);
+        void window.api.setSetting("toastDuration", change.value).catch(() => undefined);
+        return;
+      case "restoreLastSpec":
+        setRestoreLastSpec(change.value);
+        void window.api.setSetting("restoreLastSpec", change.value).catch(() => undefined);
+        return;
       case "frayAutoCheck":
         setFrayAutoCheck(change.value);
         void window.api.setSetting("frayAutoCheck", change.value).catch(() => undefined);
+        return;
+      case "frayKinds":
+        setFrayKinds(change.value);
+        void window.api.setSetting("frayKinds", change.value).catch(() => undefined);
+        return;
+      case "autoSnapshotMinutes":
+        setAutoSnapshotMinutes(change.value);
+        void window.api.setSetting("autoSnapshotMinutes", change.value).catch(() => undefined);
+        return;
+      case "maxSnapshotsPerSpec":
+        setMaxSnapshotsPerSpec(change.value);
+        void window.api.setSetting("maxSnapshotsPerSpec", change.value).catch(() => undefined);
+        return;
+      case "assistTimeoutSec":
+        setAssistTimeoutSec(change.value);
+        void window.api.setSetting("assistTimeoutSec", change.value).catch(() => undefined);
         return;
     }
   }, []);
@@ -1680,7 +1725,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setMermaidRenderer(DEFAULT_SETTINGS.mermaidRenderer);
     setDefaultViewMode(DEFAULT_SETTINGS.defaultViewMode);
     setSplitRatio(DEFAULT_SETTINGS.splitRatio);
+    setAutosaveDelay(DEFAULT_SETTINGS.autosaveDelay);
+    setToastDuration(DEFAULT_SETTINGS.toastDuration);
+    setRestoreLastSpec(DEFAULT_SETTINGS.restoreLastSpec);
     setFrayAutoCheck(DEFAULT_SETTINGS.frayAutoCheck);
+    setFrayKinds(DEFAULT_SETTINGS.frayKinds);
+    setAutoSnapshotMinutes(DEFAULT_SETTINGS.autoSnapshotMinutes);
+    setMaxSnapshotsPerSpec(DEFAULT_SETTINGS.maxSnapshotsPerSpec);
+    setAssistTimeoutSec(DEFAULT_SETTINGS.assistTimeoutSec);
     void window.api.setSetting("accent", defaults.accent).catch(() => undefined);
     void window.api.setSetting("editorFontSize", defaults.editorFontSize).catch(() => undefined);
     void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
@@ -1690,7 +1742,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("mermaidRenderer", DEFAULT_SETTINGS.mermaidRenderer).catch(() => undefined);
     void window.api.setSetting("defaultViewMode", DEFAULT_SETTINGS.defaultViewMode).catch(() => undefined);
     void window.api.setSetting("splitRatio", DEFAULT_SETTINGS.splitRatio).catch(() => undefined);
+    void window.api.setSetting("autosaveDelay", DEFAULT_SETTINGS.autosaveDelay).catch(() => undefined);
+    void window.api.setSetting("toastDuration", DEFAULT_SETTINGS.toastDuration).catch(() => undefined);
+    void window.api.setSetting("restoreLastSpec", DEFAULT_SETTINGS.restoreLastSpec).catch(() => undefined);
     void window.api.setSetting("frayAutoCheck", DEFAULT_SETTINGS.frayAutoCheck).catch(() => undefined);
+    void window.api.setSetting("frayKinds", DEFAULT_SETTINGS.frayKinds).catch(() => undefined);
+    void window.api.setSetting("autoSnapshotMinutes", DEFAULT_SETTINGS.autoSnapshotMinutes).catch(() => undefined);
+    void window.api.setSetting("maxSnapshotsPerSpec", DEFAULT_SETTINGS.maxSnapshotsPerSpec).catch(() => undefined);
+    void window.api.setSetting("assistTimeoutSec", DEFAULT_SETTINGS.assistTimeoutSec).catch(() => undefined);
     // 内蔵 Gemini プロファイルを初期状態に復元してメインへ戻す。
     // 追加登録されたプロファイルとキーは資産なので消さない。
     // ルーティング更新と同じキューに直列化し、キュー済みの変更がリセットを上書きしないようにする
@@ -2005,7 +2064,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           resolvedTheme={resolvedTheme}
           mermaidRenderer={mermaidRenderer}
           defaultViewMode={defaultViewMode}
+          autosaveDelay={autosaveDelay}
+          toastDuration={toastDuration}
+          restoreLastSpec={restoreLastSpec}
           frayAutoCheck={frayAutoCheck}
+          frayKinds={frayKinds}
+          autoSnapshotMinutes={autoSnapshotMinutes}
+          maxSnapshotsPerSpec={maxSnapshotsPerSpec}
+          assistTimeoutSec={assistTimeoutSec}
           llm={llmSettings}
           onChange={handleSettingChange}
           onSaveApiKey={handleSaveApiKey}

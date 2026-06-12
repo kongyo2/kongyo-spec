@@ -111,8 +111,6 @@ class CancelledError extends Error {
   }
 }
 
-const REQUEST_TIMEOUT_MS = 120_000;
-
 // 種別ごとに実行中の呼び出しを 1 つだけ持ち、ユーザー操作で中断できるようにする
 const inflight = new Map<AssistKind, AbortController>();
 
@@ -200,6 +198,7 @@ interface ProviderCall {
   contents: string;
   schema: Schema;
   temperature: number;
+  timeoutMs: number;
   signal: AbortSignal;
 }
 
@@ -209,7 +208,7 @@ async function callGemini(args: ProviderCall): Promise<unknown> {
   const ai = new GoogleGenAI({
     apiKey,
     httpOptions: {
-      timeout: REQUEST_TIMEOUT_MS,
+      timeout: args.timeoutMs,
       ...(args.profile.baseUrl !== null ? { baseUrl: args.profile.baseUrl } : {}),
     },
   });
@@ -238,12 +237,13 @@ async function postChatCompletions(
   headers: Record<string, string>,
   body: Record<string, unknown>,
   signal: AbortSignal,
+  timeoutMs: number,
 ): Promise<unknown> {
   const response = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -281,7 +281,7 @@ async function callOpenAiCompatible(args: ProviderCall): Promise<unknown> {
   for (const body of attempts) {
     try {
       // eslint-disable-next-line no-await-in-loop -- 前段の 400 を確認してからパラメータを削って再試行する
-      payload = await postChatCompletions(url, headers, body, args.signal);
+      payload = await postChatCompletions(url, headers, body, args.signal, args.timeoutMs);
       rejected = null;
       break;
     } catch (err) {
@@ -326,6 +326,7 @@ async function runStructured<T>(kind: AssistKind, task: StructuredTask<T>): Prom
         contents: task.contents,
         schema: task.schema,
         temperature: profile.temperature ?? task.defaultTemperature,
+        timeoutMs: settings.assistTimeoutSec * 1000,
         signal: controller.signal,
       };
       try {

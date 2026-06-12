@@ -5,6 +5,7 @@ import {
   Code,
   Columns2,
   Eye,
+  History,
   ListOrdered,
   type LucideIcon,
   Minus,
@@ -24,8 +25,10 @@ import {
 } from "lucide-react";
 import {
   type Accent,
+  type AutosaveDelay,
   EDITOR_FONT_SIZE,
   type EditorViewMode,
+  type FrayKinds,
   type LineHeight,
   LLM_TEMPERATURE,
   llmProfileDisplayName,
@@ -36,6 +39,7 @@ import {
   type ReadingWidth,
   type RendererLlmProfile,
   type ThemePreference,
+  type ToastDuration,
   type UpsertLlmProfileInput,
 } from "@shared/schemas/settings";
 import { ACCENTS, type AppearanceSettings, LINE_HEIGHTS, READING_WIDTHS } from "../lib/appearance";
@@ -51,7 +55,14 @@ export type SettingChange =
   | { key: "readingWidth"; value: ReadingWidth }
   | { key: "mermaidRenderer"; value: MermaidRenderer }
   | { key: "defaultViewMode"; value: EditorViewMode }
-  | { key: "frayAutoCheck"; value: boolean };
+  | { key: "autosaveDelay"; value: AutosaveDelay }
+  | { key: "toastDuration"; value: ToastDuration }
+  | { key: "restoreLastSpec"; value: boolean }
+  | { key: "frayAutoCheck"; value: boolean }
+  | { key: "frayKinds"; value: FrayKinds }
+  | { key: "autoSnapshotMinutes"; value: number }
+  | { key: "maxSnapshotsPerSpec"; value: number }
+  | { key: "assistTimeoutSec"; value: number };
 
 export interface LlmSettings {
   geminiApiKeySet: boolean;
@@ -67,7 +78,14 @@ interface SettingsProps {
   resolvedTheme: ResolvedTheme;
   mermaidRenderer: MermaidRenderer;
   defaultViewMode: EditorViewMode;
+  autosaveDelay: AutosaveDelay;
+  toastDuration: ToastDuration;
+  restoreLastSpec: boolean;
   frayAutoCheck: boolean;
+  frayKinds: FrayKinds;
+  autoSnapshotMinutes: number;
+  maxSnapshotsPerSpec: number;
+  assistTimeoutSec: number;
   llm: LlmSettings;
   onChange: (change: SettingChange) => void;
   onSaveApiKey: (key: string | null) => Promise<boolean>;
@@ -78,12 +96,13 @@ interface SettingsProps {
   onClose: () => void;
 }
 
-type Section = "appearance" | "typography" | "editing" | "ai" | "about";
+type Section = "appearance" | "typography" | "editing" | "history" | "ai" | "about";
 
 const SECTIONS: { id: Section; label: string; hint: string; icon: LucideIcon }[] = [
   { id: "appearance", label: "外観", hint: "テーマとアクセント", icon: Palette },
   { id: "typography", label: "タイポグラフィ", hint: "文字サイズと行間", icon: Type },
-  { id: "editing", label: "編集", hint: "表示モードと検査", icon: PenLine },
+  { id: "editing", label: "編集", hint: "保存・表示・検査", icon: PenLine },
+  { id: "history", label: "履歴", hint: "Selvage · スナップショット", icon: History },
   { id: "ai", label: "AI アシスト", hint: "モデル · Loom · Lens", icon: Telescope },
   { id: "about", label: "情報", hint: "バージョンと構成", icon: Sparkles },
 ];
@@ -105,6 +124,49 @@ const VIEW_MODE_OPTIONS: { value: EditorViewMode; label: string; icon: LucideIco
   { value: "preview", label: "Preview", icon: Eye },
   { value: "split", label: "Split", icon: Columns2 },
   { value: "source", label: "Source", icon: Code },
+];
+
+const AUTOSAVE_OPTIONS: { value: AutosaveDelay; label: string }[] = [
+  { value: "fast", label: "すぐ (0.25 秒)" },
+  { value: "normal", label: "標準 (0.6 秒)" },
+  { value: "relaxed", label: "ゆっくり (1.5 秒)" },
+];
+
+const TOAST_OPTIONS: { value: ToastDuration; label: string }[] = [
+  { value: "short", label: "短い (2.5 秒)" },
+  { value: "normal", label: "標準 (4 秒)" },
+  { value: "long", label: "長い (7 秒)" },
+];
+
+const FRAY_KIND_ITEMS: { key: keyof FrayKinds; label: string; hint: string }[] = [
+  { key: "syntax", label: "構文", hint: "閉じられていないコードフェンス" },
+  { key: "link", label: "リンク", hint: "仕様書間リンク・アンカーの切れ" },
+  { key: "structure", label: "構造", hint: "見出しレベルの飛び・重複・空セクション" },
+  { key: "term", label: "用語", hint: "カタカナ長音・全角半角の表記ゆれ" },
+  { key: "vague", label: "曖昧", hint: "要求文の検証できない表現" },
+  { key: "pending", label: "未決定", hint: "【未決定: …】マーカー" },
+];
+
+// 数値設定のプリセット。スキーマは範囲内の任意値を許すが、UI は実用的な選択肢に絞る
+const SNAPSHOT_INTERVAL_PRESETS: { value: number; label: string }[] = [
+  { value: 1, label: "1 分" },
+  { value: 5, label: "5 分" },
+  { value: 15, label: "15 分" },
+  { value: 30, label: "30 分" },
+];
+
+const SNAPSHOT_KEEP_PRESETS: { value: number; label: string }[] = [
+  { value: 30, label: "30 版" },
+  { value: 80, label: "80 版" },
+  { value: 200, label: "200 版" },
+  { value: 400, label: "400 版" },
+];
+
+const ASSIST_TIMEOUT_PRESETS: { value: number; label: string }[] = [
+  { value: 30, label: "30 秒" },
+  { value: 60, label: "60 秒" },
+  { value: 120, label: "2 分" },
+  { value: 300, label: "5 分" },
 ];
 
 const LINE_HEIGHT_OPTIONS = LINE_HEIGHTS.map((preset) => ({ value: preset.id, label: preset.label }));
@@ -247,6 +309,65 @@ function Toggle({
     >
       <span className="settings-toggle-knob" aria-hidden="true" />
     </button>
+  );
+}
+
+// 数値設定をプリセットから選ぶ。保存済みの値がプリセット外でもそのまま動き、
+// どれかを選んだ時点でプリセット値に揃う
+function PresetSeg({
+  label,
+  value,
+  presets,
+  onSelect,
+}: {
+  label: string;
+  value: number;
+  presets: { value: number; label: string }[];
+  onSelect: (value: number) => void;
+}): React.ReactElement {
+  return (
+    <div className="settings-seg" role="group" aria-label={label}>
+      {presets.map((preset) => (
+        <button
+          key={preset.value}
+          type="button"
+          className={preset.value === value ? "active" : ""}
+          aria-pressed={preset.value === value}
+          onClick={() => onSelect(preset.value)}
+        >
+          {preset.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FrayKindChips({
+  kinds,
+  onChange,
+}: {
+  kinds: FrayKinds;
+  onChange: (next: FrayKinds) => void;
+}): React.ReactElement {
+  return (
+    <div className="settings-kind-chips" role="group" aria-label="検査する種類">
+      {FRAY_KIND_ITEMS.map((item) => {
+        const on = kinds[item.key];
+        return (
+          <button
+            key={item.key}
+            type="button"
+            className={`settings-kind-chip${on ? " on" : ""}`}
+            aria-pressed={on}
+            title={item.hint}
+            onClick={() => onChange({ ...kinds, [item.key]: !on })}
+          >
+            <Check size={12} aria-hidden="true" />
+            {item.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -425,7 +546,14 @@ export function Settings({
   resolvedTheme,
   mermaidRenderer,
   defaultViewMode,
+  autosaveDelay,
+  toastDuration,
+  restoreLastSpec,
   frayAutoCheck,
+  frayKinds,
+  autoSnapshotMinutes,
+  maxSnapshotsPerSpec,
+  assistTimeoutSec,
   llm,
   onChange,
   onSaveApiKey,
@@ -639,6 +767,14 @@ export function Settings({
                     onSelect={(value) => onChange({ key: "mermaidRenderer", value })}
                   />
                 </Row>
+                <Row title="通知の表示時間" desc="保存失敗・コピー完了などのトーストが消えるまでの長さ">
+                  <Segmented
+                    label="通知の表示時間"
+                    value={toastDuration}
+                    options={TOAST_OPTIONS}
+                    onSelect={(value) => onChange({ key: "toastDuration", value })}
+                  />
+                </Row>
               </div>
             ) : section === "typography" ? (
               <div className="settings-panel" key="typography">
@@ -695,6 +831,24 @@ export function Settings({
                     onSelect={(value) => onChange({ key: "defaultViewMode", value })}
                   />
                 </Row>
+                <Row title="自動保存のタイミング" desc="手を止めてからディスクへ書き込むまでの間合い">
+                  <Segmented
+                    label="自動保存のタイミング"
+                    value={autosaveDelay}
+                    options={AUTOSAVE_OPTIONS}
+                    onSelect={(value) => onChange({ key: "autosaveDelay", value })}
+                  />
+                </Row>
+                <Row
+                  title="前回の続きから開く"
+                  desc="起動時に最後に開いていた仕様書を復元します。オフでは最新更新の仕様書を開きます"
+                >
+                  <Toggle
+                    label="前回の続きから開く"
+                    checked={restoreLastSpec}
+                    onToggle={(value) => onChange({ key: "restoreLastSpec", value })}
+                  />
+                </Row>
                 <Row
                   title="ほつれの自動検査"
                   desc="入力中にリンク切れ・見出し構造・表記ゆれを検査し、ツールバーの Fray に件数を表示します"
@@ -703,6 +857,41 @@ export function Settings({
                     label="ほつれの自動検査"
                     checked={frayAutoCheck}
                     onToggle={(value) => onChange({ key: "frayAutoCheck", value })}
+                  />
+                </Row>
+                <div className="settings-row stack">
+                  <div className="settings-row-label">
+                    <span className="settings-row-title">検査する種類</span>
+                    <span className="settings-row-desc">
+                      外した種類は Fray の一覧にも件数にも現れません。書きかけの段階では「曖昧」や「未決定」を外すと
+                      指摘が静かになります
+                    </span>
+                  </div>
+                  <FrayKindChips kinds={frayKinds} onChange={(value) => onChange({ key: "frayKinds", value })} />
+                </div>
+              </div>
+            ) : section === "history" ? (
+              <div className="settings-panel" key="history">
+                <Row
+                  title="自動スナップショットの間隔"
+                  desc="保存のたびに上書きで失われる直前の内容を Selvage に留める最短間隔。短いほど細かく戻れます"
+                >
+                  <PresetSeg
+                    label="自動スナップショットの間隔"
+                    value={autoSnapshotMinutes}
+                    presets={SNAPSHOT_INTERVAL_PRESETS}
+                    onSelect={(value) => onChange({ key: "autoSnapshotMinutes", value })}
+                  />
+                </Row>
+                <Row
+                  title="版の保持上限"
+                  desc="仕様書ごとに残す版の数。超えると自動版の古いものから削られます。ピン留めした版と手動版は守られます"
+                >
+                  <PresetSeg
+                    label="版の保持上限"
+                    value={maxSnapshotsPerSpec}
+                    presets={SNAPSHOT_KEEP_PRESETS}
+                    onSelect={(value) => onChange({ key: "maxSnapshotsPerSpec", value })}
                   />
                 </Row>
               </div>
@@ -874,6 +1063,17 @@ export function Settings({
                     </button>
                   )}
                 </div>
+                <Row
+                  title="応答待ちの上限"
+                  desc="これを超えるとタイムアウトとして打ち切り、フォールバックへ移ります。遅いローカル LLM では長めに"
+                >
+                  <PresetSeg
+                    label="応答待ちの上限"
+                    value={assistTimeoutSec}
+                    presets={ASSIST_TIMEOUT_PRESETS}
+                    onSelect={(value) => onChange({ key: "assistTimeoutSec", value })}
+                  />
+                </Row>
               </div>
             ) : (
               <div className="settings-panel" key="about">

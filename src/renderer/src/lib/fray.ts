@@ -1,3 +1,4 @@
+import { DEFAULT_FRAY_KINDS, type FrayKinds } from "@shared/schemas/settings";
 import { safeDecode } from "./dom";
 import { codeSpans, fencedCodeSpans, findPendingDecisions, type PendingRange } from "./pending";
 import { findVagueTerms } from "./vague";
@@ -357,22 +358,25 @@ function detectVagueRequirements(content: string, masked: MaskedText): FrayIssue
 
 const KIND_ORDER: Record<FrayKind, number> = { syntax: 0, link: 1, structure: 2, term: 3, vague: 4, pending: 5 };
 
-export function detectFray(input: FrayInput): FrayIssue[] {
+export function detectFray(input: FrayInput, kinds: FrayKinds = DEFAULT_FRAY_KINDS): FrayIssue[] {
   const { content, specIds, headingIds } = input;
   if (content.trim().length === 0) return [];
   const masked = maskCode(content);
   const fenced = fencedCodeSpans(content);
   const headings = scanHeadings(content, fenced);
   const issues = [
-    ...detectUnclosedFences(content),
-    ...detectBrokenLinks(content, masked, specIds, headingIds),
-    ...detectHeadingSkips(content, headings),
-    ...detectDuplicateHeadings(headings),
-    ...detectEmptySections(content, headings),
-    ...detectKatakanaVariants(content, masked),
-    ...detectWidthVariants(content, masked),
-    ...detectVagueRequirements(content, masked),
-    ...detectPendingMarkers(content),
+    ...(kinds.syntax ? detectUnclosedFences(content) : []),
+    ...(kinds.link ? detectBrokenLinks(content, masked, specIds, headingIds) : []),
+    ...(kinds.structure
+      ? [
+          ...detectHeadingSkips(content, headings),
+          ...detectDuplicateHeadings(headings),
+          ...detectEmptySections(content, headings),
+        ]
+      : []),
+    ...(kinds.term ? [...detectKatakanaVariants(content, masked), ...detectWidthVariants(content, masked)] : []),
+    ...(kinds.vague ? detectVagueRequirements(content, masked) : []),
+    ...(kinds.pending ? detectPendingMarkers(content) : []),
   ];
   return issues.sort((a, b) => {
     if (a.severity !== b.severity) return a.severity === "warn" ? -1 : 1;

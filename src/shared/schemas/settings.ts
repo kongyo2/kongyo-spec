@@ -18,6 +18,42 @@ export type LineHeight = z.infer<typeof LineHeightSchema>;
 export const EditorViewModeSchema = z.enum(["preview", "split", "source"]);
 export type EditorViewMode = z.infer<typeof EditorViewModeSchema>;
 
+export const AutosaveDelaySchema = z.enum(["fast", "normal", "relaxed"]);
+export type AutosaveDelay = z.infer<typeof AutosaveDelaySchema>;
+export const AUTOSAVE_DELAY_MS: Record<AutosaveDelay, number> = { fast: 250, normal: 600, relaxed: 1500 };
+
+export const ToastDurationSchema = z.enum(["short", "normal", "long"]);
+export type ToastDuration = z.infer<typeof ToastDurationSchema>;
+export const TOAST_DURATION_MS: Record<ToastDuration, number> = { short: 2500, normal: 4000, long: 7000 };
+
+// ほつれ検査 (Fray) のローカル検出器。キーは renderer/lib/fray.ts の FrayKind と一致させる
+export const FrayKindsSchema = z.object({
+  syntax: z.boolean(),
+  link: z.boolean(),
+  structure: z.boolean(),
+  term: z.boolean(),
+  vague: z.boolean(),
+  pending: z.boolean(),
+});
+export type FrayKinds = z.infer<typeof FrayKindsSchema>;
+export const DEFAULT_FRAY_KINDS: FrayKinds = {
+  syntax: true,
+  link: true,
+  structure: true,
+  term: true,
+  vague: true,
+  pending: true,
+};
+
+// 数値設定の許容範囲。UI はプリセットを出すが、範囲内なら任意値を受け付ける
+export const AUTO_SNAPSHOT_MINUTES = { min: 1, max: 120, default: 5 } as const;
+export const MAX_SNAPSHOTS = { min: 10, max: 1000, default: 80 } as const;
+export const ASSIST_TIMEOUT_SEC = { min: 10, max: 600, default: 120 } as const;
+
+const AutoSnapshotMinutesSchema = z.number().int().min(AUTO_SNAPSHOT_MINUTES.min).max(AUTO_SNAPSHOT_MINUTES.max);
+const MaxSnapshotsSchema = z.number().int().min(MAX_SNAPSHOTS.min).max(MAX_SNAPSHOTS.max);
+const AssistTimeoutSecSchema = z.number().int().min(ASSIST_TIMEOUT_SEC.min).max(ASSIST_TIMEOUT_SEC.max);
+
 export const SPLIT_RATIO = { min: 0.25, max: 0.75, default: 0.5 } as const;
 const SplitRatioSchema = z.number().min(SPLIT_RATIO.min).max(SPLIT_RATIO.max);
 
@@ -85,7 +121,14 @@ export const SettingsSchema = z.object({
   mermaidRenderer: MermaidRendererSchema.default("classic"),
   defaultViewMode: EditorViewModeSchema.default("preview"),
   splitRatio: SplitRatioSchema.default(SPLIT_RATIO.default),
+  autosaveDelay: AutosaveDelaySchema.default("normal"),
+  toastDuration: ToastDurationSchema.default("normal"),
+  restoreLastSpec: z.boolean().default(true),
   frayAutoCheck: z.boolean().default(true),
+  frayKinds: FrayKindsSchema.default(DEFAULT_FRAY_KINDS),
+  autoSnapshotMinutes: AutoSnapshotMinutesSchema.default(AUTO_SNAPSHOT_MINUTES.default),
+  maxSnapshotsPerSpec: MaxSnapshotsSchema.default(MAX_SNAPSHOTS.default),
+  assistTimeoutSec: AssistTimeoutSecSchema.default(ASSIST_TIMEOUT_SEC.default),
   lastActiveSpecId: z.string().min(1).max(200).nullable().default(null),
   windowBounds: WindowBoundsSchema.nullable().default(null),
   geminiApiKey: ApiKeySchema.max(512).nullable().default(null),
@@ -219,7 +262,14 @@ export const SetSettingInputSchema = z.discriminatedUnion("key", [
   z.object({ key: z.literal("mermaidRenderer"), value: MermaidRendererSchema }),
   z.object({ key: z.literal("defaultViewMode"), value: EditorViewModeSchema }),
   z.object({ key: z.literal("splitRatio"), value: SplitRatioSchema }),
+  z.object({ key: z.literal("autosaveDelay"), value: AutosaveDelaySchema }),
+  z.object({ key: z.literal("toastDuration"), value: ToastDurationSchema }),
+  z.object({ key: z.literal("restoreLastSpec"), value: z.boolean() }),
   z.object({ key: z.literal("frayAutoCheck"), value: z.boolean() }),
+  z.object({ key: z.literal("frayKinds"), value: FrayKindsSchema }),
+  z.object({ key: z.literal("autoSnapshotMinutes"), value: AutoSnapshotMinutesSchema }),
+  z.object({ key: z.literal("maxSnapshotsPerSpec"), value: MaxSnapshotsSchema }),
+  z.object({ key: z.literal("assistTimeoutSec"), value: AssistTimeoutSecSchema }),
   z.object({ key: z.literal("lastActiveSpecId"), value: z.string().min(1).max(200).nullable() }),
   z.object({ key: z.literal("windowBounds"), value: WindowBoundsSchema.nullable() }),
   z.object({ key: z.literal("geminiApiKey"), value: ApiKeySchema.max(512).nullable() }),

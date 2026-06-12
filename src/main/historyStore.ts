@@ -10,13 +10,18 @@ import {
   type SnapshotKind,
   type SnapshotMeta,
 } from "@shared/schemas/history";
+import { readSettings } from "./settingsStore";
 
 // 自動スナップショットの最小間隔。最新の自動版がこれより新しい間は撮らない。
 // 編集の最終状態は本体ファイルに常にあるため、ここで失われるものはない
-const AUTO_SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
+function autoSnapshotIntervalMs(): number {
+  return readSettings().autoSnapshotMinutes * 60 * 1000;
+}
 // 仕様書ごとの保持上限。超過時は自動・復元前の古い版から削り、手動版は最後まで
 // 残す。ピン留めされた版は種別を問わず削除対象にしない
-const MAX_SNAPSHOTS_PER_SPEC = 80;
+function maxSnapshotsPerSpec(): number {
+  return readSettings().maxSnapshotsPerSpec;
+}
 // frontmatter は短い行が 8 つだけ(label も 120 字上限)で、この先頭チャンクに必ず収まる
 const META_READ_BYTES = 4096;
 
@@ -175,11 +180,12 @@ export async function readSnapshot(specId: string, snapshotId: string): Promise<
 }
 
 async function pruneSnapshots(specId: string): Promise<void> {
+  const limit = maxSnapshotsPerSpec();
   // 上限内なら readdir(ファイル名のみ)で済ませ、超過したときだけメタを読む
   const ids = await listSnapshotIds(specId);
-  if (ids.length <= MAX_SNAPSHOTS_PER_SPEC) return;
+  if (ids.length <= limit) return;
   const metas = await listSnapshots(specId);
-  const excess = metas.length - MAX_SNAPSHOTS_PER_SPEC;
+  const excess = metas.length - limit;
   if (excess <= 0) return;
   // ピン留めはユーザーが「消さない」と宣言した版。上限超過の犠牲にしない
   const oldestFirst = [...metas].reverse().filter((meta) => !meta.pinned);
@@ -260,7 +266,7 @@ export async function recordAutoSnapshot(specId: string, prevContent: string): P
       await takeSnapshot(specId, prevContent, "auto", null);
       return;
     }
-    if (latest.meta.kind === "auto" && Date.now() - Date.parse(latest.meta.takenAt) < AUTO_SNAPSHOT_INTERVAL_MS) {
+    if (latest.meta.kind === "auto" && Date.now() - Date.parse(latest.meta.takenAt) < autoSnapshotIntervalMs()) {
       return;
     }
     if (latest.content === prevContent) return;
