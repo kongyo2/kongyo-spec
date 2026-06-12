@@ -1570,77 +1570,102 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const dragActive = useFileDrop(importFiles);
 
-  const handleSettingChange = useCallback((change: SettingChange): void => {
-    switch (change.key) {
-      case "theme":
-        setThemePreference(change.value);
-        return;
-      case "accent":
-        setAppearance((prev) => ({ ...prev, accent: change.value }));
-        void window.api.setSetting("accent", change.value).catch(() => undefined);
-        return;
-      case "editorFontSize":
-        setAppearance((prev) => ({ ...prev, editorFontSize: change.value }));
-        void window.api.setSetting("editorFontSize", change.value).catch(() => undefined);
-        return;
-      case "previewFontSize":
-        setAppearance((prev) => ({ ...prev, previewFontSize: change.value }));
-        void window.api.setSetting("previewFontSize", change.value).catch(() => undefined);
-        return;
-      case "editorLineHeight":
-        setAppearance((prev) => ({ ...prev, editorLineHeight: change.value }));
-        void window.api.setSetting("editorLineHeight", change.value).catch(() => undefined);
-        return;
-      case "previewLineHeight":
-        setAppearance((prev) => ({ ...prev, previewLineHeight: change.value }));
-        void window.api.setSetting("previewLineHeight", change.value).catch(() => undefined);
-        return;
-      case "readingWidth":
-        setAppearance((prev) => ({ ...prev, readingWidth: change.value }));
-        void window.api.setSetting("readingWidth", change.value).catch(() => undefined);
-        return;
-      case "mermaidRenderer":
-        setMermaidRenderer(change.value);
-        void window.api.setSetting("mermaidRenderer", change.value).catch(() => undefined);
-        return;
-      case "defaultViewMode":
-        setDefaultViewMode(change.value);
-        void window.api.setSetting("defaultViewMode", change.value).catch(() => undefined);
-        return;
-      case "autosaveDelay":
-        setAutosaveDelay(change.value);
-        void window.api.setSetting("autosaveDelay", change.value).catch(() => undefined);
-        return;
-      case "toastDuration":
-        setToastDuration(change.value);
-        void window.api.setSetting("toastDuration", change.value).catch(() => undefined);
-        return;
-      case "restoreLastSpec":
-        setRestoreLastSpec(change.value);
-        void window.api.setSetting("restoreLastSpec", change.value).catch(() => undefined);
-        return;
-      case "frayAutoCheck":
-        setFrayAutoCheck(change.value);
-        void window.api.setSetting("frayAutoCheck", change.value).catch(() => undefined);
-        return;
-      case "frayKinds":
-        setFrayKinds(change.value);
-        void window.api.setSetting("frayKinds", change.value).catch(() => undefined);
-        return;
-      case "autoSnapshotMinutes":
-        setAutoSnapshotMinutes(change.value);
-        void window.api.setSetting("autoSnapshotMinutes", change.value).catch(() => undefined);
-        return;
-      case "maxSnapshotsPerSpec":
-        setMaxSnapshotsPerSpec(change.value);
-        void window.api.setSetting("maxSnapshotsPerSpec", change.value).catch(() => undefined);
-        return;
-      case "assistTimeoutSec":
-        setAssistTimeoutSec(change.value);
-        void window.api.setSetting("assistTimeoutSec", change.value).catch(() => undefined);
-        return;
-    }
-  }, []);
+  // main プロセスが readSettings() で読む設定 (履歴・AI タイムアウト) は、書き込みに
+  // 失敗すると「変わったように見えて効かない」状態になる。renderer の state が真実に
+  // なる他の設定と違い、結果を確かめて失敗時は永続値へ表示を巻き戻す
+  const persistMainBacked = useCallback(
+    (
+      key: "autoSnapshotMinutes" | "maxSnapshotsPerSpec" | "assistTimeoutSec",
+      value: number,
+      apply: (value: number) => void,
+    ): void => {
+      apply(value);
+      window.api.setSetting(key, value).then(
+        (persisted) => {
+          if (persisted) return;
+          setToast("設定ストアが利用できないため保存できませんでした");
+          window.api.getSettings().then(
+            (settings) => apply(settings[key]),
+            () => undefined,
+          );
+        },
+        () => undefined,
+      );
+    },
+    [],
+  );
+
+  const handleSettingChange = useCallback(
+    (change: SettingChange): void => {
+      switch (change.key) {
+        case "theme":
+          setThemePreference(change.value);
+          return;
+        case "accent":
+          setAppearance((prev) => ({ ...prev, accent: change.value }));
+          void window.api.setSetting("accent", change.value).catch(() => undefined);
+          return;
+        case "editorFontSize":
+          setAppearance((prev) => ({ ...prev, editorFontSize: change.value }));
+          void window.api.setSetting("editorFontSize", change.value).catch(() => undefined);
+          return;
+        case "previewFontSize":
+          setAppearance((prev) => ({ ...prev, previewFontSize: change.value }));
+          void window.api.setSetting("previewFontSize", change.value).catch(() => undefined);
+          return;
+        case "editorLineHeight":
+          setAppearance((prev) => ({ ...prev, editorLineHeight: change.value }));
+          void window.api.setSetting("editorLineHeight", change.value).catch(() => undefined);
+          return;
+        case "previewLineHeight":
+          setAppearance((prev) => ({ ...prev, previewLineHeight: change.value }));
+          void window.api.setSetting("previewLineHeight", change.value).catch(() => undefined);
+          return;
+        case "readingWidth":
+          setAppearance((prev) => ({ ...prev, readingWidth: change.value }));
+          void window.api.setSetting("readingWidth", change.value).catch(() => undefined);
+          return;
+        case "mermaidRenderer":
+          setMermaidRenderer(change.value);
+          void window.api.setSetting("mermaidRenderer", change.value).catch(() => undefined);
+          return;
+        case "defaultViewMode":
+          setDefaultViewMode(change.value);
+          void window.api.setSetting("defaultViewMode", change.value).catch(() => undefined);
+          return;
+        case "autosaveDelay":
+          setAutosaveDelay(change.value);
+          void window.api.setSetting("autosaveDelay", change.value).catch(() => undefined);
+          return;
+        case "toastDuration":
+          setToastDuration(change.value);
+          void window.api.setSetting("toastDuration", change.value).catch(() => undefined);
+          return;
+        case "restoreLastSpec":
+          setRestoreLastSpec(change.value);
+          void window.api.setSetting("restoreLastSpec", change.value).catch(() => undefined);
+          return;
+        case "frayAutoCheck":
+          setFrayAutoCheck(change.value);
+          void window.api.setSetting("frayAutoCheck", change.value).catch(() => undefined);
+          return;
+        case "frayKinds":
+          setFrayKinds(change.value);
+          void window.api.setSetting("frayKinds", change.value).catch(() => undefined);
+          return;
+        case "autoSnapshotMinutes":
+          persistMainBacked("autoSnapshotMinutes", change.value, setAutoSnapshotMinutes);
+          return;
+        case "maxSnapshotsPerSpec":
+          persistMainBacked("maxSnapshotsPerSpec", change.value, setMaxSnapshotsPerSpec);
+          return;
+        case "assistTimeoutSec":
+          persistMainBacked("assistTimeoutSec", change.value, setAssistTimeoutSec);
+          return;
+      }
+    },
+    [persistMainBacked],
+  );
 
   const handleUpsertProfile = useCallback(
     async (input: UpsertLlmProfileInput): Promise<boolean> => {
@@ -1730,9 +1755,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setRestoreLastSpec(DEFAULT_SETTINGS.restoreLastSpec);
     setFrayAutoCheck(DEFAULT_SETTINGS.frayAutoCheck);
     setFrayKinds(DEFAULT_SETTINGS.frayKinds);
-    setAutoSnapshotMinutes(DEFAULT_SETTINGS.autoSnapshotMinutes);
-    setMaxSnapshotsPerSpec(DEFAULT_SETTINGS.maxSnapshotsPerSpec);
-    setAssistTimeoutSec(DEFAULT_SETTINGS.assistTimeoutSec);
+    persistMainBacked("autoSnapshotMinutes", DEFAULT_SETTINGS.autoSnapshotMinutes, setAutoSnapshotMinutes);
+    persistMainBacked("maxSnapshotsPerSpec", DEFAULT_SETTINGS.maxSnapshotsPerSpec, setMaxSnapshotsPerSpec);
+    persistMainBacked("assistTimeoutSec", DEFAULT_SETTINGS.assistTimeoutSec, setAssistTimeoutSec);
     void window.api.setSetting("accent", defaults.accent).catch(() => undefined);
     void window.api.setSetting("editorFontSize", defaults.editorFontSize).catch(() => undefined);
     void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
@@ -1747,9 +1772,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("restoreLastSpec", DEFAULT_SETTINGS.restoreLastSpec).catch(() => undefined);
     void window.api.setSetting("frayAutoCheck", DEFAULT_SETTINGS.frayAutoCheck).catch(() => undefined);
     void window.api.setSetting("frayKinds", DEFAULT_SETTINGS.frayKinds).catch(() => undefined);
-    void window.api.setSetting("autoSnapshotMinutes", DEFAULT_SETTINGS.autoSnapshotMinutes).catch(() => undefined);
-    void window.api.setSetting("maxSnapshotsPerSpec", DEFAULT_SETTINGS.maxSnapshotsPerSpec).catch(() => undefined);
-    void window.api.setSetting("assistTimeoutSec", DEFAULT_SETTINGS.assistTimeoutSec).catch(() => undefined);
     // 内蔵 Gemini プロファイルを初期状態に復元してメインへ戻す。
     // 追加登録されたプロファイルとキーは資産なので消さない。
     // ルーティング更新と同じキューに直列化し、キュー済みの変更がリセットを上書きしないようにする
@@ -1764,7 +1786,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         },
       ),
     );
-  }, [applyLlmSettings]);
+  }, [applyLlmSettings, persistMainBacked]);
 
   const currentMatch = matches[matchCursor];
   const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;

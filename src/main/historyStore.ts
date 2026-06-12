@@ -185,10 +185,13 @@ async function pruneSnapshots(specId: string): Promise<void> {
   const ids = await listSnapshotIds(specId);
   if (ids.length <= limit) return;
   const metas = await listSnapshots(specId);
-  const excess = metas.length - limit;
-  if (excess <= 0) return;
   // ピン留めはユーザーが「消さない」と宣言した版。上限超過の犠牲にしない
   const oldestFirst = [...metas].reverse().filter((meta) => !meta.pinned);
+  // ピン留めだけで上限が埋まっていても、直近の非ピン版は必ず 1 つ残す。撮った直後の
+  // 版 (手動・安全網) をその場で消して「留めた」と偽らないため、総数の超過を許す
+  const keepUnpinned = Math.max(limit - (metas.length - oldestFirst.length), 1);
+  const excess = oldestFirst.length - keepUnpinned;
+  if (excess <= 0) return;
   const expendable = [
     ...oldestFirst.filter((meta) => meta.kind !== "manual"),
     ...oldestFirst.filter((meta) => meta.kind === "manual"),
@@ -197,6 +200,27 @@ async function pruneSnapshots(specId: string): Promise<void> {
     // eslint-disable-next-line no-await-in-loop -- removes a handful of files sequentially
     await fs.rm(fileFor(specId, target.id), { force: true }).catch(() => undefined);
     invalidateIfLatest(specId, target.id);
+  }
+}
+
+/**
+ * 全仕様書の履歴へ保持上限を適用する。上限を下げた直後に呼ばれ、次のスナップショット
+ * を待たずに既存の超過分を間引く。管理操作であり本流を妨げないため、失敗はログに留める。
+ */
+export async function pruneAllHistories(): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(getHistoryDir());
+  } catch (err) {
+    if (!isENOENT(err)) console.warn("[historyStore] prune-all failed to list histories:", err);
+    return;
+  }
+  for (const entry of entries) {
+    if (!isSafeId(entry)) continue;
+    // eslint-disable-next-line no-await-in-loop -- 仕様書ごとに順へ間引いて FD と I/O を抑える
+    await pruneSnapshots(entry).catch((err: unknown) => {
+      console.warn(`[historyStore] prune failed for ${entry}:`, err);
+    });
   }
 }
 
