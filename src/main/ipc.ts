@@ -29,7 +29,14 @@ import {
   toRendererSettings,
 } from "@shared/schemas/settings";
 import { auditSpec, cancelAssist, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
-import { deleteSnapshot, listSnapshots, readSnapshot, setSnapshotPinned, takeSnapshot } from "./historyStore";
+import {
+  deleteSnapshot,
+  listSnapshots,
+  readSnapshot,
+  schedulePruneAllHistories,
+  setSnapshotPinned,
+  takeSnapshot,
+} from "./historyStore";
 import { deleteLlmProfile, resetLlmRouting, setLlmRouting, upsertLlmProfile } from "./llmProfiles";
 import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
 import {
@@ -128,7 +135,11 @@ export function registerIpc(): void {
     if (input.key === "geminiApiKey" && input.value !== null && !isSecretEncryptionAvailable()) {
       throw new Error("この環境では OS の安全な保存領域を利用できないため、API キーを保存できません。");
     }
-    return writeSetting(input.key, input.value);
+    const persisted = writeSetting(input.key, input.value);
+    // 保持上限の変更は既存の履歴にも適用する (次のスナップショットを待たせない)。
+    // 選び直しの連打で低い上限の間引きが走り切らないよう、予約はデバウンスされる
+    if (persisted && input.key === "maxSnapshotsPerSpec") schedulePruneAllHistories();
+    return persisted;
   });
 
   ipcMain.handle("shell:openExternal", async (_event, raw: unknown) => {

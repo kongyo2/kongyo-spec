@@ -10,13 +10,18 @@ import {
   type SnapshotKind,
   type SnapshotMeta,
 } from "@shared/schemas/history";
+import { readSettings } from "./settingsStore";
 
 // 自動スナップショットの最小間隔。最新の自動版がこれより新しい間は撮らない。
 // 編集の最終状態は本体ファイルに常にあるため、ここで失われるものはない
-const AUTO_SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
+function autoSnapshotIntervalMs(): number {
+  return readSettings().autoSnapshotMinutes * 60 * 1000;
+}
 // 仕様書ごとの保持上限。超過時は自動・復元前の古い版から削り、手動版は最後まで
 // 残す。ピン留めされた版は種別を問わず削除対象にしない
-const MAX_SNAPSHOTS_PER_SPEC = 80;
+function maxSnapshotsPerSpec(): number {
+  return readSettings().maxSnapshotsPerSpec;
+}
 // frontmatter は短い行が 8 つだけ(label も 120 字上限)で、この先頭チャンクに必ず収まる
 const META_READ_BYTES = 4096;
 
@@ -175,14 +180,18 @@ export async function readSnapshot(specId: string, snapshotId: string): Promise<
 }
 
 async function pruneSnapshots(specId: string): Promise<void> {
+  const limit = maxSnapshotsPerSpec();
   // 上限内なら readdir(ファイル名のみ)で済ませ、超過したときだけメタを読む
   const ids = await listSnapshotIds(specId);
-  if (ids.length <= MAX_SNAPSHOTS_PER_SPEC) return;
+  if (ids.length <= limit) return;
   const metas = await listSnapshots(specId);
-  const excess = metas.length - MAX_SNAPSHOTS_PER_SPEC;
-  if (excess <= 0) return;
   // ピン留めはユーザーが「消さない」と宣言した版。上限超過の犠牲にしない
   const oldestFirst = [...metas].reverse().filter((meta) => !meta.pinned);
+  // ピン留めだけで上限が埋まっていても、直近の非ピン版は必ず 1 つ残す。撮った直後の
+  // 版 (手動・安全網) をその場で消して「留めた」と偽らないため、総数の超過を許す
+  const keepUnpinned = Math.max(limit - (metas.length - oldestFirst.length), 1);
+  const excess = oldestFirst.length - keepUnpinned;
+  if (excess <= 0) return;
   const expendable = [
     ...oldestFirst.filter((meta) => meta.kind !== "manual"),
     ...oldestFirst.filter((meta) => meta.kind === "manual"),
@@ -192,6 +201,63 @@ async function pruneSnapshots(specId: string): Promise<void> {
     await fs.rm(fileFor(specId, target.id), { force: true }).catch(() => undefined);
     invalidateIfLatest(specId, target.id);
   }
+}
+
+/**
+ * 全仕様書の履歴へ保持上限を適用する。上限を下げた直後に呼ばれ、次のスナップショット
+ * を待たずに既存の超過分を間引く。管理操作であり本流を妨げないため、失敗はログに留める。
+ */
+async function pruneAllHistories(shouldYield: () => boolean): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(getHistoryDir());
+  } catch (err) {
+    if (!isENOENT(err)) console.warn("[historyStore] prune-all failed to list histories:", err);
+    return;
+  }
+  for (const entry of entries) {
+    // 走行中に上限が変わって再予約された場合は途中でやめ、新しい設定での再実行へ譲る
+    if (shouldYield()) return;
+    if (!isSafeId(entry)) continue;
+    // eslint-disable-next-line no-await-in-loop -- 仕様書ごとに順へ間引いて FD と I/O を抑える
+    await pruneSnapshots(entry).catch((err: unknown) => {
+      console.warn(`[historyStore] prune failed for ${entry}:`, err);
+    });
+  }
+}
+
+// 保持上限の連続変更 (プリセットの選び直し) で、低い上限の間引きが高い上限への訂正後も
+// 削除を続けないための予約機構。落ち着くまで待ってから最終値で 1 回だけ走らせる
+const PRUNE_ALL_DEBOUNCE_MS = 3000;
+let pruneAllTimer: ReturnType<typeof setTimeout> | null = null;
+let pruneAllRunning = false;
+let pruneAllRerun = false;
+
+async function runPruneAll(): Promise<void> {
+  if (pruneAllRunning) {
+    pruneAllRerun = true;
+    return;
+  }
+  pruneAllRunning = true;
+  try {
+    await pruneAllHistories(() => pruneAllRerun);
+  } finally {
+    pruneAllRunning = false;
+    if (pruneAllRerun) {
+      pruneAllRerun = false;
+      void runPruneAll();
+    }
+  }
+}
+
+/** 保持上限の変更後に全履歴の間引きを予約する。各仕様書の間引きは実行時点の設定を読む */
+export function schedulePruneAllHistories(): void {
+  if (pruneAllTimer !== null) clearTimeout(pruneAllTimer);
+  if (pruneAllRunning) pruneAllRerun = true;
+  pruneAllTimer = setTimeout(() => {
+    pruneAllTimer = null;
+    void runPruneAll();
+  }, PRUNE_ALL_DEBOUNCE_MS);
 }
 
 export async function takeSnapshot(
@@ -252,7 +318,7 @@ export async function deleteHistory(specId: string): Promise<void> {
  * には触れない。履歴は安全網であり本流の保存を妨げてはならないため、失敗はログに
  * 留めて握りつぶす。
  */
-export async function recordAutoSnapshot(specId: string, prevContent: string): Promise<void> {
+export async function recordAutoSnapshot(specId: string, prevContent: string, prevUpdatedAt: string): Promise<void> {
   try {
     const latest = await getLatestSnapshot(specId);
     if (latest === null) {
@@ -260,10 +326,15 @@ export async function recordAutoSnapshot(specId: string, prevContent: string): P
       await takeSnapshot(specId, prevContent, "auto", null);
       return;
     }
-    if (latest.meta.kind === "auto" && Date.now() - Date.parse(latest.meta.takenAt) < AUTO_SNAPSHOT_INTERVAL_MS) {
+    if (latest.content === prevContent) return;
+    // 種別を問わず、最新版から設定間隔が明けるまでは自動版を増やさない (途中経過の
+    // 間引き)。ただし、上書きされる内容が最新版の撮影より前にディスクへ書かれたもの
+    // なら話が別で、それはどの版にも含まれていない (版を撮った時点で未保存の編集が
+    // あった場合に起きる)。間引くと永久に失われるため、間隔に関わらず留める
+    const prevPredatesLatest = Date.parse(prevUpdatedAt) < Date.parse(latest.meta.takenAt);
+    if (!prevPredatesLatest && Date.now() - Date.parse(latest.meta.takenAt) < autoSnapshotIntervalMs()) {
       return;
     }
-    if (latest.content === prevContent) return;
     await takeSnapshot(specId, prevContent, "auto", null);
   } catch (err) {
     console.warn(`[historyStore] auto snapshot failed for ${specId}:`, err);
