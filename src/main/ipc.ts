@@ -32,8 +32,8 @@ import { auditSpec, cancelAssist, reviewSpec, tailorSpec, warpSpec, weaveSpec } 
 import {
   deleteSnapshot,
   listSnapshots,
-  pruneAllHistories,
   readSnapshot,
+  schedulePruneAllHistories,
   setSnapshotPinned,
   takeSnapshot,
 } from "./historyStore";
@@ -136,9 +136,9 @@ export function registerIpc(): void {
       throw new Error("この環境では OS の安全な保存領域を利用できないため、API キーを保存できません。");
     }
     const persisted = writeSetting(input.key, input.value);
-    // 保持上限の変更は既存の履歴へ即適用する (次のスナップショットを待たせない)。
-    // 間引きは管理操作であり、設定保存の応答を待たせないため投げ放しにする
-    if (persisted && input.key === "maxSnapshotsPerSpec") void pruneAllHistories();
+    // 保持上限の変更は既存の履歴にも適用する (次のスナップショットを待たせない)。
+    // 選び直しの連打で低い上限の間引きが走り切らないよう、予約はデバウンスされる
+    if (persisted && input.key === "maxSnapshotsPerSpec") schedulePruneAllHistories();
     return persisted;
   });
 

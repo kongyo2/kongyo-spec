@@ -207,7 +207,7 @@ async function pruneSnapshots(specId: string): Promise<void> {
  * 全仕様書の履歴へ保持上限を適用する。上限を下げた直後に呼ばれ、次のスナップショット
  * を待たずに既存の超過分を間引く。管理操作であり本流を妨げないため、失敗はログに留める。
  */
-export async function pruneAllHistories(): Promise<void> {
+async function pruneAllHistories(shouldYield: () => boolean): Promise<void> {
   let entries: string[];
   try {
     entries = await fs.readdir(getHistoryDir());
@@ -216,12 +216,48 @@ export async function pruneAllHistories(): Promise<void> {
     return;
   }
   for (const entry of entries) {
+    // 走行中に上限が変わって再予約された場合は途中でやめ、新しい設定での再実行へ譲る
+    if (shouldYield()) return;
     if (!isSafeId(entry)) continue;
     // eslint-disable-next-line no-await-in-loop -- 仕様書ごとに順へ間引いて FD と I/O を抑える
     await pruneSnapshots(entry).catch((err: unknown) => {
       console.warn(`[historyStore] prune failed for ${entry}:`, err);
     });
   }
+}
+
+// 保持上限の連続変更 (プリセットの選び直し) で、低い上限の間引きが高い上限への訂正後も
+// 削除を続けないための予約機構。落ち着くまで待ってから最終値で 1 回だけ走らせる
+const PRUNE_ALL_DEBOUNCE_MS = 3000;
+let pruneAllTimer: ReturnType<typeof setTimeout> | null = null;
+let pruneAllRunning = false;
+let pruneAllRerun = false;
+
+async function runPruneAll(): Promise<void> {
+  if (pruneAllRunning) {
+    pruneAllRerun = true;
+    return;
+  }
+  pruneAllRunning = true;
+  try {
+    await pruneAllHistories(() => pruneAllRerun);
+  } finally {
+    pruneAllRunning = false;
+    if (pruneAllRerun) {
+      pruneAllRerun = false;
+      void runPruneAll();
+    }
+  }
+}
+
+/** 保持上限の変更後に全履歴の間引きを予約する。各仕様書の間引きは実行時点の設定を読む */
+export function schedulePruneAllHistories(): void {
+  if (pruneAllTimer !== null) clearTimeout(pruneAllTimer);
+  if (pruneAllRunning) pruneAllRerun = true;
+  pruneAllTimer = setTimeout(() => {
+    pruneAllTimer = null;
+    void runPruneAll();
+  }, PRUNE_ALL_DEBOUNCE_MS);
 }
 
 export async function takeSnapshot(
@@ -282,7 +318,7 @@ export async function deleteHistory(specId: string): Promise<void> {
  * には触れない。履歴は安全網であり本流の保存を妨げてはならないため、失敗はログに
  * 留めて握りつぶす。
  */
-export async function recordAutoSnapshot(specId: string, prevContent: string): Promise<void> {
+export async function recordAutoSnapshot(specId: string, prevContent: string, prevUpdatedAt: string): Promise<void> {
   try {
     const latest = await getLatestSnapshot(specId);
     if (latest === null) {
@@ -290,13 +326,15 @@ export async function recordAutoSnapshot(specId: string, prevContent: string): P
       await takeSnapshot(specId, prevContent, "auto", null);
       return;
     }
-    // 種別を問わず、最新版から設定間隔が明けるまでは自動版を増やさない。手動・guard・
-    // assist の版もその時点の内容を留めており、本体ファイルには常に最新があるため、
-    // ここで抑制しても失われるものはない (設定が約束する「最短間隔」を一貫させる)
-    if (Date.now() - Date.parse(latest.meta.takenAt) < autoSnapshotIntervalMs()) {
+    if (latest.content === prevContent) return;
+    // 種別を問わず、最新版から設定間隔が明けるまでは自動版を増やさない (途中経過の
+    // 間引き)。ただし、上書きされる内容が最新版の撮影より前にディスクへ書かれたもの
+    // なら話が別で、それはどの版にも含まれていない (版を撮った時点で未保存の編集が
+    // あった場合に起きる)。間引くと永久に失われるため、間隔に関わらず留める
+    const prevPredatesLatest = Date.parse(prevUpdatedAt) < Date.parse(latest.meta.takenAt);
+    if (!prevPredatesLatest && Date.now() - Date.parse(latest.meta.takenAt) < autoSnapshotIntervalMs()) {
       return;
     }
-    if (latest.content === prevContent) return;
     await takeSnapshot(specId, prevContent, "auto", null);
   } catch (err) {
     console.warn(`[historyStore] auto snapshot failed for ${specId}:`, err);

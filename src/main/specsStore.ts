@@ -316,7 +316,7 @@ export async function saveSpec(id: string, content: string): Promise<SpecMeta> {
   return withLock(id, async () => {
     const existing = await readSpec(id);
     // 上書きで失われる直前の内容を Selvage(版の履歴)に間引きしつつ留める
-    if (existing.content !== content) await recordAutoSnapshot(id, existing.content);
+    if (existing.content !== content) await recordAutoSnapshot(id, existing.content, existing.meta.updatedAt);
     const meta: SpecMeta = { ...existing.meta, updatedAt: nowIso() };
     await writeSpec(meta, content);
     return meta;

@@ -1570,24 +1570,17 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const dragActive = useFileDrop(importFiles);
 
-  // main プロセスが readSettings() で読む設定 (履歴・AI タイムアウト) は、書き込みに
-  // 失敗すると「変わったように見えて効かない」状態になる。renderer の state が真実に
-  // なる他の設定と違い、結果を確かめて失敗時は永続値へ表示を巻き戻す
-  const persistMainBacked = useCallback(
-    (
-      key: "autoSnapshotMinutes" | "maxSnapshotsPerSpec" | "assistTimeoutSec",
-      value: number,
-      apply: (value: number) => void,
-    ): void => {
-      apply(value);
-      window.api.setSetting(key, value).then(
+  // 設定ストアから読み直されて初めて効く設定 (main プロセスが読む履歴・AI タイムアウト、
+  // 次回起動が読む復元フラグ) は、書き込みに失敗すると「変わったように見えて効かない」
+  // 状態になる。renderer の state が真実になる他の設定と違い、結果を確かめて失敗時は
+  // 永続値へ表示を巻き戻す
+  const persistStoreBacked = useCallback(
+    (write: () => Promise<boolean>, revert: (settings: RendererSettings) => void): void => {
+      write().then(
         (persisted) => {
           if (persisted) return;
           setToast("設定ストアが利用できないため保存できませんでした");
-          window.api.getSettings().then(
-            (settings) => apply(settings[key]),
-            () => undefined,
-          );
+          window.api.getSettings().then(revert, () => undefined);
         },
         () => undefined,
       );
@@ -1641,10 +1634,15 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           setToastDuration(change.value);
           void window.api.setSetting("toastDuration", change.value).catch(() => undefined);
           return;
-        case "restoreLastSpec":
-          setRestoreLastSpec(change.value);
-          void window.api.setSetting("restoreLastSpec", change.value).catch(() => undefined);
+        case "restoreLastSpec": {
+          const value = change.value;
+          setRestoreLastSpec(value);
+          persistStoreBacked(
+            () => window.api.setSetting("restoreLastSpec", value),
+            (settings) => setRestoreLastSpec(settings.restoreLastSpec),
+          );
           return;
+        }
         case "frayAutoCheck":
           setFrayAutoCheck(change.value);
           void window.api.setSetting("frayAutoCheck", change.value).catch(() => undefined);
@@ -1653,18 +1651,36 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           setFrayKinds(change.value);
           void window.api.setSetting("frayKinds", change.value).catch(() => undefined);
           return;
-        case "autoSnapshotMinutes":
-          persistMainBacked("autoSnapshotMinutes", change.value, setAutoSnapshotMinutes);
+        case "autoSnapshotMinutes": {
+          const value = change.value;
+          setAutoSnapshotMinutes(value);
+          persistStoreBacked(
+            () => window.api.setSetting("autoSnapshotMinutes", value),
+            (settings) => setAutoSnapshotMinutes(settings.autoSnapshotMinutes),
+          );
           return;
-        case "maxSnapshotsPerSpec":
-          persistMainBacked("maxSnapshotsPerSpec", change.value, setMaxSnapshotsPerSpec);
+        }
+        case "maxSnapshotsPerSpec": {
+          const value = change.value;
+          setMaxSnapshotsPerSpec(value);
+          persistStoreBacked(
+            () => window.api.setSetting("maxSnapshotsPerSpec", value),
+            (settings) => setMaxSnapshotsPerSpec(settings.maxSnapshotsPerSpec),
+          );
           return;
-        case "assistTimeoutSec":
-          persistMainBacked("assistTimeoutSec", change.value, setAssistTimeoutSec);
+        }
+        case "assistTimeoutSec": {
+          const value = change.value;
+          setAssistTimeoutSec(value);
+          persistStoreBacked(
+            () => window.api.setSetting("assistTimeoutSec", value),
+            (settings) => setAssistTimeoutSec(settings.assistTimeoutSec),
+          );
           return;
+        }
       }
     },
-    [persistMainBacked],
+    [persistStoreBacked],
   );
 
   const handleUpsertProfile = useCallback(
@@ -1752,12 +1768,28 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setSplitRatio(DEFAULT_SETTINGS.splitRatio);
     setAutosaveDelay(DEFAULT_SETTINGS.autosaveDelay);
     setToastDuration(DEFAULT_SETTINGS.toastDuration);
-    setRestoreLastSpec(DEFAULT_SETTINGS.restoreLastSpec);
     setFrayAutoCheck(DEFAULT_SETTINGS.frayAutoCheck);
     setFrayKinds(DEFAULT_SETTINGS.frayKinds);
-    persistMainBacked("autoSnapshotMinutes", DEFAULT_SETTINGS.autoSnapshotMinutes, setAutoSnapshotMinutes);
-    persistMainBacked("maxSnapshotsPerSpec", DEFAULT_SETTINGS.maxSnapshotsPerSpec, setMaxSnapshotsPerSpec);
-    persistMainBacked("assistTimeoutSec", DEFAULT_SETTINGS.assistTimeoutSec, setAssistTimeoutSec);
+    setRestoreLastSpec(DEFAULT_SETTINGS.restoreLastSpec);
+    setAutoSnapshotMinutes(DEFAULT_SETTINGS.autoSnapshotMinutes);
+    setMaxSnapshotsPerSpec(DEFAULT_SETTINGS.maxSnapshotsPerSpec);
+    setAssistTimeoutSec(DEFAULT_SETTINGS.assistTimeoutSec);
+    persistStoreBacked(
+      () => window.api.setSetting("restoreLastSpec", DEFAULT_SETTINGS.restoreLastSpec),
+      (settings) => setRestoreLastSpec(settings.restoreLastSpec),
+    );
+    persistStoreBacked(
+      () => window.api.setSetting("autoSnapshotMinutes", DEFAULT_SETTINGS.autoSnapshotMinutes),
+      (settings) => setAutoSnapshotMinutes(settings.autoSnapshotMinutes),
+    );
+    persistStoreBacked(
+      () => window.api.setSetting("maxSnapshotsPerSpec", DEFAULT_SETTINGS.maxSnapshotsPerSpec),
+      (settings) => setMaxSnapshotsPerSpec(settings.maxSnapshotsPerSpec),
+    );
+    persistStoreBacked(
+      () => window.api.setSetting("assistTimeoutSec", DEFAULT_SETTINGS.assistTimeoutSec),
+      (settings) => setAssistTimeoutSec(settings.assistTimeoutSec),
+    );
     void window.api.setSetting("accent", defaults.accent).catch(() => undefined);
     void window.api.setSetting("editorFontSize", defaults.editorFontSize).catch(() => undefined);
     void window.api.setSetting("previewFontSize", defaults.previewFontSize).catch(() => undefined);
@@ -1769,7 +1801,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("splitRatio", DEFAULT_SETTINGS.splitRatio).catch(() => undefined);
     void window.api.setSetting("autosaveDelay", DEFAULT_SETTINGS.autosaveDelay).catch(() => undefined);
     void window.api.setSetting("toastDuration", DEFAULT_SETTINGS.toastDuration).catch(() => undefined);
-    void window.api.setSetting("restoreLastSpec", DEFAULT_SETTINGS.restoreLastSpec).catch(() => undefined);
     void window.api.setSetting("frayAutoCheck", DEFAULT_SETTINGS.frayAutoCheck).catch(() => undefined);
     void window.api.setSetting("frayKinds", DEFAULT_SETTINGS.frayKinds).catch(() => undefined);
     // 内蔵 Gemini プロファイルを初期状態に復元してメインへ戻す。
@@ -1786,7 +1817,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         },
       ),
     );
-  }, [applyLlmSettings, persistMainBacked]);
+  }, [applyLlmSettings, persistStoreBacked]);
 
   const currentMatch = matches[matchCursor];
   const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;
