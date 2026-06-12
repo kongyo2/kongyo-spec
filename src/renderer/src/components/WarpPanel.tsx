@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownToLine,
   CircleStop,
@@ -9,6 +9,8 @@ import {
   LoaderCircle,
   RefreshCw,
   Replace,
+  ShieldCheck,
+  Sparkles,
   TextSelect,
   TriangleAlert,
   Undo2,
@@ -18,6 +20,7 @@ import {
 import type { MermaidDiagramKind, WarpForm } from "@shared/schemas/assist";
 import { MAX_WARP_MATERIAL_CHARS, MAX_WARP_OUTPUT_CHARS, MERMAID_DIAGRAM_KINDS } from "@shared/schemas/assist";
 import type { MermaidRenderer } from "@shared/schemas/settings";
+import { lintEars } from "../lib/ears";
 import { errorMessage } from "../lib/errors";
 import { renderMermaidSvg } from "../lib/mermaid";
 import type { ResolvedTheme } from "../lib/theme";
@@ -59,6 +62,7 @@ interface WarpPanelProps {
   onCancel: () => void;
   onInsert: () => void;
   onPullSelection: () => void;
+  onRepairMermaid: (renderError: string) => void;
   onClose: () => void;
   onOpenSettings: () => void;
 }
@@ -104,10 +108,12 @@ function MermaidLivePreview({
   code,
   theme,
   renderer,
+  onRepair,
 }: {
   code: string;
   theme: ResolvedTheme;
   renderer: MermaidRenderer;
+  onRepair: (renderError: string) => void;
 }): React.ReactElement {
   const [preview, setPreview] = useState<MermaidPreviewState>({ status: "empty" });
 
@@ -141,6 +147,15 @@ function MermaidLivePreview({
       <div className="warp-preview warp-preview-error" role="alert">
         <TriangleAlert size={13} aria-hidden="true" />
         <span>{preview.message}</span>
+        <button
+          type="button"
+          className="warp-repair"
+          title="エラーメッセージを添えて、図の意味を変えずに構文だけを修復します"
+          onClick={() => onRepair(preview.message)}
+        >
+          <Sparkles size={12} aria-hidden="true" />
+          AI で構文を修復
+        </button>
       </div>
     );
   }
@@ -165,10 +180,18 @@ export function WarpPanel({
   onCancel,
   onInsert,
   onPullSelection,
+  onRepairMermaid,
   onClose,
   onOpenSettings,
 }: WarpPanelProps): React.ReactElement {
   const meta = FORM_META[session.form];
+
+  // 張り上がりの EARS 構文をローカル検証する。出力は挿入前に編集できるため、
+  // 編集中の内容に対しても即座に検査が追従する
+  const earsLint = useMemo(
+    () => (session.form === "ears" && session.phase === "done" ? lintEars(session.output) : null),
+    [session.form, session.phase, session.output],
+  );
 
   let body: React.ReactElement;
   if (!apiKeySet) {
@@ -220,7 +243,12 @@ export function WarpPanel({
             <header className="loom-block-head">
               <span className="loom-block-label">プレビュー</span>
             </header>
-            <MermaidLivePreview code={session.output} theme={theme} renderer={mermaidRenderer} />
+            <MermaidLivePreview
+              code={session.output}
+              theme={theme}
+              renderer={mermaidRenderer}
+              onRepair={onRepairMermaid}
+            />
           </section>
         ) : null}
         <section className="loom-block">
@@ -236,6 +264,31 @@ export function WarpPanel({
             aria-label={`${meta.outputLabel}(挿入前に編集できます)`}
             onChange={(event) => onUpdate({ output: event.target.value })}
           />
+          {earsLint !== null ? (
+            earsLint.findings.length > 0 ? (
+              <ul className="warp-ears-findings" aria-label="EARS 構文の検証結果">
+                {earsLint.findings.map((finding, index) => (
+                  <li key={index}>
+                    <TriangleAlert size={13} aria-hidden="true" />
+                    <span>
+                      <strong>{finding.line} 行目</strong> {finding.message}
+                      <span className="warp-ears-excerpt">{finding.excerpt}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : earsLint.criteria > 0 ? (
+              <p className="warp-ears-ok">
+                <ShieldCheck size={13} aria-hidden="true" />
+                EARS 構文 OK · 受け入れ基準 {earsLint.criteria} 件はすべて検証可能な形です
+              </p>
+            ) : (
+              <p className="warp-ears-none">
+                <TriangleAlert size={13} aria-hidden="true" />
+                番号付きの受け入れ基準が見つかりません
+              </p>
+            )
+          ) : null}
           <div className="loom-actions">
             <button type="button" className="lens-run" disabled={session.output.trim().length === 0} onClick={onInsert}>
               {session.replaceTargets.length > 0 ? (

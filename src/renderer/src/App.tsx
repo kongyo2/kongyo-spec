@@ -558,17 +558,26 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.cancelAssist("warp").catch(() => undefined);
   }, []);
 
+  // AI アシストによる大規模な書き換えの直前に、適用前の本文を留める。履歴は
+  // 安全網であり本流を妨げないため、失敗は握りつぶす
+  const guardBeforeAssist = useCallback((label: string): void => {
+    const current = docRef.current;
+    if (!current || current.content.trim().length === 0) return;
+    void window.api.takeSnapshot(current.meta.id, current.content, label, "assist").catch(() => undefined);
+  }, []);
+
   const insertTailorPlan = useCallback((): void => {
     const current = docRef.current;
     const state = tailorRef.current;
     if (!current || state.status !== "done") return;
     const section = tailorPlanToMarkdown(state.plan, state.model);
     const { next, start, end, replaced } = mergePlanIntoContent(current.content, section);
+    guardBeforeAssist("Tailor 計画の書き戻し前");
     setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
     if (modeRef.current === "preview") setMode("source");
     setEditorJump({ start, end });
     setToast(replaced ? "本文の実装計画を更新しました" : "実装計画を末尾に挿入しました");
-  }, []);
+  }, [guardBeforeAssist]);
 
   const copyTailorPlan = useCallback((): void => {
     const state = tailorRef.current;
@@ -841,6 +850,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const insertWoven = useCallback((): void => {
     const session = loomSessionRef.current;
     const text = session.woven.trim();
+    if (text.length === 0) return;
+    guardBeforeAssist("Loom 織り上がりの反映前");
     const result = insertComposed(text, session.replaceTargets);
     if (result === null) return;
     setLoomSession(INITIAL_LOOM_SESSION);
@@ -853,21 +864,24 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           ? "置き換え対象を特定できないため、挿入に切り替えました"
           : "織り上がりを挿入しました",
     );
-  }, [insertComposed]);
+  }, [insertComposed, guardBeforeAssist]);
 
   const updateWarpSession = useCallback((patch: Partial<WarpSession>): void => {
     setWarpSession((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  const runWarp = useCallback((): void => {
+  // materialOverride は Mermaid 構文の自動修復用(セッションの素材は変えずに、
+  // 壊れたコードとエラーメッセージを差し替え素材として渡す)
+  const runWarp = useCallback((materialOverride?: string): void => {
     const current = docRef.current;
     if (!current || warpRunningRef.current) return;
     const session = warpSessionRef.current;
-    if (session.material.trim().length === 0) {
+    const material = materialOverride ?? session.material;
+    if (material.trim().length === 0) {
       setToast("素材がありません。本文の選択範囲やメモを入れてから張ってください");
       return;
     }
-    if (session.material.length > MAX_WARP_MATERIAL_CHARS) {
+    if (material.length > MAX_WARP_MATERIAL_CHARS) {
       setToast("素材が上限(約 2.4 万字)を超えています。削ってから張ってください");
       return;
     }
@@ -877,7 +891,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     window.api
       .warpSpec({
         form: session.form,
-        material: session.material,
+        material,
         title: current.meta.title.slice(0, 200),
         diagram: session.diagram,
       })
@@ -919,11 +933,33 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setWarpSession({ ...prev, material: merged, replaceTargets: [...prev.replaceTargets, text] });
   }, [grabEditorSelection]);
 
+  // Mermaid のセルフヒーリング: レンダリングエラーの内容を添えて、いまの出力を
+  // そのまま素材に張り直す(プロンプトが既存コードの構文修正を引き受ける)
+  const repairWarpMermaid = useCallback(
+    (renderError: string): void => {
+      const session = warpSessionRef.current;
+      const code = session.output.trim();
+      if (session.form !== "mermaid" || code.length === 0) return;
+      const material = [
+        "以下の Mermaid コードはレンダリングでエラーになります。図の意味・構造は変えずに、構文だけを修復してください。",
+        "",
+        `エラーメッセージ: ${renderError.slice(0, 600)}`,
+        "",
+        "```mermaid",
+        code,
+        "```",
+      ].join("\n");
+      runWarp(material);
+    },
+    [runWarp],
+  );
+
   const insertWarpOutput = useCallback((): void => {
     const session = warpSessionRef.current;
     const body = session.output.trim();
     if (body.length === 0) return;
     const text = session.form === "mermaid" ? `\`\`\`mermaid\n${body}\n\`\`\`` : body;
+    guardBeforeAssist(session.form === "mermaid" ? "Warp 図の反映前" : "Warp 要件の反映前");
     const result = insertComposed(text, session.replaceTargets);
     if (result === null) return;
     setWarpSession(INITIAL_WARP_SESSION);
@@ -938,7 +974,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             ? "図を挿入しました"
             : "要件を挿入しました",
     );
-  }, [insertComposed]);
+  }, [insertComposed, guardBeforeAssist]);
 
   const reloadSnapshots = useCallback((): void => {
     const current = docRef.current;
@@ -1069,6 +1105,24 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     [reloadSnapshots],
   );
 
+  const togglePinSnapshot = useCallback((snapshotId: string, pinned: boolean): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const specId = current.meta.id;
+    window.api.setSnapshotPinned(specId, snapshotId, pinned).then(
+      (meta) => {
+        setToast(pinned ? "この版をピン留めしました。上限でも自動削除されません" : "ピン留めを外しました");
+        if (docRef.current?.meta.id !== specId) return;
+        setSelvage((prev) =>
+          prev.snapshots === null
+            ? prev
+            : { ...prev, snapshots: prev.snapshots.map((item) => (item.id === meta.id ? meta : item)) },
+        );
+      },
+      (err: unknown) => setToast(`ピン留めを変更できませんでした: ${ipcErrorMessage(err)}`),
+    );
+  }, []);
+
   const pendingCount = useMemo(() => findPendingDecisions(doc?.content ?? "").length, [doc?.content]);
   const planInDoc = useMemo(() => pages.some((page) => page.depth === 2 && page.title === PLAN_HEADING), [pages]);
 
@@ -1085,6 +1139,33 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       headingIds,
     });
   }, [deferredContent, frayEnabled, specs]);
+
+  // ほつれ検査の修正を本文へ適用する。検査はひと呼吸遅れた deferredContent に
+  // 対して走るため、オフセットを信用せず置換前の文字列と照合してから書き換える
+  const applyFrayFixes = useCallback((issues: FrayIssue[]): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const content = current.content;
+    const all = issues
+      .flatMap((issue) => issue.fix?.replacements ?? [])
+      .sort((a, b) => a.start - b.start)
+      // まとめて適用するとき、万一範囲が重なる置換は後勝ちにせず捨てる
+      .filter((rep, index, sorted) => index === 0 || rep.start >= sorted[index - 1]!.end);
+    if (all.length === 0) return;
+    for (const rep of all) {
+      if (content.slice(rep.start, rep.end) !== rep.from) {
+        setToast("本文が検査時点から変わっています。再検査の完了を待ってからやり直してください");
+        return;
+      }
+    }
+    let next = content;
+    for (let i = all.length - 1; i >= 0; i--) {
+      const rep = all[i]!;
+      next = next.slice(0, rep.start) + rep.to + next.slice(rep.end);
+    }
+    setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+    setToast(`${all.length} 箇所を修正しました`);
+  }, []);
 
   const previewSyncRef = useRef<((ratio: number) => void) | null>(null);
   const handleEditorScrollRatio = useCallback((ratio: number): void => {
@@ -1850,6 +1931,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onClose={() => setFrayOpen(false)}
           onJumpOffset={jumpToOffset}
           onJumpExcerpt={jumpToLensExcerpt}
+          onApplyFix={applyFrayFixes}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : warpVisible && doc ? (
@@ -1860,10 +1942,11 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           theme={resolvedTheme}
           mermaidRenderer={mermaidRenderer}
           onUpdate={updateWarpSession}
-          onRun={runWarp}
+          onRun={() => runWarp()}
           onCancel={cancelWarp}
           onInsert={insertWarpOutput}
           onPullSelection={pullSelectionToWarp}
+          onRepairMermaid={repairWarpMermaid}
           onClose={() => setWarpOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
@@ -1894,6 +1977,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onRestore={restoreFromSnapshot}
           onCopy={copySnapshot}
           onDelete={removeSnapshot}
+          onTogglePin={togglePinSnapshot}
           onReload={reloadSnapshots}
           onClose={() => setSelvageOpen(false)}
         />

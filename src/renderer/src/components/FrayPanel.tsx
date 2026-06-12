@@ -11,6 +11,7 @@ import {
   Radar,
   RefreshCw,
   Sparkles,
+  Wrench,
   X,
 } from "lucide-react";
 import type { AuditFinding, AuditFindingKind, AuditReport } from "@shared/schemas/assist";
@@ -33,6 +34,7 @@ interface FrayPanelProps {
   onClose: () => void;
   onJumpOffset: (start: number, end: number) => void;
   onJumpExcerpt: (excerpt: string) => void;
+  onApplyFix: (issues: FrayIssue[]) => void;
   onOpenSettings: () => void;
 }
 
@@ -41,6 +43,7 @@ const KIND_LABEL: Record<FrayKind, string> = {
   link: "リンク",
   structure: "構造",
   term: "用語",
+  vague: "曖昧",
   pending: "未決定",
 };
 
@@ -50,24 +53,45 @@ const AUDIT_KIND_LABEL: Record<AuditFindingKind, string> = {
   term: "用語の衝突",
 };
 
-function IssueCard({ issue, onJump }: { issue: FrayIssue; onJump: () => void }): React.ReactElement {
+function IssueCard({
+  issue,
+  onJump,
+  onFix,
+}: {
+  issue: FrayIssue;
+  onJump: () => void;
+  onFix: ((issue: FrayIssue) => void) | null;
+}): React.ReactElement {
   const jumpable = issue.start !== null;
   const Icon = issue.severity === "warn" ? CircleAlert : Info;
   return (
-    <button
-      type="button"
-      className={`fray-issue kind-${issue.kind} sev-${issue.severity}`}
-      disabled={!jumpable}
-      title={jumpable ? "該当箇所へ移動" : undefined}
-      onClick={onJump}
-    >
-      <span className="fray-issue-head">
-        <Icon size={13} aria-hidden="true" />
-        <span className="fray-issue-title">{issue.title}</span>
-        <span className="fray-kind-chip">{KIND_LABEL[issue.kind]}</span>
-      </span>
-      <span className="fray-issue-detail">{issue.detail}</span>
-    </button>
+    <div className={`fray-issue kind-${issue.kind} sev-${issue.severity}`}>
+      <button
+        type="button"
+        className="fray-issue-jump"
+        disabled={!jumpable}
+        title={jumpable ? "該当箇所へ移動" : undefined}
+        onClick={onJump}
+      >
+        <span className="fray-issue-head">
+          <Icon size={13} aria-hidden="true" />
+          <span className="fray-issue-title">{issue.title}</span>
+          <span className="fray-kind-chip">{KIND_LABEL[issue.kind]}</span>
+        </span>
+        <span className="fray-issue-detail">{issue.detail}</span>
+      </button>
+      {issue.fix !== null && onFix !== null ? (
+        <button
+          type="button"
+          className="fray-fix"
+          title={`${issue.fix.replacements.length} 箇所を書き換えます`}
+          onClick={() => onFix(issue)}
+        >
+          <Wrench size={12} aria-hidden="true" />
+          {issue.fix.label}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -109,6 +133,7 @@ export function FrayPanel({
   onClose,
   onJumpOffset,
   onJumpExcerpt,
+  onApplyFix,
   onOpenSettings,
 }: FrayPanelProps): React.ReactElement {
   const [showAllPending, setShowAllPending] = useState(false);
@@ -116,6 +141,8 @@ export function FrayPanel({
   const warnings = issues.filter((issue) => issue.severity === "warn");
   const infos = issues.filter((issue) => issue.severity === "info");
   const visibleInfos = showAllPending ? infos : infos.slice(0, 6);
+  const fixable = issues.filter((issue) => issue.fix !== null);
+  const fixIssue = (issue: FrayIssue): void => onApplyFix([issue]);
 
   let auditBody: React.ReactElement;
   if (audit.status === "running") {
@@ -226,6 +253,17 @@ export function FrayPanel({
             <Radar size={13} aria-hidden="true" />
             ローカル検査
             <span className="fray-section-count">{issues.length}</span>
+            {fixable.length > 1 ? (
+              <button
+                type="button"
+                className="fray-fix-all"
+                title="表記ゆれなど、機械的に直せる指摘を一括で書き換えます"
+                onClick={() => onApplyFix(fixable)}
+              >
+                <Wrench size={11} aria-hidden="true" />
+                まとめて直す ({fixable.length})
+              </button>
+            ) : null}
           </h3>
           {issues.length === 0 ? (
             <div className="lens-clear">
@@ -239,6 +277,7 @@ export function FrayPanel({
                   key={issue.id}
                   issue={issue}
                   onJump={() => issue.start !== null && onJumpOffset(issue.start, issue.end ?? issue.start)}
+                  onFix={fixIssue}
                 />
               ))}
               {visibleInfos.map((issue) => (
@@ -246,6 +285,7 @@ export function FrayPanel({
                   key={issue.id}
                   issue={issue}
                   onJump={() => issue.start !== null && onJumpOffset(issue.start, issue.end ?? issue.start)}
+                  onFix={fixIssue}
                 />
               ))}
               {infos.length > visibleInfos.length ? (

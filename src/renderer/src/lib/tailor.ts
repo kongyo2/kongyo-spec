@@ -6,9 +6,53 @@ export const PLAN_HEADING = "実装計画";
 
 const SIZE_LABEL: Record<TailorTask["size"], string> = { S: "S", M: "M", L: "L" };
 
-function taskLines(task: TailorTask, index: number): string[] {
+export interface TaskLanes {
+  /** タスクごとのレーン番号(0 始まり)。-1 は循環依存で順序が決まらないタスク */
+  lanes: number[];
+  /** 同じレーンに他のタスクがあり、並行して着手できるか */
+  parallel: boolean[];
+  /** レーンの総数(循環タスクを除く) */
+  laneCount: number;
+  /** 循環依存に巻き込まれたタスク番号(1 始まり) */
+  cyclic: number[];
+}
+
+/**
+ * 依存グラフからタスクの実行レーンを求める。レーン n のタスクは、レーン n-1 まで
+ * のタスクが終われば着手でき、同一レーン内は依存が重ならないため並行できる。
+ */
+export function computeTaskLanes(tasks: readonly { dependsOn: number[] }[]): TaskLanes {
+  const count = tasks.length;
+  const lanes = new Array<number>(count).fill(-1);
+  // 依存ゼロから波状に確定させる。スキーマで自己参照・範囲外の依存は除去済みの
+  // ため、進展が止まった時点で残る未確定は循環に巻き込まれたタスクだけになる
+  for (let pass = 0; pass < count; pass++) {
+    let progressed = false;
+    for (let i = 0; i < count; i++) {
+      if (lanes[i] !== -1) continue;
+      const deps = tasks[i]!.dependsOn;
+      if (deps.some((dep) => lanes[dep - 1] === -1)) continue;
+      lanes[i] = deps.reduce((acc, dep) => Math.max(acc, lanes[dep - 1]! + 1), 0);
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+  const laneSizes = new Map<number, number>();
+  for (const lane of lanes) {
+    if (lane >= 0) laneSizes.set(lane, (laneSizes.get(lane) ?? 0) + 1);
+  }
+  return {
+    lanes,
+    parallel: lanes.map((lane) => lane >= 0 && (laneSizes.get(lane) ?? 0) > 1),
+    laneCount: laneSizes.size,
+    cyclic: lanes.flatMap((lane, index) => (lane === -1 ? [index + 1] : [])),
+  };
+}
+
+function taskLines(task: TailorTask, index: number, parallel: boolean): string[] {
   const deps = task.dependsOn.length > 0 ? ` ／ 依存: ${task.dependsOn.map((num) => `#${num}`).join(", ")}` : "";
-  const lines = [`${index + 1}. [ ] **${task.title}**(規模 ${SIZE_LABEL[task.size]}${deps})`];
+  const marker = parallel ? "[P] " : "";
+  const lines = [`${index + 1}. [ ] ${marker}**${task.title}**(規模 ${SIZE_LABEL[task.size]}${deps})`];
   if (task.summary.length > 0) lines.push(`   ${task.summary.replace(/\s*\n\s*/g, " ")}`);
   for (const excerpt of task.acceptance) {
     lines.push(`   - 受け入れ: ${excerpt.replace(/\s*\n\s*/g, " ")}`);
@@ -24,7 +68,14 @@ export function tailorPlanToMarkdown(plan: TailorPlan, model: string): string {
   const parts: string[] = [`## ${PLAN_HEADING}`];
   if (plan.approach.length > 0) parts.push(`**方針**: ${plan.approach}`);
   if (plan.tasks.length > 0) {
-    parts.push(`### タスク\n\n${plan.tasks.map((task, index) => taskLines(task, index).join("\n")).join("\n")}`);
+    const schedule = computeTaskLanes(plan.tasks);
+    const body = plan.tasks
+      .map((task, index) => taskLines(task, index, schedule.parallel[index] === true).join("\n"))
+      .join("\n");
+    const legend = schedule.parallel.some(Boolean)
+      ? "> `[P]` = 依存が重ならず、同じ段のタスクと並行して着手できる\n\n"
+      : "";
+    parts.push(`### タスク\n\n${legend}${body}`);
   }
   if (plan.blockers.length > 0) {
     parts.push(

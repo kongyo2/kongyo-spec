@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   ArrowDownToLine,
   Check,
@@ -14,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import type { TailorPlan, TailorTask } from "@shared/schemas/assist";
+import { computeTaskLanes, type TaskLanes } from "../lib/tailor";
 
 export type TailorState =
   | { status: "idle" }
@@ -41,19 +43,38 @@ interface TailorPanelProps {
 function TaskCard({
   task,
   index,
+  lane,
+  parallel,
   onJumpExcerpt,
 }: {
   task: TailorTask;
   index: number;
+  /** 依存上の段(0 始まり)。-1 は循環依存で順序が決まらない */
+  lane: number;
+  parallel: boolean;
   onJumpExcerpt: (excerpt: string) => void;
 }): React.ReactElement {
   return (
-    <article className="tailor-task">
+    <article className={`tailor-task${parallel ? " parallel" : ""}`}>
       <header className="tailor-task-head">
         <span className="tailor-task-num" aria-hidden="true">
           {index + 1}
         </span>
         <span className="tailor-task-title">{task.title}</span>
+        {lane === -1 ? (
+          <span className="tailor-lane cyclic" title="依存が循環しているため着手順を決められません">
+            循環
+          </span>
+        ) : (
+          <span className="tailor-lane" title={`依存上、${lane + 1} 段目に着手できるタスク`}>
+            段{lane + 1}
+          </span>
+        )}
+        {parallel ? (
+          <span className="tailor-parallel" title="同じ段のタスクと依存が重ならず、並行して着手できます">
+            P
+          </span>
+        ) : null}
         <span className={`tailor-size size-${task.size.toLowerCase()}`} title="相対的な規模">
           {task.size}
         </span>
@@ -99,6 +120,9 @@ export function TailorPanel({
   onJumpExcerpt,
   onOpenSettings,
 }: TailorPanelProps): React.ReactElement {
+  // 依存グラフから着手順の段と並行可能性を求める(計画が無い間は空)
+  const schedule = useMemo<TaskLanes>(() => computeTaskLanes(state.status === "done" ? state.plan.tasks : []), [state]);
+
   const handoffBlock = (
     <section className="loom-block tailor-handoff">
       <header className="loom-block-head">
@@ -192,11 +216,29 @@ export function TailorPanel({
         <section className="loom-block">
           <header className="loom-block-head">
             <span className="loom-block-label">タスク</span>
-            <span className="loom-block-count">{plan.tasks.length} 件</span>
+            <span className="loom-block-count">
+              {plan.tasks.length} 件{schedule.laneCount > 1 ? ` · ${schedule.laneCount} 段` : ""}
+            </span>
           </header>
+          {schedule.cyclic.length > 0 ? (
+            <p className="tailor-cycle-warn">
+              <TriangleAlert size={13} aria-hidden="true" />
+              <span>
+                タスク {schedule.cyclic.map((num) => `#${num}`).join(", ")} の依存が循環しています。裁ち直すか、依存を
+                見直してください。
+              </span>
+            </p>
+          ) : null}
           <div className="tailor-tasks">
             {plan.tasks.map((task, index) => (
-              <TaskCard key={index} task={task} index={index} onJumpExcerpt={onJumpExcerpt} />
+              <TaskCard
+                key={index}
+                task={task}
+                index={index}
+                lane={schedule.lanes[index] ?? -1}
+                parallel={schedule.parallel[index] === true}
+                onJumpExcerpt={onJumpExcerpt}
+              />
             ))}
           </div>
         </section>
