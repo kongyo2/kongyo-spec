@@ -7,6 +7,7 @@ import {
   parseWarpSpecInput,
   parseWeaveSpecInput,
 } from "@shared/schemas/assist";
+import { parseHistoryListInput, parseHistorySnapshotInput, parseHistoryTakeInput } from "@shared/schemas/history";
 import {
   parseCreateSpecInput,
   parseImportSpecsInput,
@@ -23,9 +24,19 @@ import {
   toRendererSettings,
 } from "@shared/schemas/settings";
 import { auditSpec, cancelAssist, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
+import { deleteSnapshot, listSnapshots, readSnapshot, takeSnapshot } from "./historyStore";
 import { deleteLlmProfile, resetLlmRouting, setLlmRouting, upsertLlmProfile } from "./llmProfiles";
 import { isSecretEncryptionAvailable, readSettings, writeSetting } from "./settingsStore";
-import { createSpec, deleteSpec, importSpecs, listSpecs, readSpec, renameSpec, saveSpec } from "./specsStore";
+import {
+  createSpec,
+  deleteSpec,
+  importSpecs,
+  listSpecs,
+  readSpec,
+  renameSpec,
+  restoreSpec,
+  saveSpec,
+} from "./specsStore";
 
 export function registerIpc(): void {
   ipcMain.handle("specs:list", () => listSpecs());
@@ -47,6 +58,28 @@ export function registerIpc(): void {
   });
 
   ipcMain.handle("specs:delete", (_event, raw: unknown) => deleteSpec(parseSpecIdInput(raw).id));
+
+  ipcMain.handle("history:list", (_event, raw: unknown) => listSnapshots(parseHistoryListInput(raw).specId));
+
+  ipcMain.handle("history:read", (_event, raw: unknown) => {
+    const input = parseHistorySnapshotInput(raw);
+    return readSnapshot(input.specId, input.snapshotId);
+  });
+
+  ipcMain.handle("history:take", (_event, raw: unknown) => {
+    const input = parseHistoryTakeInput(raw);
+    return takeSnapshot(input.specId, input.content, "manual", input.label);
+  });
+
+  ipcMain.handle("history:restore", (_event, raw: unknown) => {
+    const input = parseHistorySnapshotInput(raw);
+    return restoreSpec(input.specId, input.snapshotId);
+  });
+
+  ipcMain.handle("history:delete", (_event, raw: unknown) => {
+    const input = parseHistorySnapshotInput(raw);
+    return deleteSnapshot(input.specId, input.snapshotId);
+  });
 
   ipcMain.handle("settings:get", () => toRendererSettings(readSettings()));
 

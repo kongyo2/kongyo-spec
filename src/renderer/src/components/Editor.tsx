@@ -60,6 +60,7 @@ interface EditorProps {
   onJumpHandled: () => void;
   onSelectionChange?: (start: number, end: number) => void;
   onScrollRatio?: (ratio: number) => void;
+  readOnly?: boolean;
 }
 
 export function Editor({
@@ -70,6 +71,7 @@ export function Editor({
   onJumpHandled,
   onSelectionChange,
   onScrollRatio,
+  readOnly,
 }: EditorProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -156,6 +158,8 @@ export function Editor({
   }, [jump, onJumpHandled]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    // readOnly の textarea でも keydown は届くため、Tab のインデント編集も止める
+    if (readOnly === true) return;
     if (event.key !== "Tab") return;
     event.preventDefault();
     const textarea = event.currentTarget;
@@ -203,6 +207,7 @@ export function Editor({
         className="editor-input"
         value={value}
         spellCheck={false}
+        readOnly={readOnly === true}
         onChange={(event) => onChange(event.target.value)}
         onScroll={syncScroll}
         onKeyDown={handleKeyDown}
