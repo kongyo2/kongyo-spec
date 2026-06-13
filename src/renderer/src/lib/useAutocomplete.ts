@@ -64,6 +64,7 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
   const composingRef = useRef(false);
   const onNoticeRef = useRef(options.onNotice);
   onNoticeRef.current = options.onNotice;
+  const lastNoticeRef = useRef<string | null>(null);
 
   const family = getAutocompleteModelById(modelId).family;
 
@@ -86,7 +87,9 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
       caret,
       atEol: caret === doc.length || doc[caret] === "\n",
       atEod: caret === doc.length,
-      prefix: doc.slice(Math.max(0, caret - MAX_AUTOCOMPLETE_PREFIX_CHARS), caret),
+      // Full prefix so the suggestion cache keeps matching past the IPC payload
+      // cap; only the bytes sent to the provider are truncated (in fireRequest).
+      prefix: doc.slice(0, caret),
       suffix: doc.slice(caret, caret + MAX_AUTOCOMPLETE_SUFFIX_CHARS),
     };
   }, [textareaRef]);
@@ -144,19 +147,31 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
     const reqPrefix = ctx.prefix;
     const reqSuffix = ctx.suffix;
 
-    void window.api.autocomplete({ prefix: reqPrefix, suffix: reqSuffix }).then(
+    void window.api.autocomplete({ prefix: reqPrefix.slice(-MAX_AUTOCOMPLETE_PREFIX_CHARS), suffix: reqSuffix }).then(
       ({ text, notice }) => {
         if (token !== tokenRef.current) return;
         inflightRef.current = false;
-        if (notice) onNoticeRef.current?.(notice);
+        // Only a delivered response updates lastNotice, so a notice dropped by a
+        // stale token is re-shown on the next request instead of being lost.
+        if (notice) {
+          if (notice !== lastNoticeRef.current) {
+            lastNoticeRef.current = notice;
+            onNoticeRef.current?.(notice);
+          }
+        } else {
+          lastNoticeRef.current = null;
+        }
         latencyRef.current.push(performance.now() - started);
         if (latencyRef.current.length > LATENCY_SAMPLE_SIZE) {
           latencyRef.current.shift();
           debounceRef.current = calcDebounceDelay(latencyRef.current);
         }
+        // Normalize to the textarea's LF line endings so multiline display,
+        // caching, and the accept caret math all agree.
+        const body = text.replace(/\r\n?/g, "\n");
         const processed =
-          text.length > 0
-            ? postprocessAutocompleteSuggestion({ suggestion: text, prefix: reqPrefix, suffix: reqSuffix, family })
+          body.length > 0
+            ? postprocessAutocompleteSuggestion({ suggestion: body, prefix: reqPrefix, suffix: reqSuffix, family })
             : undefined;
         if (processed && processed.length > 0) {
           historyRef.current = updateSuggestionsHistory(historyRef.current, {

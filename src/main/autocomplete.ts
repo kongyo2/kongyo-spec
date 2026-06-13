@@ -75,12 +75,13 @@ class ErrorBackoff {
 
   blocked(): boolean {
     if (this.fatal) {
-      // 401/403 (bad key) stay blocked until a settings change resets the backoff.
-      if (this.fatalStatus !== 402) return true;
-      // 402 (insufficient credit) clears once the user tops up at the provider.
-      // Keep blocking until the cooldown elapses, then clear the fatal state and
-      // fall through so a probe goes out and any later retriable failure records
-      // normal backoff instead of being shadowed by the stale 402.
+      // 401 (missing/invalid key) stays blocked until a settings change resets it.
+      // 402 (no credit) and 403 (rejected key OR a content/guardrail block) can both
+      // recover without a settings change, so probe after a cooldown. Clearing the
+      // fatal state before the probe lets a later retriable failure record normal
+      // backoff instead of being shadowed by the stale fatal flag.
+      const recoverable = this.fatalStatus === 402 || this.fatalStatus === 403;
+      if (!recoverable) return true;
       if (Date.now() - this.fatalAt < FATAL_RECOVER_COOLDOWN_MS) return true;
       this.fatal = false;
       this.fatalStatus = null;
@@ -100,10 +101,13 @@ class ErrorBackoff {
   getFatalStatus(): number | null {
     return this.fatalStatus;
   }
+
+  isFatal(): boolean {
+    return this.fatal;
+  }
 }
 
 const backoff = new ErrorBackoff();
-let fatalNotified = false;
 let inflight: AbortController | null = null;
 let resetGeneration = 0;
 const preferredFimUrl = new Map<string, string>();
@@ -115,7 +119,6 @@ export function cancelAutocomplete(): void {
 
 export function resetAutocompleteBackoff(): void {
   backoff.success();
-  fatalNotified = false;
   // A request started before this reset (e.g. with a now-replaced key) must not
   // re-mark the backoff fatal. Bump the generation and abort any in-flight call.
   resetGeneration += 1;
@@ -202,7 +205,11 @@ export async function autocomplete(input: AutocompleteRequest): Promise<Autocomp
   try {
     const settings = readSettings();
     if (!settings.autocompleteEnabled) return { text: "", notice: null };
-    if (backoff.blocked()) return { text: "", notice: null };
+    // Surface the fatal notice on every blocked request; the renderer dedupes it,
+    // so a notice dropped by a stale token still reaches the user on a later call.
+    if (backoff.blocked()) {
+      return { text: "", notice: backoff.isFatal() ? fatalNotice(backoff.getFatalStatus()) : null };
+    }
 
     const model = getAutocompleteModelById(settings.autocompleteModelId);
     const key = settings[AUTOCOMPLETE_PROVIDER_SETTINGS_KEY[model.providerId]];
@@ -223,16 +230,12 @@ export async function autocomplete(input: AutocompleteRequest): Promise<Autocomp
 
     const text = await requestFim(model, key, body, controller.signal);
     backoff.success();
-    fatalNotified = false;
     return { text, notice: null };
   } catch (err) {
     if (controller.signal.aborted) return { text: "", notice: null };
     if (generation !== resetGeneration) return { text: "", notice: null };
     const kind = backoff.failure(err);
-    if (kind === "fatal" && !fatalNotified) {
-      fatalNotified = true;
-      return { text: "", notice: fatalNotice(backoff.getFatalStatus()) };
-    }
+    if (kind === "fatal") return { text: "", notice: fatalNotice(backoff.getFatalStatus()) };
     return { text: "", notice: null };
   } finally {
     if (inflight === controller) inflight = null;
