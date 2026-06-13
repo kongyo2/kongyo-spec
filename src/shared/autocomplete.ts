@@ -171,14 +171,14 @@ function removePrefixOverlap(completion: string, prefix: string): string {
     } else {
       const trimmedPrefix = prefixEnd.trim();
       const lastWord = trimmedPrefix.split(/\s+/).pop();
-      // Only strip the last word when the completion repeats that whole token — not
-      // when it merely shares leading characters (e.g. "Use" vs "User", or the
-      // Japanese "仕様" vs "仕様書"). The boundary test is Unicode-aware.
-      if (lastWord && completion.startsWith(lastWord) && !/[\p{L}\p{N}_]/u.test(completion.charAt(lastWord.length))) {
-        completion = completion.slice(lastWord.length);
-      } else if (completion.startsWith(trimmedPrefix)) {
-        completion = completion.slice(trimmedPrefix.length);
-      }
+      // Strip an echoed token only when the completion repeats that whole token —
+      // not when it merely shares leading characters (e.g. "Use" vs "User", or the
+      // Japanese "仕様" vs "仕様書"). The boundary test is Unicode-aware and applies
+      // to both the last-word and the whole-line fallbacks.
+      const repeatsToken = (token: string): boolean =>
+        completion.startsWith(token) && !/[\p{L}\p{N}_]/u.test(completion.charAt(token.length));
+      if (lastWord && repeatsToken(lastWord)) completion = completion.slice(lastWord.length);
+      else if (repeatsToken(trimmedPrefix)) completion = completion.slice(trimmedPrefix.length);
     }
   }
   return completion;
@@ -355,7 +355,7 @@ export interface FillInAtCursorSuggestion {
   suffix: string;
 }
 
-export type MatchType = "exact" | "partial_typing" | "backward_deletion";
+export type MatchType = "exact" | "partial_typing";
 
 export interface MatchingSuggestion {
   text: string;
@@ -377,11 +377,6 @@ export function updateSuggestionsHistory(
   return next;
 }
 
-// Reuse a cached suggestion across a backspace only for a small contiguous delete
-// (a few chars typed into a suggestion). Larger deletions — e.g. select-all+delete —
-// must not resurrect the deleted text as a ghost that Tab would re-insert.
-export const MAX_BACKWARD_DELETION_CHARS = 32;
-
 export function findMatchingSuggestion(
   prefix: string,
   suffix: string,
@@ -389,19 +384,18 @@ export function findMatchingSuggestion(
 ): MatchingSuggestion | null {
   for (let i = history.length - 1; i >= 0; i--) {
     const cached = history[i]!;
+    // Same position: re-show the suggestion as-is.
     if (prefix === cached.prefix && suffix === cached.suffix) {
       return { text: cached.text, matchType: "exact" };
     }
+    // Typed forward into the suggestion: serve the remaining tail. (Backspacing
+    // those typed chars is also covered here as the prefix shrinks back toward the
+    // anchor. A prefix shorter than the anchor would only resurrect pre-existing
+    // document text the user deliberately deleted, so it is intentionally no match.)
     if (cached.text !== "" && prefix.startsWith(cached.prefix) && suffix === cached.suffix) {
       const typed = prefix.substring(cached.prefix.length);
       if (cached.text.startsWith(typed)) {
         return { text: cached.text.substring(typed.length), matchType: "partial_typing" };
-      }
-    }
-    if (cached.text !== "" && cached.prefix.startsWith(prefix) && suffix === cached.suffix) {
-      const deleted = cached.prefix.substring(prefix.length);
-      if (deleted.length <= MAX_BACKWARD_DELETION_CHARS) {
-        return { text: deleted + cached.text, matchType: "backward_deletion" };
       }
     }
   }
