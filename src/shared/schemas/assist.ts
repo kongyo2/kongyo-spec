@@ -19,17 +19,29 @@ const RewriteSchema = z
   .nullish()
   .transform((value) => (value == null || value.trim().length === 0 ? null : value));
 
+// 逐語引用(excerpt)。空白だけなら空文字にし、それ以外は引用の正確さを保つため素のまま残す
+const ExcerptSchema = z
+  .string()
+  .max(4000)
+  .transform((value) => (value.trim().length === 0 ? "" : value));
+
+const ReasonSchema = z
+  .string()
+  .max(4000)
+  .transform((value) => value.trim());
+
+// 文書への一行所見。前後の空白を落とし、空なら不適合として弾く
+const VerdictSchema = z
+  .string()
+  .max(2000)
+  .transform((value) => value.trim())
+  .refine((value) => value.length > 0);
+
 export const LensFindingSchema = z
   .object({
     kind: FindingKindSchema,
-    excerpt: z
-      .string()
-      .max(4000)
-      .transform((value) => (value.trim().length === 0 ? "" : value)),
-    reason: z
-      .string()
-      .max(4000)
-      .transform((value) => value.trim()),
+    excerpt: ExcerptSchema,
+    reason: ReasonSchema,
     question: QuestionSchema,
     rewrite: RewriteSchema,
   })
@@ -82,11 +94,7 @@ export const LensAltitudeSchema = z
 export type LensAltitude = z.infer<typeof LensAltitudeSchema>;
 
 export const LensReportSchema = z.object({
-  verdict: z
-    .string()
-    .max(2000)
-    .transform((value) => value.trim())
-    .refine((value) => value.length > 0),
+  verdict: VerdictSchema,
   altitude: LensAltitudeSchema,
   findings: z
     .array(LensFindingSchema)
@@ -116,18 +124,9 @@ export type AuditFindingKind = z.infer<typeof AuditFindingKindSchema>;
 
 export const AuditFindingSchema = z.object({
   kind: AuditFindingKindSchema,
-  excerptA: z
-    .string()
-    .max(4000)
-    .transform((value) => (value.trim().length === 0 ? "" : value)),
-  excerptB: z
-    .string()
-    .max(4000)
-    .transform((value) => (value.trim().length === 0 ? "" : value)),
-  reason: z
-    .string()
-    .max(4000)
-    .transform((value) => value.trim()),
+  excerptA: ExcerptSchema,
+  excerptB: ExcerptSchema,
+  reason: ReasonSchema,
 });
 export type AuditFinding = z.infer<typeof AuditFindingSchema>;
 
@@ -136,11 +135,7 @@ function isConformingAuditFinding(finding: AuditFinding): boolean {
 }
 
 export const AuditReportSchema = z.object({
-  verdict: z
-    .string()
-    .max(2000)
-    .transform((value) => value.trim())
-    .refine((value) => value.length > 0),
+  verdict: VerdictSchema,
   findings: z
     .array(AuditFindingSchema)
     .max(32)
@@ -169,6 +164,14 @@ const TrimmedSchema = (max: number) =>
     .nullish()
     .transform((value) => value?.trim() ?? "");
 
+// 生成本文(woven / output)。先頭の空行と末尾の空白を整え、欠損は空文字にする
+const TrimmedBodySchema = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .nullish()
+    .transform((value) => (value ?? "").replace(/^\n+/, "").replace(/\s+$/, ""));
+
 export const WeaveQuestionSchema = z.object({
   topic: TrimmedSchema(60).transform((value) => (value.length > 0 ? value : "決定")),
   question: TrimmedSchema(2000),
@@ -191,11 +194,7 @@ export const MAX_WEAVE_WOVEN_CHARS = 48_000;
 export const MAX_WEAVE_CONTEXT_CHARS = 16_000;
 
 export const WeaveResultSchema = z.object({
-  woven: z
-    .string()
-    .max(MAX_WEAVE_WOVEN_CHARS)
-    .nullish()
-    .transform((value) => (value ?? "").replace(/^\n+/, "").replace(/\s+$/, "")),
+  woven: TrimmedBodySchema(MAX_WEAVE_WOVEN_CHARS),
   questions: z
     .array(WeaveQuestionSchema)
     .max(16)
@@ -232,11 +231,7 @@ export const MAX_WARP_MATERIAL_CHARS = 24_000;
 export const MAX_WARP_OUTPUT_CHARS = 32_000;
 
 export const WarpResultSchema = z.object({
-  output: z
-    .string()
-    .max(MAX_WARP_OUTPUT_CHARS)
-    .nullish()
-    .transform((value) => (value ?? "").replace(/^\n+/, "").replace(/\s+$/, "")),
+  output: TrimmedBodySchema(MAX_WARP_OUTPUT_CHARS),
   notes: z
     .array(z.string().max(600))
     .max(12)

@@ -1,6 +1,7 @@
 import { DEFAULT_FRAY_KINDS, type FrayKinds } from "@shared/schemas/settings";
 import { safeDecode } from "./dom";
 import { codeSpans, fencedCodeSpans, findPendingDecisions, type PendingRange, spanContains } from "./pending";
+import { eachLine } from "./text";
 import { findVagueTerms } from "./vague";
 
 export type FrayKind = "term" | "structure" | "link" | "syntax" | "vague" | "pending";
@@ -72,12 +73,17 @@ function replaceAllAt(positions: number[], from: string, to: string): FrayReplac
   return positions.map((start) => ({ start, end: start + from.length, from, to }));
 }
 
-function detectKatakanaVariants(content: string, masked: MaskedText): FrayIssue[] {
-  const occurrences = new Map<string, number[]>();
-  for (const match of content.matchAll(KATAKANA_WORD_RE)) {
-    if (masked.isMasked(match.index)) continue;
-    pushInto(occurrences, match[0], match.index);
+// 正規表現に一致する語を、マスク(コード)の外側だけ拾って出現位置ごとに集める
+function wordPositions(content: string, re: RegExp, masked: MaskedText): Map<string, number[]> {
+  const positions = new Map<string, number[]>();
+  for (const match of content.matchAll(re)) {
+    if (!masked.isMasked(match.index)) pushInto(positions, match[0], match.index);
   }
+  return positions;
+}
+
+function detectKatakanaVariants(content: string, masked: MaskedText): FrayIssue[] {
+  const occurrences = wordPositions(content, KATAKANA_WORD_RE, masked);
   const issues: FrayIssue[] = [];
   for (const [word, positions] of occurrences) {
     if (word.endsWith("ー")) continue;
@@ -108,16 +114,9 @@ const FULLWIDTH_WORD_RE = /[Ａ-Ｚａ-ｚ０-９]{2,}/g;
 const HALFWIDTH_WORD_RE = /[A-Za-z0-9]{2,}/g;
 
 function detectWidthVariants(content: string, masked: MaskedText): FrayIssue[] {
-  const halfWords = new Set<string>();
-  for (const match of content.matchAll(HALFWIDTH_WORD_RE)) {
-    if (!masked.isMasked(match.index)) halfWords.add(match[0]);
-  }
+  const halfWords = new Set(wordPositions(content, HALFWIDTH_WORD_RE, masked).keys());
   // 全角語ごとに全出現を集め、一括置換できる修正を組み立てる
-  const fullPositions = new Map<string, number[]>();
-  for (const match of content.matchAll(FULLWIDTH_WORD_RE)) {
-    if (masked.isMasked(match.index)) continue;
-    pushInto(fullPositions, match[0], match.index);
-  }
+  const fullPositions = wordPositions(content, FULLWIDTH_WORD_RE, masked);
   const issues: FrayIssue[] = [];
   const reported = new Set<string>();
   for (const [word, positions] of fullPositions) {
@@ -152,21 +151,12 @@ interface HeadingLine {
 
 function scanHeadings(content: string, fenced: PendingRange[]): HeadingLine[] {
   const headings: HeadingLine[] = [];
-  let offset = 0;
-  for (const line of content.split("\n")) {
-    const inFence = fenced.some((span) => spanContains(span, offset));
-    if (!inFence) {
-      const match = line.match(ATX_HEADING_RE);
-      if (match) {
-        headings.push({
-          level: match[1]!.length,
-          text: match[2]!.trim(),
-          start: offset,
-          end: offset + line.length,
-        });
-      }
+  for (const { text, start, end } of eachLine(content)) {
+    if (fenced.some((span) => spanContains(span, start))) continue;
+    const match = text.match(ATX_HEADING_RE);
+    if (match) {
+      headings.push({ level: match[1]!.length, text: match[2]!.trim(), start, end });
     }
-    offset += line.length + 1;
   }
   return headings;
 }
@@ -331,27 +321,24 @@ const REQUIREMENT_LINE_RE = /^ {0,5}(?:[-*+]|\d{1,9}[.)])\s/;
 function detectVagueRequirements(content: string, masked: MaskedText): FrayIssue[] {
   const issues: FrayIssue[] = [];
   const reported = new Set<string>();
-  let offset = 0;
-  for (const line of content.split("\n")) {
-    if (REQUIREMENT_LINE_RE.test(line) || line.includes("SHALL")) {
-      for (const hit of findVagueTerms(line)) {
-        const start = offset + hit.index;
-        if (masked.isMasked(start)) continue;
-        if (reported.has(hit.term)) continue;
-        reported.add(hit.term);
-        issues.push({
-          id: `vague:${hit.term}`,
-          kind: "vague",
-          severity: "info",
-          title: `曖昧な表現: 「${hit.term}」`,
-          detail: `要求文の「${hit.term}」は実装後に検証できません。数値・条件で測れる基準(応答時間、件数、操作手順など)への置き換えを検討してください。`,
-          start,
-          end: start + hit.term.length,
-          fix: null,
-        });
-      }
+  for (const { text, start: lineStart } of eachLine(content)) {
+    if (!REQUIREMENT_LINE_RE.test(text) && !text.includes("SHALL")) continue;
+    for (const hit of findVagueTerms(text)) {
+      const start = lineStart + hit.index;
+      if (masked.isMasked(start)) continue;
+      if (reported.has(hit.term)) continue;
+      reported.add(hit.term);
+      issues.push({
+        id: `vague:${hit.term}`,
+        kind: "vague",
+        severity: "info",
+        title: `曖昧な表現: 「${hit.term}」`,
+        detail: `要求文の「${hit.term}」は実装後に検証できません。数値・条件で測れる基準(応答時間、件数、操作手順など)への置き換えを検討してください。`,
+        start,
+        end: start + hit.term.length,
+        fix: null,
+      });
     }
-    offset += line.length + 1;
   }
   return issues;
 }

@@ -7,6 +7,7 @@ import { parseFile } from "@shared/frontmatter";
 import type { ImportAssetOp, ImportPlan, ImportSpecEntry } from "@shared/api";
 import { deriveTitle, MAX_ASSET_OPS, RESERVED_FRONTMATTER_KEYS } from "./import";
 import { srcsetUrlTokens } from "./srcset";
+import { applyReplacements } from "./text";
 
 export interface DroppedFile {
   name: string;
@@ -373,13 +374,7 @@ function rawSrcset(prepared: Prepared, rawValue: string, naming: AssetNaming, ct
     if (!dest) continue;
     replacements.push({ start: token.start, end: token.end, value: htmlAttrEscape(`${dest.urlDest}${suffix}`) });
   }
-  if (replacements.length === 0) return null;
-  replacements.sort((a, b) => b.start - a.start);
-  let out = rawValue;
-  for (const replacement of replacements) {
-    out = out.slice(0, replacement.start) + replacement.value + out.slice(replacement.end);
-  }
-  return out;
+  return replacements.length === 0 ? null : applyReplacements(rawValue, replacements);
 }
 
 function rawLinkUrl(prepared: Prepared, rawValue: string, maps: LinkMaps): string | null {
@@ -474,12 +469,7 @@ function rewriteBody(prepared: Prepared, ctx: BuildCtx): string {
     }
   });
 
-  replacements.sort((a, b) => b.start - a.start);
-  let out = body;
-  for (const replacement of replacements) {
-    out = out.slice(0, replacement.start) + replacement.value + out.slice(replacement.end);
-  }
-  return out;
+  return applyReplacements(body, replacements);
 }
 
 export function buildImportPlan(files: DroppedFile[]): BuiltPlan {

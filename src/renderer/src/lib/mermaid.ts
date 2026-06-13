@@ -79,6 +79,24 @@ async function renderBeautiful(source: string): Promise<string> {
   });
 }
 
+function nextRenderId(prefix: string): string {
+  counter += 1;
+  return `${prefix}-${Date.now().toString(36)}-${counter}`;
+}
+
+// 1 つの図を SVG 文字列に起こす。beautiful レンダラが対応しない図(gantt, pie など)は
+// 標準の mermaid.render へ退避する。mermaid.render は同時実行に弱いため逐次に呼ぶこと
+async function renderToSvg(source: string, renderer: MermaidRenderer, id: string): Promise<string> {
+  if (renderer === "beautiful") {
+    try {
+      return (await renderBeautiful(source)).trim();
+    } catch {
+      // beautiful-mermaid 非対応の図は標準レンダラへ退避する
+    }
+  }
+  return (await mermaid.render(id, source)).svg;
+}
+
 function sourceOf(block: HTMLElement): string {
   return (block.getAttribute("data-source") ?? block.textContent ?? "").trim();
 }
@@ -110,16 +128,7 @@ export async function renderMermaidSvg(
 ): Promise<string> {
   if (document.fonts?.ready) await document.fonts.ready;
   syncConfig(theme, renderer);
-  if (renderer === "beautiful") {
-    try {
-      return (await renderBeautiful(source)).trim();
-    } catch {
-      // beautiful-mermaid が対応しない図(gantt, pie など)は標準レンダラへ退避する
-    }
-  }
-  counter += 1;
-  const id = `mermaid-live-${Date.now().toString(36)}-${counter}`;
-  return (await mermaid.render(id, source)).svg;
+  return renderToSvg(source, renderer, nextRenderId("mermaid-live"));
 }
 
 export async function renderMermaidIn(
@@ -155,23 +164,10 @@ export async function renderMermaidIn(
       continue;
     }
 
-    counter += 1;
-    const id = `mermaid-render-${Date.now().toString(36)}-${counter}`;
+    const id = nextRenderId("mermaid-render");
     try {
-      let svg: string;
-      if (renderer === "beautiful") {
-        try {
-          // eslint-disable-next-line no-await-in-loop -- diagrams render sequentially to keep DOM updates ordered
-          svg = (await renderBeautiful(source)).trim();
-        } catch {
-          // beautiful-mermaid が対応しない図(gantt, pie など)は標準レンダラへ退避する
-          // eslint-disable-next-line no-await-in-loop -- mermaid.render is not concurrency-safe
-          svg = (await mermaid.render(id, source)).svg;
-        }
-      } else {
-        // eslint-disable-next-line no-await-in-loop -- mermaid.render is not concurrency-safe
-        svg = (await mermaid.render(id, source)).svg;
-      }
+      // eslint-disable-next-line no-await-in-loop -- 図は順に描く(mermaid.render は同時実行に弱い)
+      const svg = await renderToSvg(source, renderer, id);
       if (gen !== generation) return;
       svgCache.set(source, svg);
       const target = findLiveBlock(container, source) ?? block;

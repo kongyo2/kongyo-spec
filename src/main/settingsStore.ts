@@ -36,19 +36,21 @@ function hasApiKey(entry: unknown): entry is { apiKey: string } {
   return typeof entry === "object" && entry !== null && typeof (entry as { apiKey?: unknown }).apiKey === "string";
 }
 
-function toStoredValue(key: SettingKey, value: unknown): unknown {
+// 秘匿値(API キー)にだけ暗号変換を当てる。llmProfiles は各プロファイルの apiKey、
+// 単独の秘匿キーはその文字列自体に適用し、それ以外の値はそのまま通す
+function mapSecret(key: SettingKey, value: unknown, transform: (secret: string) => string | null): unknown {
   if (key === "llmProfiles" && Array.isArray(value)) {
-    return value.map((entry) => (hasApiKey(entry) ? { ...entry, apiKey: encryptSecret(entry.apiKey) } : entry));
+    return value.map((entry) => (hasApiKey(entry) ? { ...entry, apiKey: transform(entry.apiKey) } : entry));
   }
-  if (!SECRET_KEYS.has(key) || typeof value !== "string") return value;
-  return encryptSecret(value);
+  return SECRET_KEYS.has(key) && typeof value === "string" ? transform(value) : value;
+}
+
+function toStoredValue(key: SettingKey, value: unknown): unknown {
+  return mapSecret(key, value, encryptSecret);
 }
 
 function fromStoredValue(key: SettingKey, value: unknown): unknown {
-  if (key === "llmProfiles" && Array.isArray(value)) {
-    return value.map((entry) => (hasApiKey(entry) ? { ...entry, apiKey: decryptSecret(entry.apiKey) } : entry));
-  }
-  return SECRET_KEYS.has(key) && typeof value === "string" ? decryptSecret(value) : value;
+  return mapSecret(key, value, decryptSecret);
 }
 
 function disableStore(): void {
