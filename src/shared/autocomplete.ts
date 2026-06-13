@@ -377,6 +377,11 @@ export function updateSuggestionsHistory(
   return next;
 }
 
+// Reuse a cached suggestion across a backspace only for a small contiguous delete
+// (a few chars typed into a suggestion). Larger deletions — e.g. select-all+delete —
+// must not resurrect the deleted text as a ghost that Tab would re-insert.
+export const MAX_BACKWARD_DELETION_CHARS = 32;
+
 export function findMatchingSuggestion(
   prefix: string,
   suffix: string,
@@ -395,7 +400,9 @@ export function findMatchingSuggestion(
     }
     if (cached.text !== "" && cached.prefix.startsWith(prefix) && suffix === cached.suffix) {
       const deleted = cached.prefix.substring(prefix.length);
-      return { text: deleted + cached.text, matchType: "backward_deletion" };
+      if (deleted.length <= MAX_BACKWARD_DELETION_CHARS) {
+        return { text: deleted + cached.text, matchType: "backward_deletion" };
+      }
     }
   }
   return null;

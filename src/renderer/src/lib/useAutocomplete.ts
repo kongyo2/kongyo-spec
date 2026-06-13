@@ -130,7 +130,10 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
     if (!enabled || readOnly || composingRef.current) return;
     const ctx = readContext();
     if (!ctx || !ctx.atEol || ctx.prefix.trim().length === 0) return;
-    if (findMatchingSuggestion(ctx.prefix, ctx.suffix, historyRef.current)) return;
+    // An empty match (the user typed the whole cached suggestion) is a cache miss
+    // for request purposes — otherwise the next continuation never gets fetched.
+    const cached = findMatchingSuggestion(ctx.prefix, ctx.suffix, historyRef.current);
+    if (cached && cached.text.length > 0) return;
     if (shouldSkipAutocomplete(ctx.prefix, ctx.suffix)) return;
 
     const token = (tokenRef.current += 1);
