@@ -1810,8 +1810,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("toastDuration", DEFAULT_SETTINGS.toastDuration).catch(() => undefined);
     void window.api.setSetting("frayAutoCheck", DEFAULT_SETTINGS.frayAutoCheck).catch(() => undefined);
     void window.api.setSetting("frayKinds", DEFAULT_SETTINGS.frayKinds).catch(() => undefined);
-    void window.api.setSetting("autocompleteEnabled", DEFAULT_SETTINGS.autocompleteEnabled).catch(() => undefined);
-    void window.api.setSetting("autocompleteModelId", DEFAULT_SETTINGS.autocompleteModelId).catch(() => undefined);
+    persistStoreBacked(
+      () => window.api.setSetting("autocompleteEnabled", DEFAULT_SETTINGS.autocompleteEnabled),
+      (settings) => setAutocompleteEnabled(settings.autocompleteEnabled),
+    );
+    persistStoreBacked(
+      () => window.api.setSetting("autocompleteModelId", DEFAULT_SETTINGS.autocompleteModelId),
+      (settings) => setAutocompleteModelId(settings.autocompleteModelId),
+    );
     const seq = (routingSeqRef.current += 1);
     routingQueueRef.current = routingQueueRef.current.then(() =>
       window.api.resetLlmRouting().then(

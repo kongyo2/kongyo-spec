@@ -189,6 +189,11 @@ export function postprocessCompletion({
   prefix: string;
   suffix: string;
 }): string | undefined {
+  // Strip Mercury's echoed prefix before the repeated-line checks below, otherwise
+  // rewritesLineAbove rejects completions that merely echo the current line and the
+  // full-prefix branch of removePrefixOverlap becomes unreachable.
+  if (family === "mercury") completion = removePrefixOverlap(completion, prefix);
+
   if (completion.trim().length === 0) return undefined;
   if (/^[\s]+$/.test(completion)) return undefined;
   if (rewritesLineAbove(completion, prefix)) return undefined;
@@ -203,15 +208,13 @@ export function postprocessCompletion({
     }
   }
 
-  if (family === "mercury") {
-    completion = removePrefixOverlap(completion, prefix);
-    if (
-      (completion.startsWith("  ") || completion.startsWith("\t")) &&
-      !prefix.endsWith("\n") &&
-      (suffix.startsWith("\n") || suffix.trim().length === 0)
-    ) {
-      completion = "\n" + completion;
-    }
+  if (
+    family === "mercury" &&
+    (completion.startsWith("  ") || completion.startsWith("\t")) &&
+    !prefix.endsWith("\n") &&
+    (suffix.startsWith("\n") || suffix.trim().length === 0)
+  ) {
+    completion = "\n" + completion;
   }
 
   if (prefix.endsWith(" ") && completion.startsWith(" ")) completion = completion.slice(1);

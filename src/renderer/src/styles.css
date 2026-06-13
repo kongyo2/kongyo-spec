@@ -1018,6 +1018,17 @@ button:focus-visible {
   color: color-mix(in srgb, var(--fg) 38%, transparent);
 }
 
+.editor-ghost-suffix {
+  color: var(--fg);
+}
+
+.editor-ghost.reflow .editor-ghost-text,
+.editor-ghost.reflow .editor-ghost-suffix {
+  background: var(--editor-bg);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
 .editor-backdrop pre.shiki,
 .editor-backdrop pre.shiki code {
   margin: 0;

@@ -243,9 +243,10 @@ export function Editor({
         dangerouslySetInnerHTML={{ __html: html }}
       />
       {ghost ? (
-        <div className="editor-ghost" ref={ghostRef} aria-hidden="true">
+        <div className={`editor-ghost${ghost.reflow ? " reflow" : ""}`} ref={ghostRef} aria-hidden="true">
           {value.slice(0, ghost.anchor)}
           <span className="editor-ghost-text">{ghost.text}</span>
+          {ghost.reflow ? <span className="editor-ghost-suffix">{value.slice(ghost.anchor)}</span> : null}
         </div>
       ) : null}
       <textarea

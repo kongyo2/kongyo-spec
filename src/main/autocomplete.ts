@@ -131,7 +131,7 @@ async function requestFim(
   model: AutocompleteModelDef,
   key: string,
   body: string,
-  signal: AbortSignal,
+  userSignal: AbortSignal,
 ): Promise<string> {
   const urls = AUTOCOMPLETE_PROVIDERS[model.providerId].fimUrls;
   const ordered = (() => {
@@ -146,12 +146,15 @@ async function requestFim(
     const isLast = i === ordered.length - 1;
     let attempt: Response;
     try {
+      // Each endpoint gets its own timeout budget so a hang on the first URL
+      // still leaves time to fail over to the second.
+      const signal = AbortSignal.any([userSignal, AbortSignal.timeout(FIM_TIMEOUT_MS)]);
       // eslint-disable-next-line no-await-in-loop
       attempt = await postFim(url, key, body, signal);
     } catch (err) {
-      // Transport failure (DNS/TLS/timeout/unreachable): fail over to the next
-      // endpoint, but never swallow an abort and never loop past the last URL.
-      if (signal.aborted || isLast) throw err;
+      // Transport failure or per-endpoint timeout: fail over to the next URL,
+      // but never swallow a user abort and never loop past the last URL.
+      if (userSignal.aborted || isLast) throw err;
       preferredFimUrl.delete(model.providerId);
       continue;
     }
@@ -206,8 +209,7 @@ export async function autocomplete(input: AutocompleteRequest): Promise<Autocomp
       stream: false,
     });
 
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(FIM_TIMEOUT_MS)]);
-    const text = await requestFim(model, key, body, signal);
+    const text = await requestFim(model, key, body, controller.signal);
     backoff.success();
     fatalNotified = false;
     return { text, notice: null };

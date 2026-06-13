@@ -17,6 +17,7 @@ import {
 export interface GhostSuggestion {
   anchor: number;
   text: string;
+  reflow: boolean;
 }
 
 interface UseAutocompleteOptions {
@@ -69,7 +70,7 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
   const setGhost = useCallback((next: GhostSuggestion | null): void => {
     const prev = ghostRef.current;
     if (prev === next) return;
-    if (prev && next && prev.anchor === next.anchor && prev.text === next.text) return;
+    if (prev && next && prev.anchor === next.anchor && prev.text === next.text && prev.reflow === next.reflow) return;
     if (!prev && !next) return;
     ghostRef.current = next;
     setGhostState(next);
@@ -112,7 +113,9 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
       setGhost(null);
       return;
     }
-    setGhost({ anchor: ctx.caret, text: visible });
+    // A multiline suggestion before existing content must reflow the following
+    // text in the overlay so the dim ghost does not paint over the backdrop.
+    setGhost({ anchor: ctx.caret, text: visible, reflow: !ctx.atEod && /\r?\n/.test(visible) });
   }, [enabled, readOnly, readContext, setGhost]);
 
   const dismiss = useCallback((): void => {
