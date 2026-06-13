@@ -1,3 +1,5 @@
+import { countLines } from "@shared/text";
+
 export type DiffOpKind = "same" | "add" | "del";
 
 export interface DiffOp {
@@ -33,17 +35,6 @@ function splitLines(text: string): string[] {
   return lines;
 }
 
-// 配列を作らずに行数だけ数える(POSIX 流: 末尾改行は行終端)
-function countTextLines(text: string): number {
-  if (text.length === 0) return 0;
-  let lines = 0;
-  for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) === 10) lines += 1;
-  }
-  if (!text.endsWith("\n")) lines += 1;
-  return lines;
-}
-
 export interface DiffSizes {
   oldLines: number;
   newLines: number;
@@ -52,8 +43,8 @@ export interface DiffSizes {
 
 /** diffLines を呼ぶ前の軽量な規模チェック。tooLarge なら差分計算を諦めること */
 export function diffSizes(oldText: string, newText: string): DiffSizes {
-  const oldLines = countTextLines(oldText);
-  const newLines = countTextLines(newText);
+  const oldLines = countLines(oldText);
+  const newLines = countLines(newText);
   return { oldLines, newLines, tooLarge: oldLines + newLines > MAX_DIFF_TOTAL_LINES };
 }
 

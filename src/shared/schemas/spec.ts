@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { byStringDesc } from "../compare";
 
 export const SpecFrontmatterSchema = z.object({
   id: z.string().min(1),
@@ -13,9 +14,7 @@ export function parseFrontmatter(raw: unknown): SpecMeta {
   return SpecFrontmatterSchema.parse(raw);
 }
 
-export function byUpdatedDesc(a: SpecMeta, b: SpecMeta): number {
-  return a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0;
-}
+export const byUpdatedDesc = byStringDesc<SpecMeta>((meta) => meta.updatedAt);
 
 export const SpecDocumentSchema = z.object({
   meta: SpecFrontmatterSchema,

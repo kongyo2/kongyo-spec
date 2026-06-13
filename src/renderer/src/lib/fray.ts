@@ -1,6 +1,6 @@
 import { DEFAULT_FRAY_KINDS, type FrayKinds } from "@shared/schemas/settings";
 import { safeDecode } from "./dom";
-import { codeSpans, fencedCodeSpans, findPendingDecisions, type PendingRange } from "./pending";
+import { codeSpans, fencedCodeSpans, findPendingDecisions, type PendingRange, spanContains } from "./pending";
 import { findVagueTerms } from "./vague";
 
 export type FrayKind = "term" | "structure" | "link" | "syntax" | "vague" | "pending";
@@ -47,7 +47,7 @@ function maskCode(content: string): MaskedText {
   const spans = codeSpans(content);
   return {
     spans,
-    isMasked: (index) => spans.some((span) => index >= span.start && index < span.end),
+    isMasked: (index) => spans.some((span) => spanContains(span, index)),
   };
 }
 
@@ -57,6 +57,13 @@ function lineOf(content: string, offset: number): number {
     if (content[i] === "\n") line += 1;
   }
   return line;
+}
+
+// 同じキーに値を積む(無ければ配列を作る)。出現位置や同名見出しの集計に使う
+function pushInto<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const existing = map.get(key);
+  if (existing) existing.push(value);
+  else map.set(key, [value]);
 }
 
 const KATAKANA_WORD_RE = /[ァ-ヺー]{2,}/g;
@@ -69,10 +76,7 @@ function detectKatakanaVariants(content: string, masked: MaskedText): FrayIssue[
   const occurrences = new Map<string, number[]>();
   for (const match of content.matchAll(KATAKANA_WORD_RE)) {
     if (masked.isMasked(match.index)) continue;
-    const word = match[0];
-    const positions = occurrences.get(word);
-    if (positions) positions.push(match.index);
-    else occurrences.set(word, [match.index]);
+    pushInto(occurrences, match[0], match.index);
   }
   const issues: FrayIssue[] = [];
   for (const [word, positions] of occurrences) {
@@ -112,9 +116,7 @@ function detectWidthVariants(content: string, masked: MaskedText): FrayIssue[] {
   const fullPositions = new Map<string, number[]>();
   for (const match of content.matchAll(FULLWIDTH_WORD_RE)) {
     if (masked.isMasked(match.index)) continue;
-    const positions = fullPositions.get(match[0]);
-    if (positions) positions.push(match.index);
-    else fullPositions.set(match[0], [match.index]);
+    pushInto(fullPositions, match[0], match.index);
   }
   const issues: FrayIssue[] = [];
   const reported = new Set<string>();
@@ -152,7 +154,7 @@ function scanHeadings(content: string, fenced: PendingRange[]): HeadingLine[] {
   const headings: HeadingLine[] = [];
   let offset = 0;
   for (const line of content.split("\n")) {
-    const inFence = fenced.some((span) => offset >= span.start && offset < span.end);
+    const inFence = fenced.some((span) => spanContains(span, offset));
     if (!inFence) {
       const match = line.match(ATX_HEADING_RE);
       if (match) {
@@ -194,9 +196,7 @@ function detectDuplicateHeadings(headings: HeadingLine[]): FrayIssue[] {
   const byText = new Map<string, HeadingLine[]>();
   for (const heading of headings) {
     if (heading.text.length === 0) continue;
-    const list = byText.get(heading.text);
-    if (list) list.push(heading);
-    else byText.set(heading.text, [heading]);
+    pushInto(byText, heading.text, heading);
   }
   const issues: FrayIssue[] = [];
   for (const [text, list] of byText) {

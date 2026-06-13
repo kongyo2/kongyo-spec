@@ -257,7 +257,9 @@ function Row({
   );
 }
 
-function Segmented<T extends string>({
+// セグメント選択。文字列の選択肢(任意でアイコン付き)と数値プリセットの両方に使う。
+// 保存済みの値が選択肢に無くてもそのまま動き、どれかを選んだ時点で揃う
+function Segmented<T extends string | number>({
   label,
   value,
   options,
@@ -309,36 +311,6 @@ function Toggle({
     >
       <span className="settings-toggle-knob" aria-hidden="true" />
     </button>
-  );
-}
-
-// 数値設定をプリセットから選ぶ。保存済みの値がプリセット外でもそのまま動き、
-// どれかを選んだ時点でプリセット値に揃う
-function PresetSeg({
-  label,
-  value,
-  presets,
-  onSelect,
-}: {
-  label: string;
-  value: number;
-  presets: { value: number; label: string }[];
-  onSelect: (value: number) => void;
-}): React.ReactElement {
-  return (
-    <div className="settings-seg" role="group" aria-label={label}>
-      {presets.map((preset) => (
-        <button
-          key={preset.value}
-          type="button"
-          className={preset.value === value ? "active" : ""}
-          aria-pressed={preset.value === value}
-          onClick={() => onSelect(preset.value)}
-        >
-          {preset.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -876,10 +848,10 @@ export function Settings({
                   title="自動スナップショットの間隔"
                   desc="上書きで失われる直前の内容を Selvage に留める最短間隔。手動や AI 適用で版を留めた直後も、これが明けるまで自動版は増えません"
                 >
-                  <PresetSeg
+                  <Segmented
                     label="自動スナップショットの間隔"
                     value={autoSnapshotMinutes}
-                    presets={SNAPSHOT_INTERVAL_PRESETS}
+                    options={SNAPSHOT_INTERVAL_PRESETS}
                     onSelect={(value) => onChange({ key: "autoSnapshotMinutes", value })}
                   />
                 </Row>
@@ -887,10 +859,10 @@ export function Settings({
                   title="版の保持上限"
                   desc="仕様書ごとに残す版の数。超えると自動版の古いものから順に削られ、手動版は最後まで残します。ピン留めした版だけは削除されません"
                 >
-                  <PresetSeg
+                  <Segmented
                     label="版の保持上限"
                     value={maxSnapshotsPerSpec}
-                    presets={SNAPSHOT_KEEP_PRESETS}
+                    options={SNAPSHOT_KEEP_PRESETS}
                     onSelect={(value) => onChange({ key: "maxSnapshotsPerSpec", value })}
                   />
                 </Row>
@@ -1067,10 +1039,10 @@ export function Settings({
                   title="応答待ちの上限"
                   desc="これを超えるとタイムアウトとして打ち切り、フォールバックへ移ります。遅いローカル LLM では長めに"
                 >
-                  <PresetSeg
+                  <Segmented
                     label="応答待ちの上限"
                     value={assistTimeoutSec}
-                    presets={ASSIST_TIMEOUT_PRESETS}
+                    options={ASSIST_TIMEOUT_PRESETS}
                     onSelect={(value) => onChange({ key: "assistTimeoutSec", value })}
                   />
                 </Row>

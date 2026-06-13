@@ -5,6 +5,11 @@ export interface PendingRange {
   end: number;
 }
 
+/** index が span の半開区間 [start, end) に含まれるか */
+export function spanContains(span: PendingRange, index: number): boolean {
+  return index >= span.start && index < span.end;
+}
+
 const FENCE_LINE_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 
 export interface FenceSpan extends PendingRange {
@@ -44,7 +49,7 @@ function escapedByBackslash(content: string, index: number): boolean {
 function inlineCodeSpans(content: string, blocked: PendingRange[]): PendingRange[] {
   const runs: { start: number; length: number }[] = [];
   for (const match of content.matchAll(/`+/g)) {
-    if (blocked.some((span) => match.index >= span.start && match.index < span.end)) continue;
+    if (blocked.some((span) => spanContains(span, match.index))) continue;
     runs.push({ start: match.index, length: match[0].length });
   }
   const spans: PendingRange[] = [];
@@ -92,7 +97,7 @@ function indentedCodeSpans(content: string, blocked: PendingRange[]): PendingRan
   for (const line of content.split("\n")) {
     const lineStart = offset;
     const lineEnd = offset + line.length;
-    const inFence = blocked.some((span) => lineStart >= span.start && lineStart < span.end);
+    const inFence = blocked.some((span) => spanContains(span, lineStart));
     const blank = line.trim().length === 0;
     if (!blank) {
       const codeLine =
@@ -127,7 +132,7 @@ export function findPendingDecisions(content: string): PendingRange[] {
   const masked = codeSpans(content);
   const ranges: PendingRange[] = [];
   for (const match of content.matchAll(PENDING_DECISION_RE)) {
-    if (masked.some((span) => match.index >= span.start && match.index < span.end)) continue;
+    if (masked.some((span) => spanContains(span, match.index))) continue;
     ranges.push({ start: match.index, end: match.index + match[0].length });
   }
   return ranges;

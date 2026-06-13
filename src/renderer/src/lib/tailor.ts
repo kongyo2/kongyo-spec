@@ -1,6 +1,7 @@
 import type { TailorPlan, TailorTask } from "@shared/schemas/assist";
 import { splitPages } from "./pages";
 import { findPendingDecisions } from "./pending";
+import { lineStartOffset } from "./text";
 
 export const PLAN_HEADING = "実装計画";
 
@@ -89,16 +90,6 @@ export function tailorPlanToMarkdown(plan: TailorPlan, model: string): string {
   return parts.join("\n\n");
 }
 
-function lineStart(content: string, line: number): number {
-  let offset = 0;
-  for (let current = 0; current < line; current++) {
-    const newline = content.indexOf("\n", offset);
-    if (newline === -1) return content.length;
-    offset = newline + 1;
-  }
-  return offset;
-}
-
 /**
  * `## 実装計画` セクションを本文へ統合する。既存のセクションがあれば置き換え、
  * 無ければ末尾に追記する。挿入位置を返す(エディタジャンプ用)。
@@ -111,9 +102,9 @@ export function mergePlanIntoContent(
   const index = pages.findIndex((page) => page.depth === 2 && page.title === PLAN_HEADING);
   if (index !== -1) {
     const page = pages[index]!;
-    const start = lineStart(content, page.startLine);
+    const start = lineStartOffset(content, page.startLine);
     const nextPage = pages[index + 1];
-    const end = nextPage ? lineStart(content, nextPage.startLine) : content.length;
+    const end = nextPage ? lineStartOffset(content, nextPage.startLine) : content.length;
     const replacement = nextPage ? `${section}\n\n` : `${section}\n`;
     return {
       next: content.slice(0, start) + replacement + content.slice(end),
