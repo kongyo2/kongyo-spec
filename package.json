@@ -25,6 +25,7 @@
     "@google/genai": "^2.8.0",
     "@shikijs/rehype": "^4.2.0",
     "@vercel/beautiful-mermaid": "^0.1.5",
+    "fastest-levenshtein": "^1.0.16",
     "github-slugger": "^2.0.0",
     "hast-util-to-text": "^4.0.2",
     "katex": "^0.17.0",

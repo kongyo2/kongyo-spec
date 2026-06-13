@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS, SettingsSchema, type SettingKey, type Settings } from
 
 let db: DatabaseSync | null = null;
 
-const SECRET_KEYS: ReadonlySet<SettingKey> = new Set<SettingKey>(["geminiApiKey"]);
+const SECRET_KEYS: ReadonlySet<SettingKey> = new Set<SettingKey>(["geminiApiKey", "mistralApiKey", "inceptionApiKey"]);
 const ENCRYPTED_PREFIX = "enc:v1:";
 const LINUX_KEYSTORE_BACKENDS: ReadonlySet<string> = new Set(["gnome_libsecret", "kwallet", "kwallet5", "kwallet6"]);
 

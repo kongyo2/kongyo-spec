@@ -984,7 +984,8 @@ button:focus-visible {
 }
 
 .editor-backdrop,
-.editor-input {
+.editor-input,
+.editor-ghost {
   margin: 0;
   position: absolute;
   inset: 0;
@@ -1004,6 +1005,32 @@ button:focus-visible {
   overflow: hidden;
   z-index: 1;
   pointer-events: none;
+}
+
+.editor-ghost {
+  overflow: hidden;
+  z-index: 1;
+  pointer-events: none;
+  color: transparent;
+}
+
+.editor-ghost-text {
+  color: color-mix(in srgb, var(--fg) 38%, transparent);
+}
+
+.editor-ghost-suffix {
+  color: var(--fg);
+}
+
+/* Reflow mode previews the post-accept layout: hide the highlighted backdrop and
+   render the whole document plainly in the ghost layer (prefix + dim suggestion +
+   reflowed suffix) so the moved suffix never overlaps the suggestion. */
+.editor-ghost.reflow {
+  color: var(--fg);
+}
+
+.editor.reflow .editor-backdrop {
+  visibility: hidden;
 }
 
 .editor-backdrop pre.shiki,
@@ -2920,6 +2947,44 @@ kbd {
   outline: 2px solid var(--ring);
   outline-offset: 0;
   border-color: var(--accent);
+}
+
+.settings-select {
+  min-width: 200px;
+  max-width: 300px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--fg);
+  padding: 8px 11px;
+  font-size: 13px;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+
+.settings-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-select:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.settings-ac-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-ac-key {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .settings-key-save,

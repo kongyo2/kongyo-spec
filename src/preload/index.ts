@@ -30,6 +30,8 @@ const api: KongyoApi = {
   warpSpec: (input) => ipcRenderer.invoke("assist:warp", input),
   tailorSpec: (content) => ipcRenderer.invoke("assist:tailor", { content }),
   cancelAssist: (kind) => ipcRenderer.invoke("assist:cancel", { kind }),
+  autocomplete: (input) => ipcRenderer.invoke("assist:autocomplete", input),
+  cancelAutocomplete: () => ipcRenderer.invoke("assist:cancel-autocomplete"),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),
   onFlushBeforeClose: (callback) => {
     const handler = (): void => callback();

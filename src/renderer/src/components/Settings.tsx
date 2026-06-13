@@ -42,6 +42,12 @@ import {
   type ToastDuration,
   type UpsertLlmProfileInput,
 } from "@shared/schemas/settings";
+import {
+  AUTOCOMPLETE_MODELS,
+  AUTOCOMPLETE_PROVIDERS,
+  type AutocompleteProviderId,
+  getAutocompleteModelById,
+} from "@shared/autocomplete";
 import { ACCENTS, type AppearanceSettings, LINE_HEIGHTS, READING_WIDTHS } from "../lib/appearance";
 import type { ResolvedTheme } from "../lib/theme";
 
@@ -62,7 +68,9 @@ export type SettingChange =
   | { key: "frayKinds"; value: FrayKinds }
   | { key: "autoSnapshotMinutes"; value: number }
   | { key: "maxSnapshotsPerSpec"; value: number }
-  | { key: "assistTimeoutSec"; value: number };
+  | { key: "assistTimeoutSec"; value: number }
+  | { key: "autocompleteEnabled"; value: boolean }
+  | { key: "autocompleteModelId"; value: string };
 
 export interface LlmSettings {
   geminiApiKeySet: boolean;
@@ -70,6 +78,10 @@ export interface LlmSettings {
   mainId: string;
   fallbackIds: string[];
   storedCount: number;
+  autocompleteEnabled: boolean;
+  autocompleteModelId: string;
+  mistralApiKeySet: boolean;
+  inceptionApiKeySet: boolean;
 }
 
 interface SettingsProps {
@@ -89,6 +101,7 @@ interface SettingsProps {
   llm: LlmSettings;
   onChange: (change: SettingChange) => void;
   onSaveApiKey: (key: string | null) => Promise<boolean>;
+  onSaveAutocompleteKey: (provider: AutocompleteProviderId, key: string | null) => Promise<boolean>;
   onUpsertProfile: (input: UpsertLlmProfileInput) => Promise<boolean>;
   onDeleteProfile: (id: string) => Promise<boolean>;
   onSetRouting: (mainId: string, fallbackIds: string[]) => void;
@@ -509,6 +522,76 @@ function focusableWithin(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((el) => el.getClientRects().length > 0);
 }
 
+function AutocompleteKeyRow({
+  provider,
+  keySet,
+  onSave,
+}: {
+  provider: AutocompleteProviderId;
+  keySet: boolean;
+  onSave: (provider: AutocompleteProviderId, key: string | null) => Promise<boolean>;
+}): React.ReactElement {
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const meta = AUTOCOMPLETE_PROVIDERS[provider];
+
+  const submit = (): void => {
+    const trimmed = draft.trim();
+    if (trimmed.length === 0 || saving) return;
+    setSaving(true);
+    void onSave(provider, trimmed)
+      .then((ok) => {
+        if (ok) setDraft("");
+      })
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <div className="settings-ac-key">
+      <span className="settings-row-title">
+        {meta.label} API キー
+        <span className={`settings-key-state${keySet ? " set" : ""}`}>{keySet ? "設定済み" : "未設定"}</span>
+      </span>
+      <div className="settings-key-controls">
+        <input
+          type="password"
+          className="settings-key-input"
+          value={draft}
+          placeholder={keySet ? "変更する場合のみ入力" : meta.keyPlaceholder}
+          autoComplete="off"
+          spellCheck={false}
+          aria-label={`${meta.label} API キー`}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") submit();
+          }}
+        />
+        <button
+          type="button"
+          className="settings-key-save"
+          disabled={draft.trim().length === 0 || saving}
+          onClick={submit}
+        >
+          {saving ? "保存中…" : "保存"}
+        </button>
+        {keySet ? (
+          <button type="button" className="settings-key-remove" onClick={() => void onSave(provider, null)}>
+            削除
+          </button>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        className="settings-inline-link"
+        onClick={() => void window.api.openExternal(meta.keyHelpUrl).catch(() => undefined)}
+      >
+        {meta.label} でキーを取得
+        <ArrowUpRight size={13} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 export function Settings({
   theme,
   appearance,
@@ -526,6 +609,7 @@ export function Settings({
   llm,
   onChange,
   onSaveApiKey,
+  onSaveAutocompleteKey,
   onUpsertProfile,
   onDeleteProfile,
   onSetRouting,
@@ -639,6 +723,10 @@ export function Settings({
   };
 
   const active = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0]!;
+
+  const autocompleteProvider = getAutocompleteModelById(llm.autocompleteModelId).providerId;
+  const autocompleteKeySet = autocompleteProvider === "mistral" ? llm.mistralApiKeySet : llm.inceptionApiKeySet;
+  const autocompleteProviderIds = [...new Set(AUTOCOMPLETE_MODELS.map((model) => model.providerId))];
 
   return (
     <div
@@ -1029,6 +1117,48 @@ export function Settings({
                       モデルを追加
                     </button>
                   )}
+                </div>
+                <div className="settings-row stack">
+                  <div className="settings-row-label">
+                    <span className="settings-row-title">インライン補完</span>
+                    <span className="settings-row-desc">
+                      入力中に続きの草案をゴーストテキストで先回り表示します。Tab で確定、Esc
+                      で却下。通常のモデルとは別に、 FIM 対応の補完専用モデル(Codestral・Mercury)を使います。API
+                      を消費するため既定はオフです。
+                    </span>
+                  </div>
+                  <div className="settings-ac-controls">
+                    <Toggle
+                      label="インライン補完を有効化"
+                      checked={llm.autocompleteEnabled}
+                      onToggle={(value) => onChange({ key: "autocompleteEnabled", value })}
+                    />
+                    <select
+                      className="settings-select"
+                      value={llm.autocompleteModelId}
+                      disabled={!llm.autocompleteEnabled}
+                      aria-label="補完モデル"
+                      onChange={(event) => onChange({ key: "autocompleteModelId", value: event.target.value })}
+                    >
+                      {autocompleteProviderIds.map((providerId) => (
+                        <optgroup key={providerId} label={AUTOCOMPLETE_PROVIDERS[providerId].label}>
+                          {AUTOCOMPLETE_MODELS.filter((model) => model.providerId === providerId).map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  {llm.autocompleteEnabled ? (
+                    <AutocompleteKeyRow
+                      key={autocompleteProvider}
+                      provider={autocompleteProvider}
+                      keySet={autocompleteKeySet}
+                      onSave={onSaveAutocompleteKey}
+                    />
+                  ) : null}
                 </div>
                 <Row
                   title="応答待ちの上限"

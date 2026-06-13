@@ -1,4 +1,5 @@
 import { ipcMain, shell } from "electron";
+import { parseAutocompleteRequest } from "@shared/autocomplete";
 import {
   parseAuditSpecInput,
   parseCancelAssistInput,
@@ -29,6 +30,7 @@ import {
   toRendererSettings,
 } from "@shared/schemas/settings";
 import { auditSpec, cancelAssist, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
+import { autocomplete, cancelAutocomplete, resetAutocompleteBackoff } from "./autocomplete";
 import {
   deleteSnapshot,
   listSnapshots,
@@ -112,6 +114,10 @@ export function registerIpc(): void {
 
   ipcMain.handle("assist:cancel", (_event, raw: unknown) => cancelAssist(parseCancelAssistInput(raw).kind));
 
+  ipcMain.handle("assist:autocomplete", (_event, raw: unknown) => autocomplete(parseAutocompleteRequest(raw)));
+
+  ipcMain.handle("assist:cancel-autocomplete", () => cancelAutocomplete());
+
   ipcMain.handle("llm:upsert-profile", (_event, raw: unknown) =>
     toRendererSettings(upsertLlmProfile(parseUpsertLlmProfileInput(raw))),
   );
@@ -132,11 +138,22 @@ export function registerIpc(): void {
 
   ipcMain.handle("settings:set", (_event, raw: unknown) => {
     const input = parseSetSettingInput(raw);
-    if (input.key === "geminiApiKey" && input.value !== null && !isSecretEncryptionAvailable()) {
+    const isSecretKey =
+      input.key === "geminiApiKey" || input.key === "mistralApiKey" || input.key === "inceptionApiKey";
+    if (isSecretKey && input.value !== null && !isSecretEncryptionAvailable()) {
       throw new Error("この環境では OS の安全な保存領域を利用できないため、API キーを保存できません。");
     }
     const persisted = writeSetting(input.key, input.value);
     if (persisted && input.key === "maxSnapshotsPerSpec") schedulePruneAllHistories();
+    if (
+      persisted &&
+      (input.key === "mistralApiKey" ||
+        input.key === "inceptionApiKey" ||
+        input.key === "autocompleteModelId" ||
+        input.key === "autocompleteEnabled")
+    ) {
+      resetAutocompleteBackoff();
+    }
     return persisted;
   });
 
