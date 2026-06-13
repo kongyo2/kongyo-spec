@@ -172,8 +172,9 @@ function removePrefixOverlap(completion: string, prefix: string): string {
       const trimmedPrefix = prefixEnd.trim();
       const lastWord = trimmedPrefix.split(/\s+/).pop();
       // Only strip the last word when the completion repeats that whole token — not
-      // when it merely shares leading characters (e.g. "Use" vs "User IDs...").
-      if (lastWord && completion.startsWith(lastWord) && !/\w/.test(completion.charAt(lastWord.length))) {
+      // when it merely shares leading characters (e.g. "Use" vs "User", or the
+      // Japanese "仕様" vs "仕様書"). The boundary test is Unicode-aware.
+      if (lastWord && completion.startsWith(lastWord) && !/[\p{L}\p{N}_]/u.test(completion.charAt(lastWord.length))) {
         completion = completion.slice(lastWord.length);
       } else if (completion.startsWith(trimmedPrefix)) {
         completion = completion.slice(trimmedPrefix.length);

@@ -4,7 +4,6 @@ import {
   type FillInAtCursorSuggestion,
   findMatchingSuggestion,
   getAutocompleteModelById,
-  getFirstLine,
   INITIAL_DEBOUNCE_DELAY_MS,
   LATENCY_SAMPLE_SIZE,
   MAX_AUTOCOMPLETE_PREFIX_CHARS,
@@ -109,16 +108,9 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
       setGhost(null);
       return;
     }
-    // End of document or a newline-leading suggestion (LF or CRLF) renders in full;
-    // otherwise keep it to the current line so it cannot overlap following lines.
-    const visible = ctx.atEod || /^\r?\n/.test(match.text) ? match.text : getFirstLine(match.text);
-    if (visible.length === 0) {
-      setGhost(null);
-      return;
-    }
-    // A multiline suggestion before existing content must reflow the following
-    // text in the overlay so the dim ghost does not paint over the backdrop.
-    setGhost({ anchor: ctx.caret, text: visible, reflow: !ctx.atEod && /\r?\n/.test(visible) });
+    // Show the whole completion. A multiline suggestion before existing content sets
+    // reflow so the overlay moves the following text down instead of painting over it.
+    setGhost({ anchor: ctx.caret, text: match.text, reflow: !ctx.atEod && /\r?\n/.test(match.text) });
   }, [enabled, readOnly, readContext, setGhost]);
 
   const dismiss = useCallback((): void => {
