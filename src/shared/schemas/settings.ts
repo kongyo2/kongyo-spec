@@ -26,7 +26,6 @@ export const ToastDurationSchema = z.enum(["short", "normal", "long"]);
 export type ToastDuration = z.infer<typeof ToastDurationSchema>;
 export const TOAST_DURATION_MS: Record<ToastDuration, number> = { short: 2500, normal: 4000, long: 7000 };
 
-// ほつれ検査 (Fray) のローカル検出器。キーは renderer/lib/fray.ts の FrayKind と一致させる
 export const FrayKindsSchema = z.object({
   syntax: z.boolean(),
   link: z.boolean(),
@@ -45,7 +44,6 @@ export const DEFAULT_FRAY_KINDS: FrayKinds = {
   pending: true,
 };
 
-// 数値設定の許容範囲。UI はプリセットを出すが、範囲内なら任意値を受け付ける
 export const AUTO_SNAPSHOT_MINUTES = { min: 1, max: 120, default: 5 } as const;
 export const MAX_SNAPSHOTS = { min: 10, max: 1000, default: 80 } as const;
 export const ASSIST_TIMEOUT_SEC = { min: 10, max: 600, default: 120 } as const;

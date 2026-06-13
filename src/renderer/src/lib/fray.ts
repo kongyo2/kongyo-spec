@@ -10,13 +10,11 @@ export type FraySeverity = "warn" | "info";
 export interface FrayReplacement {
   start: number;
   end: number;
-  /** 置換前の文字列。適用時に本文がずれていないかの照合に使う */
   from: string;
   to: string;
 }
 
 export interface FrayFix {
-  /** 修正ボタンの文言(例: 「サーバ」→「サーバー」に統一) */
   label: string;
   replacements: FrayReplacement[];
 }
@@ -29,7 +27,6 @@ export interface FrayIssue {
   detail: string;
   start: number | null;
   end: number | null;
-  /** ワンクリックで機械的に直せる場合の置換群。判断が要るものは null */
   fix: FrayFix | null;
 }
 
@@ -60,7 +57,6 @@ function lineOf(content: string, offset: number): number {
   return line;
 }
 
-// 同じキーに値を積む(無ければ配列を作る)。出現位置や同名見出しの集計に使う
 function pushInto<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   const existing = map.get(key);
   if (existing) existing.push(value);
@@ -73,7 +69,6 @@ function replaceAllAt(positions: number[], from: string, to: string): FrayReplac
   return positions.map((start) => ({ start, end: start + from.length, from, to }));
 }
 
-// 正規表現に一致する語を、マスク(コード)の外側だけ拾って出現位置ごとに集める
 function wordPositions(content: string, re: RegExp, masked: MaskedText): Map<string, number[]> {
   const positions = new Map<string, number[]>();
   for (const match of content.matchAll(re)) {
@@ -115,7 +110,6 @@ const HALFWIDTH_WORD_RE = /[A-Za-z0-9]{2,}/g;
 
 function detectWidthVariants(content: string, masked: MaskedText): FrayIssue[] {
   const halfWords = new Set(wordPositions(content, HALFWIDTH_WORD_RE, masked).keys());
-  // 全角語ごとに全出現を集め、一括置換できる修正を組み立てる
   const fullPositions = wordPositions(content, FULLWIDTH_WORD_RE, masked);
   const issues: FrayIssue[] = [];
   const reported = new Set<string>();
@@ -314,8 +308,6 @@ function detectPendingMarkers(content: string): FrayIssue[] {
   }));
 }
 
-// 箇条書き・番号付きリストの行を「要求文」とみなす。地の文(意図・背景の散文)の
-// 形容まで咎めるとノイズになるため、要求として列挙された行だけを対象にする
 const REQUIREMENT_LINE_RE = /^ {0,5}(?:[-*+]|\d{1,9}[.)])\s/;
 
 function detectVagueRequirements(content: string, masked: MaskedText): FrayIssue[] {

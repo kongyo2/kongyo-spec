@@ -8,9 +8,6 @@ function isWhitespace(char: string | undefined): boolean {
   return char !== undefined && /\s/.test(char);
 }
 
-// Splits a srcset value into its candidate URL tokens (with offsets), following the
-// HTML candidate grammar: commas separate candidates, but commas inside a data: URL
-// belong to the URL and must be preserved.
 export function srcsetUrlTokens(value: string): SrcsetUrlToken[] {
   const tokens: SrcsetUrlToken[] = [];
   const n = value.length;

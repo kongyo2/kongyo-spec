@@ -17,7 +17,6 @@ interface PreviewProps {
   pageContent: string;
   headingIds: string[];
   linkDefs: string;
-  /** この値が変わったときだけスクロール位置を先頭へ戻す(ページ移動など)。編集中の再レンダリングでは保持する */
   scrollResetKey: string;
   theme: ResolvedTheme;
   mermaidRenderer: MermaidRenderer;
@@ -113,8 +112,6 @@ export function Preview(props: PreviewProps): React.ReactElement {
     const container = containerRef.current;
     if (!container) return;
 
-    // ページ移動・ドキュメント切替のときだけ先頭へ。タイピング由来の再レンダリングでは
-    // スクロール位置を保つ(毎回先頭へ戻ると Split 編集が成立しない)
     if (resetKeyRef.current !== scrollResetKey) {
       resetKeyRef.current = scrollResetKey;
       container.scrollTop = 0;
@@ -122,7 +119,6 @@ export function Preview(props: PreviewProps): React.ReactElement {
     decorateCodeBlocks(container);
 
     let headings = Array.from(container.querySelectorAll<HTMLElement>("h2, h3, h4, h5, h6"));
-    // ページ先頭がそのページ自身の見出しで始まる場合、目次に同じ題を重ねない
     if (headings[0] && headings[0] === container.firstElementChild) headings = headings.slice(1);
     headingsRef.current(
       headings.map((heading) => ({

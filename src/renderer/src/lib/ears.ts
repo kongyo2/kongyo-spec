@@ -1,21 +1,15 @@
 import { findVagueTerms } from "./vague";
 
-// Warp が生成した EARS 形式の受け入れ基準を、LLM なしで構造検証する。
-// 番号付きリスト項目を「基準」とみなし、キーワードの組み立てと検証可能性を見る
-
 export type EarsFindingKind = "missing-shall" | "missing-then" | "dangling-then" | "multi-shall" | "vague";
 
 export interface EarsFinding {
-  /** 出力テキスト内の行番号(1 始まり) */
   line: number;
-  /** 基準行の先頭抜粋(一覧表示用) */
   excerpt: string;
   kind: EarsFindingKind;
   message: string;
 }
 
 export interface EarsLintReport {
-  /** 検出した受け入れ基準(番号付きリスト項目)の数 */
   criteria: number;
   findings: EarsFinding[];
 }
@@ -35,7 +29,6 @@ export function lintEars(output: string): EarsLintReport {
     if (!match) continue;
     const text = match[1]!.trim();
     criteria += 1;
-    // 未決定マーカー付きの基準は人間の決定待ちであり、構文の不足は織り込み済み
     if (text.includes("【未決定")) continue;
     const line = i + 1;
     const excerpt = text.length > EXCERPT_CHARS ? `${text.slice(0, EXCERPT_CHARS)}…` : text;

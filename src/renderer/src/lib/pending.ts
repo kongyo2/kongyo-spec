@@ -7,7 +7,6 @@ export interface PendingRange {
   end: number;
 }
 
-/** index が span の半開区間 [start, end) に含まれるか */
 export function spanContains(span: PendingRange, index: number): boolean {
   return index >= span.start && index < span.end;
 }
@@ -26,7 +25,6 @@ export function fencedCodeSpans(content: string): FenceSpan[] {
     if (match) {
       const marker = match[1]!;
       if (fence === null) {
-        // CommonMark: バッククォートフェンスの info 文字列にバッククォートは置けない
         if (marker[0] !== "`" || !match[2]!.includes("`")) {
           fence = { char: marker[0]!, length: marker.length, start };
         }
@@ -58,7 +56,6 @@ function inlineCodeSpans(content: string, blocked: PendingRange[]): PendingRange
     const run = runs[index]!;
     let start = run.start;
     let length = run.length;
-    // 開き候補のみエスケープが効く(スパン内部ではバックスラッシュは文字どおり)
     if (escapedByBackslash(content, start)) {
       start += 1;
       length -= 1;
@@ -90,7 +87,6 @@ const LIST_ITEM_LINE_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
 function indentedCodeSpans(content: string, blocked: PendingRange[]): PendingRange[] {
   const spans: PendingRange[] = [];
   let previousBlank = true;
-  // リスト項目直後の 4 スペースはリストの継続であってコードではない
   let previousNonBlankIsListItem = false;
   let run: PendingRange | null = null;
   for (const { text, start, end } of eachLine(content)) {

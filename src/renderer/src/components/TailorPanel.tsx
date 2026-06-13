@@ -49,7 +49,6 @@ function TaskCard({
 }: {
   task: TailorTask;
   index: number;
-  /** 依存上の段(0 始まり)。-1 は循環依存で順序が決まらない */
   lane: number;
   parallel: boolean;
   onJumpExcerpt: (excerpt: string) => void;
@@ -120,7 +119,6 @@ export function TailorPanel({
   onJumpExcerpt,
   onOpenSettings,
 }: TailorPanelProps): React.ReactElement {
-  // 依存グラフから着手順の段と並行可能性を求める(計画が無い間は空)
   const schedule = useMemo<TaskLanes>(() => computeTaskLanes(state.status === "done" ? state.plan.tasks : []), [state]);
 
   const handoffBlock = (
@@ -147,7 +145,6 @@ export function TailorPanel({
 
   let body: React.ReactElement;
   if (!apiKeySet) {
-    // 計画の裁断には LLM が要るが、引き渡しプロンプトの組み立てはキーなしで使える
     body = (
       <>
         <div className="lens-intro tailor-intro">

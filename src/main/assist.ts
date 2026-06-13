@@ -20,7 +20,6 @@ import { readSettings } from "./settingsStore";
 
 const MAX_SPEC_CHARS = 240_000;
 
-// 仕様書本文の事前検査。空・過大は機能ごとの文言で弾く(約 24 万字が上限)
 function assertSpecSize(content: string, emptyMessage: string, tooLargeMessage: string): void {
   if (content.trim().length === 0) throw new Error(emptyMessage);
   if (content.length > MAX_SPEC_CHARS) throw new Error(tooLargeMessage);
@@ -117,7 +116,6 @@ class CancelledError extends Error {
   }
 }
 
-// 種別ごとに実行中の呼び出しを 1 つだけ持ち、ユーザー操作で中断できるようにする
 const inflight = new Map<AssistKind, AbortController>();
 
 export function cancelAssist(kind: AssistKind): void {
@@ -175,9 +173,7 @@ function parseJsonResponse(text: string): unknown {
     if (start !== -1 && end > start) {
       try {
         return JSON.parse(trimmed.slice(start, end + 1));
-      } catch {
-        // fall through
-      }
+      } catch {}
     }
     throw new Error("モデルの応答を解析できませんでした。再試行してください。");
   }
@@ -275,9 +271,6 @@ async function callOpenAiCompatible(args: ProviderCall): Promise<unknown> {
   };
   const responseFormat = { response_format: { type: "json_object" } };
   const withTemperature = { ...base, temperature: args.temperature };
-  // HTTP 400 を返すサーバー向けの後退順:
-  // response_format 非対応の互換サーバー → response_format なし、
-  // temperature 非対応の推論系モデル(o3 など、温度がプロファイル未指定のときのみ) → temperature なし
   const attempts: Record<string, unknown>[] = [{ ...withTemperature, ...responseFormat }, withTemperature];
   if (args.profile.temperature === null) {
     attempts.push({ ...base, ...responseFormat }, base);
@@ -286,7 +279,7 @@ async function callOpenAiCompatible(args: ProviderCall): Promise<unknown> {
   let rejected: HttpStatusError | null = null;
   for (const body of attempts) {
     try {
-      // eslint-disable-next-line no-await-in-loop -- 前段の 400 を確認してからパラメータを削って再試行する
+      // eslint-disable-next-line no-await-in-loop
       payload = await postChatCompletions(url, headers, body, args.signal, args.timeoutMs);
       rejected = null;
       break;
@@ -336,7 +329,7 @@ async function runStructured<T>(kind: AssistKind, task: StructuredTask<T>): Prom
         signal: controller.signal,
       };
       try {
-        // eslint-disable-next-line no-await-in-loop -- フォールバックは前段の失敗を確認してから順に試す
+        // eslint-disable-next-line no-await-in-loop
         const raw = profile.provider === "gemini" ? await callGemini(call) : await callOpenAiCompatible(call);
         let value: T;
         try {

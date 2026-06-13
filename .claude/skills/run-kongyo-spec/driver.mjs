@@ -86,11 +86,6 @@ const COMMANDS = {
     console.log("screenshot:", f);
   },
 
-  // Create a spec through the real UI: sidebar "+ 新規作成" -> dialog -> confirm.
-  // Wait until the created spec is the active, newest (first) sidebar item with its
-  // editor mounted -- not "any .editor-input" (a spec may already be open in Source
-  // mode) and not the "# <title>" prefix (duplicate titles are allowed, so title and
-  // seed content are not unique). The newest spec is prepended and becomes active.
   async new(title) {
     if (!page) return console.log("ERROR: launch first");
     const name = (title || "Demo Spec").trim();
@@ -111,7 +106,6 @@ const COMMANDS = {
     console.log("created + opened (source mode):", name);
   },
 
-  // Replace editor content. React controlled <textarea>, so fill() + input event.
   async fill(text) {
     if (!page) return console.log("ERROR: launch first");
     await page.fill(".editor-input", text);
@@ -124,8 +118,6 @@ const COMMANDS = {
     console.log("mode:", m);
   },
 
-  // End-to-end: new spec -> fill with rich markdown -> Preview ->
-  // wait for shiki/katex/mermaid -> 3 screenshots -> probe counts.
   async demo() {
     if (!page) return console.log("ERROR: launch first");
     await COMMANDS.new("Demo Spec");

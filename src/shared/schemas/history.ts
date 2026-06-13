@@ -2,7 +2,6 @@ import { z } from "zod";
 import { byStringDesc } from "../compare";
 import { SpecFrontmatterSchema } from "./spec";
 
-/** 手動スナップショットのラベル上限 */
 export const MAX_SNAPSHOT_LABEL_CHARS = 120;
 
 export const SNAPSHOT_KINDS = ["auto", "manual", "guard", "assist"] as const;
@@ -21,9 +20,6 @@ export const SnapshotMetaSchema = z.object({
 });
 export type SnapshotMeta = z.infer<typeof SnapshotMetaSchema>;
 
-// frontmatter は文字列しか持てないため、数値は coerce し、欠損や破損は
-// 一覧から弾かずに既定値で読めるようにする(label の空文字は「ラベルなし」、
-// pinned キーの無い旧形式は「ピンなし」)
 export const SnapshotFrontmatterSchema = z.object({
   id: z.string().min(1),
   specId: z.string().min(1),
@@ -72,7 +68,6 @@ export function parseHistorySnapshotInput(raw: unknown): HistorySnapshotInput {
   return HistorySnapshotInputSchema.parse(raw);
 }
 
-// renderer から指定できるのは手動と AI 適用前のみ。auto / guard は main 専用
 export const TAKE_SNAPSHOT_KINDS = ["manual", "assist"] as const;
 export type TakeSnapshotKind = (typeof TAKE_SNAPSHOT_KINDS)[number];
 

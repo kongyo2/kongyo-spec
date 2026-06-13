@@ -11,8 +11,6 @@ export function Outline({ headings, activeId }: OutlineProps): React.ReactElemen
     scrollToId(document.querySelector(".preview") ?? document, id);
   };
 
-  // ページ単位(h3 起点)でも全文(h2 起点)でも同じ見た目になるよう、
-  // 最上位の見出しレベルを基準にした相対インデントで描く
   const minLevel = headings.reduce((min, heading) => Math.min(min, heading.level), 6);
 
   return (

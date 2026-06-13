@@ -35,7 +35,6 @@ const KIND_LABEL: Record<SnapshotKind, string> = {
   assist: "AI 適用前",
 };
 
-// 巨大な差分でパネルが固まらないよう、描画する行数は抑える
 const MAX_RENDER_ROWS = 400;
 
 type DiffComputation =
@@ -105,7 +104,6 @@ export function SelvagePanel({
   const [confirmAction, setConfirmAction] = useState<"restore" | "delete" | null>(null);
   const [, setClockTick] = useState(0);
 
-  // 相対時刻(「3 分前」)が開きっぱなしでも古びないよう毎分描き直す
   useEffect(() => {
     const handle = window.setInterval(() => setClockTick((tick) => tick + 1), 60_000);
     return () => window.clearInterval(handle);
@@ -134,7 +132,6 @@ export function SelvagePanel({
     };
   }, [selectedId, onLoad]);
 
-  // 再取得や削除で選択中の版が消えたら選択を畳む
   useEffect(() => {
     if (selectedId === null || state.snapshots === null) return;
     if (!state.snapshots.some((snapshot) => snapshot.id === selectedId)) {
@@ -146,13 +143,11 @@ export function SelvagePanel({
   const deferredContent = useDeferredValue(docContent);
   const diff = useMemo((): DiffComputation | null => {
     if (!loaded) return null;
-    // 「同一」はバイト単位で判定する(行差分は末尾改行だけの違いを拾えない)
     if (loaded.content === deferredContent) return { id: loaded.id, kind: "identical" };
     const sizes = diffSizes(deferredContent, loaded.content);
     if (sizes.tooLarge) {
       return { id: loaded.id, kind: "too-large", oldLines: sizes.oldLines, newLines: sizes.newLines };
     }
-    // old=現在 / new=その版: 緑は戻すと復活する行、赤は戻すと消える行
     const ops = diffLines(deferredContent, loaded.content);
     const stats = diffStats(ops);
     if (stats.added === 0 && stats.removed === 0) return { id: loaded.id, kind: "newline-only" };

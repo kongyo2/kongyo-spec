@@ -19,13 +19,8 @@ export interface DiffStats {
   removed: number;
 }
 
-// 編集距離の探索上限。普通の編集では共通部の剥離後の D は小さく、
-// これを超えるのは全面書き換えに近いケースなので粗い差分へ切り替える
 const MAX_EDIT_DISTANCE = 1200;
-// 折りたたみ行 1 行に満たない節約しかできない省略はしない
 const MIN_FOLD_RUN = 4;
-// 両文書の合計がこれを超えたら diffLines を呼ばない(粗い差分でも全行を
-// オブジェクト化して走査するため、超巨大入力では renderer が固まる)
 export const MAX_DIFF_TOTAL_LINES = 30_000;
 
 function splitLines(text: string): string[] {
@@ -41,7 +36,6 @@ export interface DiffSizes {
   tooLarge: boolean;
 }
 
-/** diffLines を呼ぶ前の軽量な規模チェック。tooLarge なら差分計算を諦めること */
 export function diffSizes(oldText: string, newText: string): DiffSizes {
   const oldLines = countLines(oldText);
   const newLines = countLines(newText);
@@ -52,8 +46,6 @@ function coarseDiff(a: string[], b: string[]): DiffOp[] {
   return [...a.map((text): DiffOp => ({ kind: "del", text })), ...b.map((text): DiffOp => ({ kind: "add", text }))];
 }
 
-// Myers O((N+M)D) 差分。trace は各ステップの k 範囲 [-d, d] のみ保持して
-// メモリを D^2 に抑える。D が上限を超えたら null(呼び出し側でフォールバック)
 function myers(a: string[], b: string[]): DiffOp[] | null {
   const n = a.length;
   const m = b.length;
@@ -92,7 +84,7 @@ function myers(a: string[], b: string[]): DiffOp[] | null {
   let y = m;
   for (let d = trace.length - 1; d > 0; d--) {
     const prev = trace[d]!;
-    const prevOffset = d; // trace[d] は k ∈ [-d, d] を [0, 2d] に詰めたもの
+    const prevOffset = d;
     const k = x - y;
     let prevK: number;
     if (k === -d || (k !== d && prev[prevOffset + k - 1]! < prev[prevOffset + k + 1]!)) {
@@ -124,7 +116,6 @@ function myers(a: string[], b: string[]): DiffOp[] | null {
   return ops;
 }
 
-/** 行単位の差分。old → new へ何が起きたかを上から順の行列で返す */
 export function diffLines(oldText: string, newText: string): DiffOp[] {
   const a = splitLines(oldText);
   const b = splitLines(newText);
@@ -156,7 +147,6 @@ export function diffStats(ops: DiffOp[]): DiffStats {
   return { added, removed };
 }
 
-/** 変更から離れた無変更行を「… n 行 …」へ折りたたみ、文脈 context 行を残す */
 export function foldContext(ops: DiffOp[], context = 3): DiffRow[] {
   const rows: DiffRow[] = [];
   let i = 0;

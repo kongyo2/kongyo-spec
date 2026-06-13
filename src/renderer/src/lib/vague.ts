@@ -1,7 +1,3 @@
-// 検証できない曖昧な形容・副詞の辞書。要求文に現れたら、測定可能な
-// 値・条件への置き換えを促す(Fray のローカル検査と Warp の EARS 検証で共有)。
-// 誤検知がノイズになる語(「安定」「最適化」「多くの」等)は意図して載せていない
-
 const JP_VAGUE_TERMS: readonly string[] = [
   "高速",
   "高性能",
@@ -37,7 +33,6 @@ export interface VagueHit {
   index: number;
 }
 
-/** テキスト中の曖昧語の出現を位置つきで列挙する(出現順) */
 export function findVagueTerms(text: string): VagueHit[] {
   const hits: VagueHit[] = [];
   for (const term of JP_VAGUE_TERMS) {

@@ -36,8 +36,6 @@ function hasApiKey(entry: unknown): entry is { apiKey: string } {
   return typeof entry === "object" && entry !== null && typeof (entry as { apiKey?: unknown }).apiKey === "string";
 }
 
-// 秘匿値(API キー)にだけ暗号変換を当てる。llmProfiles は各プロファイルの apiKey、
-// 単独の秘匿キーはその文字列自体に適用し、それ以外の値はそのまま通す
 function mapSecret(key: SettingKey, value: unknown, transform: (secret: string) => string | null): unknown {
   if (key === "llmProfiles" && Array.isArray(value)) {
     return value.map((entry) => (hasApiKey(entry) ? { ...entry, apiKey: transform(entry.apiKey) } : entry));
@@ -57,9 +55,7 @@ function disableStore(): void {
   if (db === null) return;
   try {
     db.close();
-  } catch {
-    // already unusable; nothing more we can do
-  }
+  } catch {}
   db = null;
 }
 
@@ -79,9 +75,7 @@ export function initSettingsStore(): void {
     if (handle !== null) {
       try {
         handle.close();
-      } catch {
-        // ignore — the handle is already broken
-      }
+      } catch {}
     }
     db = null;
   }
@@ -109,17 +103,12 @@ export function readSettings(): Settings {
             result[key] = parsed.data;
             continue;
           }
-        } catch {
-          // corrupt JSON falls through to the default
-        }
+        } catch {}
       }
       result[key] = DEFAULT_SETTINGS[key];
     }
     return result as Settings;
   } catch (err) {
-    // Returning defaults here is indistinguishable from a real read to callers,
-    // who would then persist those defaults over still-valid on-disk data. Give
-    // up on the store for this session so writes become no-ops instead.
     console.warn("[settingsStore] read failed; disabling persistence for this session:", err);
     disableStore();
     return { ...DEFAULT_SETTINGS };
@@ -128,8 +117,6 @@ export function readSettings(): Settings {
 
 export function writeSetting<K extends SettingKey>(key: K, value: Settings[K]): boolean {
   if (db === null) return false;
-  // 暗号化が使えない環境では、平文キーを書く代わりに(キーを null へ
-  // すり替えて成功を装うのでもなく)書き込み自体を失敗させる
   const carriesSecret =
     (SECRET_KEYS.has(key) && typeof value === "string") ||
     (key === "llmProfiles" && Array.isArray(value) && value.some(hasApiKey));
@@ -149,9 +136,7 @@ export function closeSettingsStore(): void {
   if (db === null) return;
   try {
     db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-  } catch {
-    // best-effort checkpoint; closing still flushes the WAL
-  }
+  } catch {}
   db.close();
   db = null;
 }
