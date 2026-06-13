@@ -20,6 +20,10 @@ function fileFor(id: string): string {
   return join(getSpecsDir(), `${id}.md`);
 }
 
+function assertSafeId(id: string): void {
+  if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -76,7 +80,7 @@ export async function listSpecs(): Promise<SpecMeta[]> {
 }
 
 export async function readSpec(id: string): Promise<SpecDocument> {
-  if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
+  assertSafeId(id);
   const raw = await fs.readFile(fileFor(id), "utf8");
   const parsed = parseFile(raw);
   return { meta: { ...parseFrontmatter(parsed.data), id }, content: parsed.content };
@@ -279,7 +283,7 @@ export async function importSpecs(plan: ImportPlan): Promise<ImportResult> {
 }
 
 export async function saveSpec(id: string, content: string): Promise<SpecMeta> {
-  if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
+  assertSafeId(id);
   return withLock(id, async () => {
     const existing = await readSpec(id);
     if (existing.content !== content) await recordAutoSnapshot(id, existing.content, existing.meta.updatedAt);
@@ -290,7 +294,7 @@ export async function saveSpec(id: string, content: string): Promise<SpecMeta> {
 }
 
 export async function restoreSpec(id: string, snapshotId: string): Promise<RestoreResult> {
-  if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
+  assertSafeId(id);
   return withLock(id, async () => {
     const snapshot = await readSnapshot(id, snapshotId);
     const existing = await readSpec(id);
@@ -302,7 +306,7 @@ export async function restoreSpec(id: string, snapshotId: string): Promise<Resto
 }
 
 export async function renameSpec(id: string, title: string): Promise<SpecMeta> {
-  if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
+  assertSafeId(id);
   return withLock(id, async () => {
     const existing = await readSpec(id);
     const meta: SpecMeta = { ...existing.meta, title, updatedAt: nowIso() };
@@ -312,7 +316,7 @@ export async function renameSpec(id: string, title: string): Promise<SpecMeta> {
 }
 
 export async function deleteSpec(id: string): Promise<void> {
-  if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
+  assertSafeId(id);
   await withLock(id, async () => {
     await fs.rm(fileFor(id), { force: true });
     await fs.rm(assetsDirFor(id), { recursive: true, force: true });
