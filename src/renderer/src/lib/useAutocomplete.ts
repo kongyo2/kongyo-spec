@@ -22,6 +22,7 @@ export interface GhostSuggestion {
 interface UseAutocompleteOptions {
   enabled: boolean;
   modelId: string;
+  docId: string;
   readOnly: boolean;
   value: string;
   onChange: (next: string) => void;
@@ -49,7 +50,7 @@ interface Context {
 }
 
 export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteController {
-  const { enabled, modelId, readOnly, value, onChange, textareaRef } = options;
+  const { enabled, modelId, docId, readOnly, value, onChange, textareaRef } = options;
 
   const [ghost, setGhostState] = useState<GhostSuggestion | null>(null);
   const ghostRef = useRef<GhostSuggestion | null>(null);
@@ -104,7 +105,9 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
       setGhost(null);
       return;
     }
-    const visible = ctx.atEod ? match.text : getFirstLine(match.text);
+    // End of document or a newline-leading suggestion renders in full; otherwise
+    // keep it to the current line so it cannot overlap the text on following lines.
+    const visible = ctx.atEod || match.text.startsWith("\n") ? match.text : getFirstLine(match.text);
     if (visible.length === 0) {
       setGhost(null);
       return;
@@ -152,11 +155,13 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
           text.length > 0
             ? postprocessAutocompleteSuggestion({ suggestion: text, prefix: reqPrefix, suffix: reqSuffix, family })
             : undefined;
-        historyRef.current = updateSuggestionsHistory(historyRef.current, {
-          text: processed ?? "",
-          prefix: reqPrefix,
-          suffix: reqSuffix,
-        });
+        if (processed && processed.length > 0) {
+          historyRef.current = updateSuggestionsHistory(historyRef.current, {
+            text: processed,
+            prefix: reqPrefix,
+            suffix: reqSuffix,
+          });
+        }
         reconcile();
       },
       () => {
@@ -255,6 +260,11 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
     debounceRef.current = INITIAL_DEBOUNCE_DELAY_MS;
     dismiss();
   }, [modelId, dismiss]);
+
+  useEffect(() => {
+    historyRef.current = [];
+    dismiss();
+  }, [docId, dismiss]);
 
   useEffect(() => {
     if (!enabled) {

@@ -86,6 +86,7 @@ class ErrorBackoff {
 const backoff = new ErrorBackoff();
 let fatalNotified = false;
 let inflight: AbortController | null = null;
+let resetGeneration = 0;
 const preferredFimUrl = new Map<string, string>();
 
 export function cancelAutocomplete(): void {
@@ -96,6 +97,11 @@ export function cancelAutocomplete(): void {
 export function resetAutocompleteBackoff(): void {
   backoff.success();
   fatalNotified = false;
+  // A request started before this reset (e.g. with a now-replaced key) must not
+  // re-mark the backoff fatal. Bump the generation and abort any in-flight call.
+  resetGeneration += 1;
+  inflight?.abort();
+  inflight = null;
 }
 
 function fatalNotice(status: number | null): string {
@@ -158,6 +164,7 @@ export async function autocomplete(input: AutocompleteRequest): Promise<Autocomp
   inflight?.abort();
   const controller = new AbortController();
   inflight = controller;
+  const generation = resetGeneration;
   try {
     const settings = readSettings();
     if (!settings.autocompleteEnabled) return { text: "", notice: null };
@@ -187,6 +194,7 @@ export async function autocomplete(input: AutocompleteRequest): Promise<Autocomp
     return { text, notice: null };
   } catch (err) {
     if (controller.signal.aborted) return { text: "", notice: null };
+    if (generation !== resetGeneration) return { text: "", notice: null };
     const kind = backoff.failure(err);
     if (kind === "fatal" && !fatalNotified) {
       fatalNotified = true;

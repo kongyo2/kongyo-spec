@@ -1647,14 +1647,24 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           );
           return;
         }
-        case "autocompleteEnabled":
-          setAutocompleteEnabled(change.value);
-          void window.api.setSetting("autocompleteEnabled", change.value).catch(() => undefined);
+        case "autocompleteEnabled": {
+          const value = change.value;
+          setAutocompleteEnabled(value);
+          persistStoreBacked(
+            () => window.api.setSetting("autocompleteEnabled", value),
+            (settings) => setAutocompleteEnabled(settings.autocompleteEnabled),
+          );
           return;
-        case "autocompleteModelId":
-          setAutocompleteModelId(change.value);
-          void window.api.setSetting("autocompleteModelId", change.value).catch(() => undefined);
+        }
+        case "autocompleteModelId": {
+          const value = change.value;
+          setAutocompleteModelId(value);
+          persistStoreBacked(
+            () => window.api.setSetting("autocompleteModelId", value),
+            (settings) => setAutocompleteModelId(settings.autocompleteModelId),
+          );
           return;
+        }
       }
     },
     [persistStoreBacked],
@@ -1960,6 +1970,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
                   onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}
                   autocompleteEnabled={autocompleteActive}
                   autocompleteModelId={autocompleteModelId}
+                  autocompleteDocId={doc.meta.id}
                   onAutocompleteNotice={setToast}
                 />
               </div>
@@ -2004,6 +2015,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}
               autocompleteEnabled={autocompleteActive}
               autocompleteModelId={autocompleteModelId}
+              autocompleteDocId={doc.meta.id}
               onAutocompleteNotice={setToast}
             />
           )}

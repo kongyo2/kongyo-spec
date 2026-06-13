@@ -64,6 +64,7 @@ interface EditorProps {
   readOnly?: boolean;
   autocompleteEnabled?: boolean;
   autocompleteModelId?: string;
+  autocompleteDocId?: string;
   onAutocompleteNotice?: (message: string) => void;
 }
 
@@ -78,6 +79,7 @@ export function Editor({
   readOnly,
   autocompleteEnabled,
   autocompleteModelId,
+  autocompleteDocId,
   onAutocompleteNotice,
 }: EditorProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -98,6 +100,7 @@ export function Editor({
   } = useAutocomplete({
     enabled: autocompleteEnabled === true && readOnly !== true,
     modelId: autocompleteModelId ?? "",
+    docId: autocompleteDocId ?? "",
     readOnly: readOnly === true,
     value,
     onChange,
