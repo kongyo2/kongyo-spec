@@ -29,13 +29,14 @@ const FATAL_RECOVER_COOLDOWN_MS = 300_000;
 
 function classify(error: unknown): ErrorKind {
   if (error instanceof FimHttpError) {
-    const status = error.status;
-    if (status === 401 || status === 402 || status === 403) return "fatal";
-    if (status === 429 || status >= 500) return "retriable";
-    return "transient";
+    // Only 401 (no/invalid key) and 402 (no credit) need a settings change to fix.
+    // Everything else — 403 guardrail or forbidden key, 404 missing model, 400 bad
+    // request, 429 rate limit, 5xx server — gets exponential backoff + circuit
+    // breaker so a persistent failure stops spamming without permanently disabling
+    // the session, and a content/context-specific block recovers on its own.
+    return error.status === 401 || error.status === 402 ? "fatal" : "retriable";
   }
-  // Non-HTTP failures reaching here are transport/timeout errors (user aborts are
-  // filtered out before backoff), so engage the circuit breaker instead of spamming.
+  // Transport/timeout failures (user aborts are filtered out before backoff).
   return "retriable";
 }
 
@@ -76,12 +77,10 @@ class ErrorBackoff {
   blocked(): boolean {
     if (this.fatal) {
       // 401 (missing/invalid key) stays blocked until a settings change resets it.
-      // 402 (no credit) and 403 (rejected key OR a content/guardrail block) can both
-      // recover without a settings change, so probe after a cooldown. Clearing the
-      // fatal state before the probe lets a later retriable failure record normal
-      // backoff instead of being shadowed by the stale fatal flag.
-      const recoverable = this.fatalStatus === 402 || this.fatalStatus === 403;
-      if (!recoverable) return true;
+      // 402 (no credit) recovers once the user tops up, so probe after a cooldown.
+      // Clearing the fatal state before the probe lets a later retriable failure
+      // record normal backoff instead of being shadowed by the stale fatal flag.
+      if (this.fatalStatus !== 402) return true;
       if (Date.now() - this.fatalAt < FATAL_RECOVER_COOLDOWN_MS) return true;
       this.fatal = false;
       this.fatalStatus = null;
@@ -183,11 +182,16 @@ async function requestFim(
       response = attempt;
       break;
     }
+    // Failing over: release the discarded body so undici frees the connection.
+    void attempt.body?.cancel().catch(() => undefined);
     preferredFimUrl.delete(model.providerId);
   }
 
   if (response === null) throw new FimHttpError(502);
-  if (!response.ok) throw new FimHttpError(response.status);
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new FimHttpError(response.status);
+  }
 
   const payload = (await response.json()) as {
     choices?: { text?: unknown; message?: { content?: unknown } }[];

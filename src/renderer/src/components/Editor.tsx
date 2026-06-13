@@ -235,7 +235,7 @@ export function Editor({
   };
 
   return (
-    <div className="editor" data-theme={theme}>
+    <div className={`editor${ghost?.reflow ? " reflow" : ""}`} data-theme={theme}>
       <div
         className="editor-backdrop"
         ref={backdropRef}

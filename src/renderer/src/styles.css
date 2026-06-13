@@ -1022,11 +1022,15 @@ button:focus-visible {
   color: var(--fg);
 }
 
-.editor-ghost.reflow .editor-ghost-text,
-.editor-ghost.reflow .editor-ghost-suffix {
-  background: var(--editor-bg);
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
+/* Reflow mode previews the post-accept layout: hide the highlighted backdrop and
+   render the whole document plainly in the ghost layer (prefix + dim suggestion +
+   reflowed suffix) so the moved suffix never overlaps the suggestion. */
+.editor-ghost.reflow {
+  color: var(--fg);
+}
+
+.editor.reflow .editor-backdrop {
+  visibility: hidden;
 }
 
 .editor-backdrop pre.shiki,

@@ -87,9 +87,9 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
       caret,
       atEol: caret === doc.length || doc[caret] === "\n",
       atEod: caret === doc.length,
-      // Full prefix so the suggestion cache keeps matching past the IPC payload
-      // cap; only the bytes sent to the provider are truncated (in fireRequest).
-      prefix: doc.slice(0, caret),
+      // Bounded prefix window: caps history memory and keeps findMatchingSuggestion
+      // fast. Cache reuse degrades only for carets very deep in a huge document.
+      prefix: doc.slice(Math.max(0, caret - MAX_AUTOCOMPLETE_PREFIX_CHARS), caret),
       suffix: doc.slice(caret, caret + MAX_AUTOCOMPLETE_SUFFIX_CHARS),
     };
   }, [textareaRef]);
@@ -147,7 +147,7 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
     const reqPrefix = ctx.prefix;
     const reqSuffix = ctx.suffix;
 
-    void window.api.autocomplete({ prefix: reqPrefix.slice(-MAX_AUTOCOMPLETE_PREFIX_CHARS), suffix: reqSuffix }).then(
+    void window.api.autocomplete({ prefix: reqPrefix, suffix: reqSuffix }).then(
       ({ text, notice }) => {
         if (token !== tokenRef.current) return;
         inflightRef.current = false;
