@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_AUTOCOMPLETE_MODEL_ID, validAutocompleteModelId } from "../autocomplete";
 
 export const ThemePreferenceSchema = z.enum(["system", "light", "dark"]);
 export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
@@ -93,6 +94,8 @@ export const LEGACY_GEMINI_PROFILE_ID = "gemini-default";
 export const MAX_LLM_PROFILES = 16;
 export const MAX_LLM_FALLBACKS = 8;
 
+const AutocompleteModelIdSchema = z.string().min(1).max(120);
+
 export const EDITOR_FONT_SIZE = { min: 11, max: 20, default: 13 } as const;
 export const PREVIEW_FONT_SIZE = { min: 13, max: 21, default: 15 } as const;
 
@@ -134,6 +137,10 @@ export const SettingsSchema = z.object({
   llmProfiles: z.array(LlmProfileSchema).max(MAX_LLM_PROFILES).default([]),
   llmMainProfileId: ProfileIdSchema.nullable().default(null),
   llmFallbackProfileIds: z.array(ProfileIdSchema).max(MAX_LLM_FALLBACKS).default([]),
+  mistralApiKey: ApiKeySchema.max(512).nullable().default(null),
+  inceptionApiKey: ApiKeySchema.max(512).nullable().default(null),
+  autocompleteEnabled: z.boolean().default(false),
+  autocompleteModelId: AutocompleteModelIdSchema.default(DEFAULT_AUTOCOMPLETE_MODEL_ID),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export type SettingKey = keyof Settings;
@@ -142,16 +149,20 @@ export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});
 
 export type RendererLlmProfile = Omit<LlmProfile, "apiKey"> & { apiKeySet: boolean };
 
-export type RendererSettings = Omit<Settings, "geminiApiKey" | "llmProfiles"> & {
+export type RendererSettings = Omit<Settings, "geminiApiKey" | "mistralApiKey" | "inceptionApiKey" | "llmProfiles"> & {
   geminiApiKeySet: boolean;
+  mistralApiKeySet: boolean;
+  inceptionApiKeySet: boolean;
   llmProfiles: RendererLlmProfile[];
 };
 
 export function toRendererSettings(settings: Settings): RendererSettings {
-  const { geminiApiKey, llmProfiles, ...rest } = settings;
+  const { geminiApiKey, mistralApiKey, inceptionApiKey, llmProfiles, ...rest } = settings;
   return {
     ...rest,
     geminiApiKeySet: geminiApiKey !== null,
+    mistralApiKeySet: mistralApiKey !== null,
+    inceptionApiKeySet: inceptionApiKey !== null,
     llmProfiles: llmProfiles.map(({ apiKey, ...profile }) => ({ ...profile, apiKeySet: apiKey !== null })),
   };
 }
@@ -272,6 +283,13 @@ export const SetSettingInputSchema = z.discriminatedUnion("key", [
   z.object({ key: z.literal("windowBounds"), value: WindowBoundsSchema.nullable() }),
   z.object({ key: z.literal("geminiApiKey"), value: ApiKeySchema.max(512).nullable() }),
   z.object({ key: z.literal("geminiModel"), value: ModelNameSchema }),
+  z.object({ key: z.literal("mistralApiKey"), value: ApiKeySchema.max(512).nullable() }),
+  z.object({ key: z.literal("inceptionApiKey"), value: ApiKeySchema.max(512).nullable() }),
+  z.object({ key: z.literal("autocompleteEnabled"), value: z.boolean() }),
+  z.object({
+    key: z.literal("autocompleteModelId"),
+    value: AutocompleteModelIdSchema.refine(validAutocompleteModelId, "未知のオートコンプリートモデルです"),
+  }),
 ]);
 export type SetSettingInput = z.infer<typeof SetSettingInputSchema>;
 export function parseSetSettingInput(raw: unknown): SetSettingInput {

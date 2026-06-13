@@ -3,6 +3,7 @@ import type { Highlighter } from "shiki";
 import { findPendingDecisions, type PendingRange } from "../lib/pending";
 import { getShikiHighlighter, SHIKI_THEMES } from "../lib/shiki";
 import type { ResolvedTheme } from "../lib/theme";
+import { useAutocomplete } from "../lib/useAutocomplete";
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -61,6 +62,9 @@ interface EditorProps {
   onSelectionChange?: (start: number, end: number) => void;
   onScrollRatio?: (ratio: number) => void;
   readOnly?: boolean;
+  autocompleteEnabled?: boolean;
+  autocompleteModelId?: string;
+  onAutocompleteNotice?: (message: string) => void;
 }
 
 export function Editor({
@@ -72,12 +76,34 @@ export function Editor({
   onSelectionChange,
   onScrollRatio,
   readOnly,
+  autocompleteEnabled,
+  autocompleteModelId,
+  onAutocompleteNotice,
 }: EditorProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
   const suppressSyncRef = useRef(false);
   const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
   const [html, setHtml] = useState<string>(() => plainCodeHtml(value));
+
+  const {
+    ghost,
+    handleInput,
+    handleKeyDown: autocompleteKeyDown,
+    handleBlur: dismissAutocomplete,
+    handlePointerDown,
+    handleCompositionStart,
+    handleCompositionEnd,
+  } = useAutocomplete({
+    enabled: autocompleteEnabled === true && readOnly !== true,
+    modelId: autocompleteModelId ?? "",
+    readOnly: readOnly === true,
+    value,
+    onChange,
+    textareaRef,
+    onNotice: onAutocompleteNotice,
+  });
 
   useEffect(() => {
     let active = true;
@@ -116,6 +142,11 @@ export function Editor({
     if (!textarea || !backdrop) return;
     backdrop.scrollTop = textarea.scrollTop;
     backdrop.scrollLeft = textarea.scrollLeft;
+    const ghostLayer = ghostRef.current;
+    if (ghostLayer) {
+      ghostLayer.scrollTop = textarea.scrollTop;
+      ghostLayer.scrollLeft = textarea.scrollLeft;
+    }
     if (suppressSyncRef.current) {
       suppressSyncRef.current = false;
       return;
@@ -130,6 +161,7 @@ export function Editor({
     if (!jump) return;
     const textarea = textareaRef.current;
     if (!textarea) return;
+    dismissAutocomplete();
     const end = Math.min(jump.end, textarea.value.length);
     const start = Math.min(jump.start, end);
     const full = textarea.value;
@@ -151,10 +183,20 @@ export function Editor({
       backdrop.scrollLeft = textarea.scrollLeft;
     }
     onJumpHandled();
-  }, [jump, onJumpHandled]);
+  }, [jump, onJumpHandled, dismissAutocomplete]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    const ghostLayer = ghostRef.current;
+    if (ghost && textarea && ghostLayer) {
+      ghostLayer.scrollTop = textarea.scrollTop;
+      ghostLayer.scrollLeft = textarea.scrollLeft;
+    }
+  }, [ghost]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (readOnly === true) return;
+    if (autocompleteKeyDown(event)) return;
     if (event.key !== "Tab") return;
     event.preventDefault();
     const textarea = event.currentTarget;
@@ -197,16 +239,29 @@ export function Editor({
         aria-hidden="true"
         dangerouslySetInnerHTML={{ __html: html }}
       />
+      {ghost ? (
+        <div className="editor-ghost" ref={ghostRef} aria-hidden="true">
+          {value.slice(0, ghost.anchor)}
+          <span className="editor-ghost-text">{ghost.text}</span>
+        </div>
+      ) : null}
       <textarea
         ref={textareaRef}
         className="editor-input"
         value={value}
         spellCheck={false}
         readOnly={readOnly === true}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          handleInput();
+        }}
         onScroll={syncScroll}
         onKeyDown={handleKeyDown}
         onSelect={(event) => onSelectionChange?.(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
+        onBlur={dismissAutocomplete}
+        onMouseDown={handlePointerDown}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         aria-label="Markdown ソースエディタ"
       />
     </div>

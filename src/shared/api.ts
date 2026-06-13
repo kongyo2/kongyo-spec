@@ -1,3 +1,4 @@
+import type { AutocompleteRequest, AutocompleteResponse } from "./autocomplete";
 import type {
   AssistAudit,
   AssistKind,
@@ -68,6 +69,8 @@ export interface KongyoApi {
   warpSpec(input: WarpSpecInput): Promise<AssistWarp>;
   tailorSpec(content: string): Promise<AssistTailor>;
   cancelAssist(kind: AssistKind): Promise<void>;
+  autocomplete(input: AutocompleteRequest): Promise<AutocompleteResponse>;
+  cancelAutocomplete(): Promise<void>;
   openExternal(url: string): Promise<void>;
   onFlushBeforeClose(callback: () => void): () => void;
   notifyFlushComplete(): void;

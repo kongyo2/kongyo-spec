@@ -15,6 +15,7 @@ import {
   type ToastDuration,
   type UpsertLlmProfileInput,
 } from "@shared/schemas/settings";
+import { type AutocompleteProviderId, getAutocompleteModelById } from "@shared/autocomplete";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import {
   MAX_WARP_MATERIAL_CHARS,
@@ -156,6 +157,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const selvageBusyRef = useRef(false);
   const [editorJump, setEditorJump] = useState<{ start: number; end: number } | null>(null);
   const [aiKeySet, setAiKeySet] = useState(initialSettings.geminiApiKeySet);
+  const [autocompleteEnabled, setAutocompleteEnabled] = useState(initialSettings.autocompleteEnabled);
+  const [autocompleteModelId, setAutocompleteModelId] = useState(initialSettings.autocompleteModelId);
+  const [mistralKeySet, setMistralKeySet] = useState(initialSettings.mistralApiKeySet);
+  const [inceptionKeySet, setInceptionKeySet] = useState(initialSettings.inceptionApiKeySet);
   const [mermaidRenderer, setMermaidRenderer] = useState<MermaidRenderer>(initialSettings.mermaidRenderer);
   const [llm, setLlm] = useState(() => ({
     llmProfiles: initialSettings.llmProfiles,
@@ -211,6 +216,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const aiReady = [llmRouting.main, ...llmRouting.fallbacks].some(
     (profile) => profile.provider !== "gemini" || profile.apiKeySet || aiKeySet,
   );
+
+  const autocompleteProviderId = getAutocompleteModelById(autocompleteModelId).providerId;
+  const autocompleteKeySet = autocompleteProviderId === "mistral" ? mistralKeySet : inceptionKeySet;
+  const autocompleteActive = autocompleteEnabled && autocompleteKeySet;
 
   const applyLlmSettings = useCallback((settings: RendererSettings): void => {
     setLlm({
@@ -1638,6 +1647,14 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           );
           return;
         }
+        case "autocompleteEnabled":
+          setAutocompleteEnabled(change.value);
+          void window.api.setSetting("autocompleteEnabled", change.value).catch(() => undefined);
+          return;
+        case "autocompleteModelId":
+          setAutocompleteModelId(change.value);
+          void window.api.setSetting("autocompleteModelId", change.value).catch(() => undefined);
+          return;
       }
     },
     [persistStoreBacked],
@@ -1709,6 +1726,27 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     }
   }, []);
 
+  const handleSaveAutocompleteKey = useCallback(
+    async (provider: AutocompleteProviderId, key: string | null): Promise<boolean> => {
+      const settingKey = provider === "mistral" ? "mistralApiKey" : "inceptionApiKey";
+      try {
+        const persisted = await window.api.setSetting(settingKey, key);
+        if (!persisted) {
+          setToast("設定ストアが利用できないため保存できませんでした");
+          return false;
+        }
+        if (provider === "mistral") setMistralKeySet(key !== null);
+        else setInceptionKeySet(key !== null);
+        setToast(key !== null ? "オートコンプリートの API キーを保存しました" : "API キーを削除しました");
+        return true;
+      } catch (err) {
+        setToast(ipcErrorMessage(err));
+        return false;
+      }
+    },
+    [],
+  );
+
   const handleResetSettings = useCallback((): void => {
     setThemePreference(DEFAULT_SETTINGS.theme);
     const defaults: AppearanceSettings = {
@@ -1731,6 +1769,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setAutoSnapshotMinutes(DEFAULT_SETTINGS.autoSnapshotMinutes);
     setMaxSnapshotsPerSpec(DEFAULT_SETTINGS.maxSnapshotsPerSpec);
     setAssistTimeoutSec(DEFAULT_SETTINGS.assistTimeoutSec);
+    setAutocompleteEnabled(DEFAULT_SETTINGS.autocompleteEnabled);
+    setAutocompleteModelId(DEFAULT_SETTINGS.autocompleteModelId);
     persistStoreBacked(
       () => window.api.setSetting("restoreLastSpec", DEFAULT_SETTINGS.restoreLastSpec),
       (settings) => setRestoreLastSpec(settings.restoreLastSpec),
@@ -1760,6 +1800,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("toastDuration", DEFAULT_SETTINGS.toastDuration).catch(() => undefined);
     void window.api.setSetting("frayAutoCheck", DEFAULT_SETTINGS.frayAutoCheck).catch(() => undefined);
     void window.api.setSetting("frayKinds", DEFAULT_SETTINGS.frayKinds).catch(() => undefined);
+    void window.api.setSetting("autocompleteEnabled", DEFAULT_SETTINGS.autocompleteEnabled).catch(() => undefined);
+    void window.api.setSetting("autocompleteModelId", DEFAULT_SETTINGS.autocompleteModelId).catch(() => undefined);
     const seq = (routingSeqRef.current += 1);
     routingQueueRef.current = routingQueueRef.current.then(() =>
       window.api.resetLlmRouting().then(
@@ -1788,6 +1830,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     mainId: llmRouting.main.id,
     fallbackIds: llmRouting.fallbacks.map((profile) => profile.id),
     storedCount: llm.llmProfiles.length,
+    autocompleteEnabled,
+    autocompleteModelId,
+    mistralApiKeySet: mistralKeySet,
+    inceptionApiKeySet: inceptionKeySet,
   };
 
   return (
@@ -1912,6 +1958,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
                   onSelectionChange={handleEditorSelection}
                   onScrollRatio={handleEditorScrollRatio}
                   onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}
+                  autocompleteEnabled={autocompleteActive}
+                  autocompleteModelId={autocompleteModelId}
+                  onAutocompleteNotice={setToast}
                 />
               </div>
               <div
@@ -1953,6 +2002,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               onJumpHandled={() => setEditorJump(null)}
               onSelectionChange={handleEditorSelection}
               onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}
+              autocompleteEnabled={autocompleteActive}
+              autocompleteModelId={autocompleteModelId}
+              onAutocompleteNotice={setToast}
             />
           )}
         </div>
@@ -2082,6 +2134,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           llm={llmSettings}
           onChange={handleSettingChange}
           onSaveApiKey={handleSaveApiKey}
+          onSaveAutocompleteKey={handleSaveAutocompleteKey}
           onUpsertProfile={handleUpsertProfile}
           onDeleteProfile={handleDeleteProfile}
           onSetRouting={handleSetRouting}
