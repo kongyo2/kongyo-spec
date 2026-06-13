@@ -1,9 +1,13 @@
 import type { TailorPlan, TailorTask } from "@shared/schemas/assist";
-import { splitPages } from "./pages";
+import { splitPages, type VirtualPage } from "./pages";
 import { findPendingDecisions } from "./pending";
 import { lineStartOffset } from "./text";
 
 export const PLAN_HEADING = "実装計画";
+
+function isPlanPage(page: VirtualPage): boolean {
+  return page.depth === 2 && page.title === PLAN_HEADING;
+}
 
 const SIZE_LABEL: Record<TailorTask["size"], string> = { S: "S", M: "M", L: "L" };
 
@@ -84,7 +88,7 @@ export function mergePlanIntoContent(
   section: string,
 ): { next: string; start: number; end: number; replaced: boolean } {
   const pages = splitPages(content);
-  const index = pages.findIndex((page) => page.depth === 2 && page.title === PLAN_HEADING);
+  const index = pages.findIndex(isPlanPage);
   if (index !== -1) {
     const page = pages[index]!;
     const start = lineStartOffset(content, page.startLine);
@@ -115,7 +119,7 @@ export function buildHandoffPrompt(input: HandoffInput): string {
   const pending = findPendingDecisions(input.content).map((range) =>
     input.content.slice(range.start, range.end).replace(/\s*\n\s*/g, " "),
   );
-  const hasPlanInContent = splitPages(input.content).some((page) => page.depth === 2 && page.title === PLAN_HEADING);
+  const hasPlanInContent = splitPages(input.content).some(isPlanPage);
   const plan = !hasPlanInContent && input.planSection !== null ? input.planSection : null;
 
   const parts: string[] = [

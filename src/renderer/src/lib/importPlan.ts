@@ -7,7 +7,7 @@ import { parseFile } from "@shared/frontmatter";
 import type { ImportAssetOp, ImportPlan, ImportSpecEntry } from "@shared/api";
 import { deriveTitle, MAX_ASSET_OPS, RESERVED_FRONTMATTER_KEYS } from "./import";
 import { srcsetUrlTokens } from "./srcset";
-import { applyReplacements } from "./text";
+import { applyReplacements, type TextReplacement } from "./text";
 
 export interface DroppedFile {
   name: string;
@@ -33,12 +33,6 @@ interface Prepared {
   title: string;
   body: string;
   extra: boolean;
-}
-
-interface Replacement {
-  start: number;
-  end: number;
-  value: string;
 }
 
 interface AssetDest {
@@ -365,14 +359,10 @@ function rawAssetUrl(prepared: Prepared, rawValue: string, naming: AssetNaming, 
 }
 
 function rawSrcset(prepared: Prepared, rawValue: string, naming: AssetNaming, ctx: BuildCtx): string | null {
-  const replacements: Replacement[] = [];
+  const replacements: TextReplacement[] = [];
   for (const token of srcsetUrlTokens(rawValue)) {
-    const { path, suffix } = splitSuffix(decodeEntities(token.url));
-    const decoded = decodePath(path);
-    if (isExternalUrl(path) || MD_EXT.test(decoded) || path.length === 0) continue;
-    const dest = assetDestFor(prepared, path, naming, ctx);
-    if (!dest) continue;
-    replacements.push({ start: token.start, end: token.end, value: htmlAttrEscape(`${dest.urlDest}${suffix}`) });
+    const value = rawAssetUrl(prepared, token.url, naming, ctx);
+    if (value !== null) replacements.push({ start: token.start, end: token.end, value });
   }
   return replacements.length === 0 ? null : applyReplacements(rawValue, replacements);
 }
@@ -383,12 +373,12 @@ function rawLinkUrl(prepared: Prepared, rawValue: string, maps: LinkMaps): strin
   return target ? htmlAttrEscape(`${target}.md${suffix}`) : null;
 }
 
-function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ctx: BuildCtx): Replacement[] {
+function rewriteRawHtml(prepared: Prepared, node: Node, naming: AssetNaming, ctx: BuildCtx): TextReplacement[] {
   const start = offsetOf(node, "start");
   const raw = (node as { value?: unknown }).value;
   const value = typeof raw === "string" ? raw : "";
   if (start === null || value.length === 0 || prepared.file.path.length === 0) return [];
-  const replacements: Replacement[] = [];
+  const replacements: TextReplacement[] = [];
 
   for (const tag of value.matchAll(/<img\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
     const tagStart = start + (tag.index ?? 0);
@@ -433,7 +423,7 @@ function rewriteBody(prepared: Prepared, ctx: BuildCtx): string {
     if (typeof identifier === "string") imageRefIds.add(identifier.toLowerCase());
   });
 
-  const replacements: Replacement[] = [];
+  const replacements: TextReplacement[] = [];
   const naming: AssetNaming = { destByUrl: new Map(), usedNames: new Set() };
 
   visit(tree, (node: Node) => {
