@@ -84,12 +84,16 @@ export const LINE_HEIGHTS: readonly LineHeightPreset[] = [
   { id: "relaxed", label: "ゆったり", editor: 2.0, preview: 1.95 },
 ];
 
+function presetById<T extends { id: string }>(presets: readonly T[], id: string, fallback: T): T {
+  return presets.find((preset) => preset.id === id) ?? fallback;
+}
+
 function lineHeightPreset(id: LineHeight): LineHeightPreset {
-  return LINE_HEIGHTS.find((preset) => preset.id === id) ?? LINE_HEIGHTS[1]!;
+  return presetById(LINE_HEIGHTS, id, LINE_HEIGHTS[1]!);
 }
 
 function accentPreset(id: Accent): AccentPreset {
-  return ACCENTS.find((preset) => preset.id === id) ?? ACCENTS[0]!;
+  return presetById(ACCENTS, id, ACCENTS[0]!);
 }
 
 const ACCENT_VARS = [
@@ -126,7 +130,7 @@ function applyAccent(root: HTMLElement, accent: Accent, resolvedTheme: ResolvedT
 }
 
 function readingWidthPx(width: ReadingWidth): number {
-  return READING_WIDTHS.find((preset) => preset.id === width)?.px ?? 820;
+  return presetById(READING_WIDTHS, width, READING_WIDTHS[1]!).px;
 }
 
 export function applyAppearance(appearance: AppearanceSettings, resolvedTheme: ResolvedTheme): void {

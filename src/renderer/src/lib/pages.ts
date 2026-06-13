@@ -32,8 +32,21 @@ export function slugify(input: string): string {
 
 const parser = unified().use(remarkBase);
 
+function parseMarkdown(markdown: string): MdastRoot {
+  return parser.parse(markdown) as MdastRoot;
+}
+
+const HTML_BLANK_RE = /^(?:\s|<!--[\s\S]*?-->)*$/;
+
+// 目に見える本文を生むノードか。リンク定義・脚注定義と、空白やコメントだけの生 HTML は数えない
+function isVisibleNode(node: MdastRoot["children"][number]): boolean {
+  if (node.type === "definition" || node.type === "footnoteDefinition") return false;
+  if (node.type === "html") return !HTML_BLANK_RE.test(node.value);
+  return true;
+}
+
 function findBoundaries(markdown: string): Boundary[] {
-  const tree = parser.parse(markdown) as MdastRoot;
+  const tree = parseMarkdown(markdown);
   const boundaries: Boundary[] = [];
   for (const node of tree.children) {
     if (node.type !== "heading") continue;
@@ -97,7 +110,7 @@ export function splitPages(markdown: string): VirtualPage[] {
 }
 
 export function collectLinkDefinitions(markdown: string): string {
-  const tree = parser.parse(markdown) as MdastRoot;
+  const tree = parseMarkdown(markdown);
   const seen = new Set<string>();
   const blocks: string[] = [];
   visit(tree, (node) => {
@@ -114,21 +127,12 @@ export function collectLinkDefinitions(markdown: string): string {
 
 function hasVisibleContent(markdown: string): boolean {
   if (markdown.trim().length === 0) return false;
-  const tree = parser.parse(markdown) as MdastRoot;
-  return tree.children.some((node) => {
-    if (node.type === "definition" || node.type === "footnoteDefinition") return false;
-    if (node.type === "html") return !/^(?:\s|<!--[\s\S]*?-->)*$/.test(node.value);
-    return true;
-  });
+  return parseMarkdown(markdown).children.some(isVisibleNode);
 }
 
 /** 先頭の見出しを除いて、目に見える本文があるか */
 function hasBodyContent(section: string): boolean {
-  const tree = parser.parse(section) as MdastRoot;
-  return tree.children.some((node, index) => {
-    if (index === 0 && node.type === "heading") return false;
-    if (node.type === "definition" || node.type === "footnoteDefinition") return false;
-    if (node.type === "html") return !/^(?:\s|<!--[\s\S]*?-->)*$/.test(node.value);
-    return true;
-  });
+  return parseMarkdown(section).children.some(
+    (node, index) => !(index === 0 && node.type === "heading") && isVisibleNode(node),
+  );
 }

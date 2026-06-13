@@ -11,6 +11,7 @@ import { mdastToHast, remarkBase } from "./remark";
 import { PENDING_DECISION_RE } from "./pending";
 import { getShikiHighlighter, SHIKI_THEMES } from "./shiki";
 import { srcsetUrlTokens } from "./srcset";
+import { applyReplacements, type TextReplacement } from "./text";
 
 function rehypeMermaid() {
   return (tree: Root): void => {
@@ -75,18 +76,12 @@ function toSpecAssetUrl(value: string): string | null {
 }
 
 function rewriteSrcsetAssets(value: string): string {
-  const replacements: { start: number; end: number; value: string }[] = [];
+  const replacements: TextReplacement[] = [];
   for (const token of srcsetUrlTokens(value)) {
     const resolved = toSpecAssetUrl(token.url);
     if (resolved) replacements.push({ start: token.start, end: token.end, value: resolved });
   }
-  if (replacements.length === 0) return value;
-  replacements.sort((a, b) => b.start - a.start);
-  let out = value;
-  for (const replacement of replacements) {
-    out = out.slice(0, replacement.start) + replacement.value + out.slice(replacement.end);
-  }
-  return out;
+  return applyReplacements(value, replacements);
 }
 
 function rehypeSpecAssets() {

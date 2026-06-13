@@ -1,3 +1,5 @@
+import { eachLine } from "./text";
+
 export const PENDING_DECISION_RE = /【未決定[^】]*】/g;
 
 export interface PendingRange {
@@ -19,22 +21,20 @@ export interface FenceSpan extends PendingRange {
 export function fencedCodeSpans(content: string): FenceSpan[] {
   const spans: FenceSpan[] = [];
   let fence: { char: string; length: number; start: number } | null = null;
-  let offset = 0;
-  for (const line of content.split("\n")) {
-    const match = line.match(FENCE_LINE_RE);
+  for (const { text, start, end } of eachLine(content)) {
+    const match = text.match(FENCE_LINE_RE);
     if (match) {
       const marker = match[1]!;
       if (fence === null) {
         // CommonMark: バッククォートフェンスの info 文字列にバッククォートは置けない
         if (marker[0] !== "`" || !match[2]!.includes("`")) {
-          fence = { char: marker[0]!, length: marker.length, start: offset };
+          fence = { char: marker[0]!, length: marker.length, start };
         }
       } else if (marker[0] === fence.char && marker.length >= fence.length && match[2]!.trim().length === 0) {
-        spans.push({ start: fence.start, end: offset + line.length, closed: true });
+        spans.push({ start: fence.start, end, closed: true });
         fence = null;
       }
     }
-    offset += line.length + 1;
   }
   if (fence !== null) spans.push({ start: fence.start, end: content.length, closed: false });
   return spans;
@@ -89,34 +89,30 @@ const LIST_ITEM_LINE_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
 
 function indentedCodeSpans(content: string, blocked: PendingRange[]): PendingRange[] {
   const spans: PendingRange[] = [];
-  let offset = 0;
   let previousBlank = true;
   // リスト項目直後の 4 スペースはリストの継続であってコードではない
   let previousNonBlankIsListItem = false;
   let run: PendingRange | null = null;
-  for (const line of content.split("\n")) {
-    const lineStart = offset;
-    const lineEnd = offset + line.length;
-    const inFence = blocked.some((span) => spanContains(span, lineStart));
-    const blank = line.trim().length === 0;
+  for (const { text, start, end } of eachLine(content)) {
+    const inFence = blocked.some((span) => spanContains(span, start));
+    const blank = text.trim().length === 0;
     if (!blank) {
       const codeLine =
         !inFence &&
-        INDENTED_CODE_LINE_RE.test(line) &&
+        INDENTED_CODE_LINE_RE.test(text) &&
         (run !== null || (previousBlank && !previousNonBlankIsListItem));
       if (codeLine) {
-        if (run === null) run = { start: lineStart, end: lineEnd };
-        else run.end = lineEnd;
+        if (run === null) run = { start, end };
+        else run.end = end;
       } else {
         if (run !== null) {
           spans.push(run);
           run = null;
         }
-        previousNonBlankIsListItem = !inFence && LIST_ITEM_LINE_RE.test(line);
+        previousNonBlankIsListItem = !inFence && LIST_ITEM_LINE_RE.test(text);
       }
     }
     previousBlank = blank;
-    offset = lineEnd + 1;
   }
   if (run !== null) spans.push(run);
   return spans;
