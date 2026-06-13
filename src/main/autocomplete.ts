@@ -28,11 +28,15 @@ const CIRCUIT_COOLDOWN_MS = 300_000;
 const FATAL_RECOVER_COOLDOWN_MS = 300_000;
 
 function classify(error: unknown): ErrorKind {
-  const status = error instanceof FimHttpError ? error.status : null;
-  if (status === null) return "transient";
-  if (status === 401 || status === 402 || status === 403) return "fatal";
-  if (status === 429 || status >= 500) return "retriable";
-  return "transient";
+  if (error instanceof FimHttpError) {
+    const status = error.status;
+    if (status === 401 || status === 402 || status === 403) return "fatal";
+    if (status === 429 || status >= 500) return "retriable";
+    return "transient";
+  }
+  // Non-HTTP failures reaching here are transport/timeout errors (user aborts are
+  // filtered out before backoff), so engage the circuit breaker instead of spamming.
+  return "retriable";
 }
 
 class ErrorBackoff {
@@ -71,10 +75,16 @@ class ErrorBackoff {
 
   blocked(): boolean {
     if (this.fatal) {
-      // 402 (insufficient credit) clears once the user tops up at the provider —
-      // allow a probe after a cooldown instead of blocking the session forever.
       // 401/403 (bad key) stay blocked until a settings change resets the backoff.
-      return this.fatalStatus !== 402 || Date.now() - this.fatalAt < FATAL_RECOVER_COOLDOWN_MS;
+      if (this.fatalStatus !== 402) return true;
+      // 402 (insufficient credit) clears once the user tops up at the provider.
+      // Keep blocking until the cooldown elapses, then clear the fatal state and
+      // fall through so a probe goes out and any later retriable failure records
+      // normal backoff instead of being shadowed by the stale 402.
+      if (Date.now() - this.fatalAt < FATAL_RECOVER_COOLDOWN_MS) return true;
+      this.fatal = false;
+      this.fatalStatus = null;
+      this.fatalAt = 0;
     }
     if (this.opened > 0) {
       if (Date.now() - this.opened < CIRCUIT_COOLDOWN_MS) return true;
@@ -163,8 +173,10 @@ async function requestFim(
       response = attempt;
       break;
     }
-    const isEndpointMismatch = attempt.status === 401 || attempt.status === 403;
-    if (!isEndpointMismatch || isLast) {
+    // Endpoint-specific (401/403) or server (5xx) failures: try the next URL; a
+    // healthy second endpoint can still serve. Other statuses (400/404/429) stop.
+    const shouldTryNextEndpoint = attempt.status === 401 || attempt.status === 403 || attempt.status >= 500;
+    if (!shouldTryNextEndpoint || isLast) {
       response = attempt;
       break;
     }
