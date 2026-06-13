@@ -20,6 +20,12 @@ import { readSettings } from "./settingsStore";
 
 const MAX_SPEC_CHARS = 240_000;
 
+// 仕様書本文の事前検査。空・過大は機能ごとの文言で弾く(約 24 万字が上限)
+function assertSpecSize(content: string, emptyMessage: string, tooLargeMessage: string): void {
+  if (content.trim().length === 0) throw new Error(emptyMessage);
+  if (content.length > MAX_SPEC_CHARS) throw new Error(tooLargeMessage);
+}
+
 const SYSTEM_PROMPT = `あなたは仕様書(spec)の専門レビュアー「Lens」です。AI 駆動開発のために人間が書いた仕様書を、実装 AI に渡す前に点検します。
 
 前提となる思想:
@@ -353,8 +359,11 @@ async function runStructured<T>(kind: AssistKind, task: StructuredTask<T>): Prom
 }
 
 export async function reviewSpec(content: string): Promise<AssistReview> {
-  if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてからレビューしてください。");
-  if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎてレビューできません(約 24 万字まで)。");
+  assertSpecSize(
+    content,
+    "仕様書が空です。本文を書いてからレビューしてください。",
+    "仕様書が大きすぎてレビューできません(約 24 万字まで)。",
+  );
   const { value, model } = await runStructured("review", {
     system: SYSTEM_PROMPT,
     contents: `レビュー対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
@@ -419,8 +428,11 @@ const AUDIT_RESPONSE_SCHEMA: Schema = {
 };
 
 export async function auditSpec(content: string): Promise<AssistAudit> {
-  if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてから検査してください。");
-  if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎて検査できません(約 24 万字まで)。");
+  assertSpecSize(
+    content,
+    "仕様書が空です。本文を書いてから検査してください。",
+    "仕様書が大きすぎて検査できません(約 24 万字まで)。",
+  );
   const { value, model } = await runStructured("audit", {
     system: AUDIT_SYSTEM_PROMPT,
     contents: `検査対象の仕様書(Markdown)は以下のとおりです。\n\n${content}`,
@@ -661,8 +673,11 @@ const TAILOR_RESPONSE_SCHEMA: Schema = {
 };
 
 export async function tailorSpec(content: string): Promise<AssistTailor> {
-  if (content.trim().length === 0) throw new Error("仕様書が空です。本文を書いてから計画を裁ってください。");
-  if (content.length > MAX_SPEC_CHARS) throw new Error("仕様書が大きすぎます(約 24 万字まで)。");
+  assertSpecSize(
+    content,
+    "仕様書が空です。本文を書いてから計画を裁ってください。",
+    "仕様書が大きすぎます(約 24 万字まで)。",
+  );
   const { value, model } = await runStructured("tailor", {
     system: TAILOR_SYSTEM_PROMPT,
     contents: `実装計画の元になる仕様書(Markdown)は以下のとおりです。\n\n${content}`,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { byStringDesc } from "../compare";
 import { SpecFrontmatterSchema } from "./spec";
 
 /** 手動スナップショットのラベル上限 */
@@ -96,6 +97,4 @@ export function parseHistoryPinInput(raw: unknown): HistoryPinInput {
   return HistoryPinInputSchema.parse(raw);
 }
 
-export function byTakenAtDesc(a: SnapshotMeta, b: SnapshotMeta): number {
-  return a.takenAt < b.takenAt ? 1 : a.takenAt > b.takenAt ? -1 : 0;
-}
+export const byTakenAtDesc = byStringDesc<SnapshotMeta>((meta) => meta.takenAt);

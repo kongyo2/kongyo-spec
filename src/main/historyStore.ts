@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
-import { app } from "electron";
 import { parseFile, stringifyFile } from "@shared/frontmatter";
 import {
   byTakenAtDesc,
@@ -10,6 +9,8 @@ import {
   type SnapshotKind,
   type SnapshotMeta,
 } from "@shared/schemas/history";
+import { countLines } from "@shared/text";
+import { atomicWrite, isSafeId, userDataPath } from "./fsStore";
 import { readSettings } from "./settingsStore";
 
 // 自動スナップショットの最小間隔。最新の自動版がこれより新しい間は撮らない。
@@ -25,18 +26,13 @@ function maxSnapshotsPerSpec(): number {
 // frontmatter は短い行が 8 つだけ(label も 120 字上限)で、この先頭チャンクに必ず収まる
 const META_READ_BYTES = 4096;
 
-let cachedDir: string | null = null;
-
 // 仕様書ごとの最新スナップショット。保存のたびに走る自動スナップショットの間引き
 // 判定が履歴ディレクトリを総なめしないための、main プロセス内キャッシュ。
 // null は「スナップショットが 1 つもない」ことの確認済みを表す
 const latestCache = new Map<string, { meta: SnapshotMeta; content: string } | null>();
 
 function getHistoryDir(): string {
-  if (cachedDir === null) {
-    cachedDir = join(app.getPath("userData"), "specs", "history");
-  }
-  return cachedDir;
+  return userDataPath("specs", "history");
 }
 
 function dirFor(specId: string): string {
@@ -47,10 +43,6 @@ function fileFor(specId: string, snapshotId: string): string {
   return join(dirFor(specId), `${snapshotId}.md`);
 }
 
-function isSafeId(id: string): boolean {
-  return /^[A-Za-z0-9._-]+$/.test(id) && id !== "." && !id.includes("..");
-}
-
 function assertSafe(specId: string, snapshotId?: string): void {
   if (!isSafeId(specId)) throw new Error(`invalid spec id: ${specId}`);
   if (snapshotId !== undefined && !isSafeId(snapshotId)) throw new Error(`invalid snapshot id: ${snapshotId}`);
@@ -58,18 +50,6 @@ function assertSafe(specId: string, snapshotId?: string): void {
 
 function isENOENT(err: unknown): boolean {
   return (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
-}
-
-// POSIX 流(末尾改行は行の終端であって空行ではない)。renderer の差分表示の
-// 行数とここで保存する行数が一致するよう、定義を揃えている
-function countLines(content: string): number {
-  if (content.length === 0) return 0;
-  let lines = 0;
-  for (let i = 0; i < content.length; i++) {
-    if (content.charCodeAt(i) === 10) lines += 1;
-  }
-  if (!content.endsWith("\n")) lines += 1;
-  return lines;
 }
 
 /** ディレクトリ内のスナップショット id を列挙。ディレクトリ未作成のみ空として扱う */
@@ -149,10 +129,7 @@ async function writeSnapshot(meta: SnapshotMeta, content: string): Promise<void>
     },
     content,
   );
-  const destination = fileFor(meta.specId, meta.id);
-  const temporary = `${destination}.${randomUUID()}.tmp`;
-  await fs.writeFile(temporary, serialized, "utf8");
-  await fs.rename(temporary, destination);
+  await atomicWrite(fileFor(meta.specId, meta.id), serialized);
 }
 
 export async function listSnapshots(specId: string): Promise<SnapshotMeta[]> {

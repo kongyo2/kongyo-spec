@@ -53,6 +53,7 @@ import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { findPendingDecisions, nextPendingDecision } from "./lib/pending";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
 import { buildHandoffPrompt, mergePlanIntoContent, PLAN_HEADING, tailorPlanToMarkdown } from "./lib/tailor";
+import { lineStartOffset } from "./lib/text";
 import {
   applyTheme,
   clearLegacyTheme,
@@ -79,16 +80,6 @@ interface AppProps {
 }
 
 const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl ";
-
-function lineStartOffset(content: string, line: number): number {
-  let offset = 0;
-  for (let current = 0; current < line; current++) {
-    const newline = content.indexOf("\n", offset);
-    if (newline === -1) return content.length;
-    offset = newline + 1;
-  }
-  return offset;
-}
 
 function spliceOut(text: string, range: { start: number; end: number }): string {
   const blockish =

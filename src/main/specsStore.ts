@@ -2,52 +2,22 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import { app } from "electron";
+import type { ImportAssetOp, ImportPlan, ImportResult } from "@shared/api";
 import { parseFile, stringifyFile } from "@shared/frontmatter";
 import type { RestoreResult } from "@shared/schemas/history";
 import { byUpdatedDesc, parseFrontmatter, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
+import { atomicWrite, isSafeId, userDataPath } from "./fsStore";
 import { deleteHistory, readSnapshot, recordAutoSnapshot, takeSnapshot } from "./historyStore";
-
-export interface ImportSpecEntry {
-  id: string;
-  title: string;
-  content: string;
-}
-
-export interface ImportAssetOp {
-  srcFile: string;
-  url: string;
-  dest: string;
-}
-
-export interface ImportBatch {
-  specs: ImportSpecEntry[];
-  assets: ImportAssetOp[];
-}
-
-export interface ImportResult {
-  metas: SpecMeta[];
-  skippedAssets: number;
-}
 
 const MAX_ASSET_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_ASSET_BYTES = 128 * 1024 * 1024;
 
-let cachedDir: string | null = null;
-
 export function getSpecsDir(): string {
-  if (cachedDir === null) {
-    cachedDir = join(app.getPath("userData"), "specs");
-  }
-  return cachedDir;
+  return userDataPath("specs");
 }
 
 function fileFor(id: string): string {
   return join(getSpecsDir(), `${id}.md`);
-}
-
-function isSafeId(id: string): boolean {
-  return /^[A-Za-z0-9._-]+$/.test(id) && id !== "." && !id.includes("..");
 }
 
 function nowIso(): string {
@@ -78,10 +48,7 @@ async function writeSpec(meta: SpecMeta, content: string): Promise<void> {
     { id: meta.id, title: meta.title, createdAt: meta.createdAt, updatedAt: meta.updatedAt },
     content,
   );
-  const destination = fileFor(meta.id);
-  const temporary = `${destination}.${randomUUID()}.tmp`;
-  await fs.writeFile(temporary, serialized, "utf8");
-  await fs.rename(temporary, destination);
+  await atomicWrite(fileFor(meta.id), serialized);
 }
 
 export async function initStore(): Promise<void> {
@@ -255,14 +222,14 @@ async function copyImportedAsset(
   }
 }
 
-export async function importSpecs(batch: ImportBatch): Promise<ImportResult> {
+export async function importSpecs(plan: ImportPlan): Promise<ImportResult> {
   await ensureDir();
   const specsDir = getSpecsDir();
   const stamp = nowIso();
 
   const accepted: { content: string; meta: SpecMeta }[] = [];
   const acceptedIds = new Set<string>();
-  for (const entry of batch.specs) {
+  for (const entry of plan.specs) {
     if (!isSafeId(entry.id) || acceptedIds.has(entry.id)) {
       console.warn(`[specsStore] skipping import with invalid or duplicate id: ${entry.id}`);
       continue;
@@ -286,7 +253,7 @@ export async function importSpecs(batch: ImportBatch): Promise<ImportResult> {
 
   const budget = { remaining: MAX_TOTAL_ASSET_BYTES };
   let skippedAssets = 0;
-  for (const op of batch.assets) {
+  for (const op of plan.assets) {
     if (!destWithinImportAssets(op.dest, acceptedIds)) {
       skippedAssets += 1;
       continue;
