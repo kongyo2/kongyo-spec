@@ -75,8 +75,6 @@ export function Editor({
 }: EditorProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
-  // プログラムによるジャンプ由来の scroll イベントではプレビュー同期を発火させない
-  // (ページ移動のアンカースクロールを比率同期が上書きしてしまうため)
   const suppressSyncRef = useRef(false);
   const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
   const [html, setHtml] = useState<string>(() => plainCodeHtml(value));
@@ -97,8 +95,6 @@ export function Editor({
   }, [onSelectionChange]);
 
   useEffect(() => {
-    // Shiki は CRLF を LF に正規化して出力するため、装飾オフセットも
-    // 同じ正規化を施したソースに対して計算する
     const source = value.replace(/\r\n?/g, "\n");
     const pendingRanges = findPendingDecisions(source);
     let raw: string;
@@ -158,7 +154,6 @@ export function Editor({
   }, [jump, onJumpHandled]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    // readOnly の textarea でも keydown は届くため、Tab のインデント編集も止める
     if (readOnly === true) return;
     if (event.key !== "Tab") return;
     event.preventDefault();

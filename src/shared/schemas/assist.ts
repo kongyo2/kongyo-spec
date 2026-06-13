@@ -19,7 +19,6 @@ const RewriteSchema = z
   .nullish()
   .transform((value) => (value == null || value.trim().length === 0 ? null : value));
 
-// 逐語引用(excerpt)。空白だけなら空文字にし、それ以外は引用の正確さを保つため素のまま残す
 const ExcerptSchema = z
   .string()
   .max(4000)
@@ -30,7 +29,6 @@ const ReasonSchema = z
   .max(4000)
   .transform((value) => value.trim());
 
-// 文書への一行所見。前後の空白を落とし、空なら不適合として弾く
 const VerdictSchema = z
   .string()
   .max(2000)
@@ -164,7 +162,6 @@ const TrimmedSchema = (max: number) =>
     .nullish()
     .transform((value) => value?.trim() ?? "");
 
-// 生成本文(woven / output)。先頭の空行と末尾の空白を整え、欠損は空文字にする
 const TrimmedBodySchema = (max: number) =>
   z
     .string()
@@ -311,7 +308,6 @@ export const TailorPlanSchema = z
   })
   .transform((plan) => ({
     ...plan,
-    // 存在しないタスク番号・自己参照への依存は捨てる
     tasks: plan.tasks.map((task, index) => ({
       ...task,
       dependsOn: [...new Set(task.dependsOn)]

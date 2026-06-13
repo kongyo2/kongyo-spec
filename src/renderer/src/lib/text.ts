@@ -1,4 +1,3 @@
-/** content 内で line 行目(0 始まり)が始まる文字オフセット。範囲外なら末尾を返す */
 export function lineStartOffset(content: string, line: number): number {
   let offset = 0;
   for (let current = 0; current < line; current++) {
@@ -15,7 +14,6 @@ export interface Line {
   end: number;
 }
 
-/** content を行に分け、各行の本文と \n を含まない半開区間 [start, end) を順に返す */
 export function* eachLine(content: string): Generator<Line> {
   let start = 0;
   for (const text of content.split("\n")) {
@@ -30,7 +28,6 @@ export interface TextReplacement {
   value: string;
 }
 
-/** 半開区間 [start, end) の置換群を後ろから当てて、先行する置換の位置をずらさずに適用する */
 export function applyReplacements(source: string, replacements: readonly TextReplacement[]): string {
   if (replacements.length === 0) return source;
   let out = source;

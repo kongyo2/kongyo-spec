@@ -19,7 +19,6 @@ function persist<K extends keyof Settings>(key: K, value: Settings[K]): void {
 
 function persistProfiles(profiles: LlmProfile[]): void {
   if (profiles.length > MAX_LLM_PROFILES) {
-    // 上限超のロスターは SettingsSchema が読めず全プロファイル消失につながるため、書く前に拒否する
     throw new Error(`モデルは最大 ${MAX_LLM_PROFILES} 件まで保存できます。`);
   }
   if (profiles.some((profile) => profile.apiKey !== null) && !isSecretEncryptionAvailable()) {
@@ -44,8 +43,6 @@ export function upsertLlmProfile(input: UpsertLlmProfileInput): Settings {
     throw new Error(`モデルは最大 ${MAX_LLM_PROFILES} 件まで登録できます。`);
   }
   const existing = index === -1 ? null : profiles[index]!;
-  // プロバイダまたはエンドポイントが変わったら保存済みキーは引き継がない
-  // (別のサービスへ既存クレデンシャルを送ってしまうのを防ぐ)
   const destinationUnchanged =
     existing !== null && existing.provider === input.profile.provider && existing.baseUrl === input.profile.baseUrl;
   const keptKey = destinationUnchanged ? existing.apiKey : null;

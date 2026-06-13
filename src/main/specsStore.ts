@@ -64,7 +64,7 @@ export async function listSpecs(): Promise<SpecMeta[]> {
     const id = entry.replace(/\.md$/, "");
     if (!isSafeId(id)) continue;
     try {
-      // eslint-disable-next-line no-await-in-loop -- sequential reads avoid exhausting the file-descriptor limit
+      // eslint-disable-next-line no-await-in-loop
       const raw = await fs.readFile(join(getSpecsDir(), entry), "utf8");
       metas.push({ ...parseFrontmatter(parseFile(raw).data), id });
     } catch (err) {
@@ -120,26 +120,26 @@ const ISO_IMAGE_BRANDS = new Set([
 ]);
 
 function hasImageBrand(ascii: string): boolean {
-  if (ISO_IMAGE_BRANDS.has(ascii.slice(8, 12))) return true; // major brand
+  if (ISO_IMAGE_BRANDS.has(ascii.slice(8, 12))) return true;
   for (let offset = 16; offset + 4 <= ascii.length && offset < 64; offset += 4) {
-    if (ISO_IMAGE_BRANDS.has(ascii.slice(offset, offset + 4))) return true; // compatible brand
+    if (ISO_IMAGE_BRANDS.has(ascii.slice(offset, offset + 4))) return true;
   }
   return false;
 }
 
 function looksLikeImage(buf: Buffer): boolean {
-  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true; // PNG
-  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true; // JPEG
-  if (buf.length >= 2 && buf[0] === 0x42 && buf[1] === 0x4d) return true; // BMP
-  if (buf.length >= 4 && buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0x01 && buf[3] === 0x00) return true; // ICO
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true;
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true;
+  if (buf.length >= 2 && buf[0] === 0x42 && buf[1] === 0x4d) return true;
+  if (buf.length >= 4 && buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0x01 && buf[3] === 0x00) return true;
   const ascii = buf.toString("latin1");
-  if (ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a")) return true; // GIF
-  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") return true; // WebP
-  if (buf.length >= 12 && ascii.slice(4, 8) === "ftyp") return hasImageBrand(ascii); // AVIF / HEIF (brand-checked)
+  if (ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a")) return true;
+  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") return true;
+  if (buf.length >= 12 && ascii.slice(4, 8) === "ftyp") return hasImageBrand(ascii);
   const text = buf.toString("utf8").replace(/^﻿/, "").trimStart().toLowerCase();
   const xmlish =
     text.startsWith("<?xml") || text.startsWith("<svg") || text.startsWith("<!--") || text.startsWith("<!doctype");
-  return xmlish && text.includes("<svg"); // SVG, possibly after an XML prolog or comment
+  return xmlish && text.includes("<svg");
 }
 
 async function copyFromHandle(handle: FileHandle, destination: string, limit: number): Promise<number | null> {
@@ -149,13 +149,13 @@ async function copyFromHandle(handle: FileHandle, destination: string, limit: nu
     let copied = 0;
     let position = 0;
     for (;;) {
-      // eslint-disable-next-line no-await-in-loop -- streams the source in bounded chunks
+      // eslint-disable-next-line no-await-in-loop
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
       if (bytesRead === 0) break;
       if (copied + bytesRead > limit) return null;
       let offset = 0;
       while (offset < bytesRead) {
-        // eslint-disable-next-line no-await-in-loop -- drains the chunk across possible partial writes
+        // eslint-disable-next-line no-await-in-loop
         const { bytesWritten } = await dest.write(buffer, offset, bytesRead - offset);
         if (bytesWritten === 0) throw new Error("asset copy stalled");
         offset += bytesWritten;
@@ -234,7 +234,7 @@ export async function importSpecs(plan: ImportPlan): Promise<ImportResult> {
       console.warn(`[specsStore] skipping import with invalid or duplicate id: ${entry.id}`);
       continue;
     }
-    // eslint-disable-next-line no-await-in-loop -- sequential existence checks avoid clobbering existing specs
+    // eslint-disable-next-line no-await-in-loop
     if (await pathExists(fileFor(entry.id))) {
       console.warn(`[specsStore] refusing to overwrite existing spec: ${entry.id}`);
       continue;
@@ -258,7 +258,7 @@ export async function importSpecs(plan: ImportPlan): Promise<ImportResult> {
       skippedAssets += 1;
       continue;
     }
-    // eslint-disable-next-line no-await-in-loop -- sequential copies keep the file-descriptor count bounded
+    // eslint-disable-next-line no-await-in-loop
     const outcome = await copyImportedAsset(specsDir, op, budget);
     if (outcome !== "copied") skippedAssets += 1;
   }
@@ -266,12 +266,12 @@ export async function importSpecs(plan: ImportPlan): Promise<ImportResult> {
   const metas: SpecMeta[] = [];
   for (const { content, meta } of accepted) {
     try {
-      // eslint-disable-next-line no-await-in-loop -- sequential writes keep the file-descriptor count bounded
+      // eslint-disable-next-line no-await-in-loop
       await writeSpec(meta, content);
       metas.push(meta);
     } catch (err) {
       console.warn(`[specsStore] failed to import ${meta.id}:`, err);
-      // eslint-disable-next-line no-await-in-loop -- drop the orphaned assets for a spec that failed to write
+      // eslint-disable-next-line no-await-in-loop
       await fs.rm(assetsDirFor(meta.id), { recursive: true, force: true }).catch(() => undefined);
     }
   }
@@ -282,7 +282,6 @@ export async function saveSpec(id: string, content: string): Promise<SpecMeta> {
   if (!isSafeId(id)) throw new Error(`invalid spec id: ${id}`);
   return withLock(id, async () => {
     const existing = await readSpec(id);
-    // 上書きで失われる直前の内容を Selvage(版の履歴)に間引きしつつ留める
     if (existing.content !== content) await recordAutoSnapshot(id, existing.content, existing.meta.updatedAt);
     const meta: SpecMeta = { ...existing.meta, updatedAt: nowIso() };
     await writeSpec(meta, content);
@@ -295,7 +294,6 @@ export async function restoreSpec(id: string, snapshotId: string): Promise<Resto
   return withLock(id, async () => {
     const snapshot = await readSnapshot(id, snapshotId);
     const existing = await readSpec(id);
-    // 巻き戻し自体をやり直せるよう、復元前の現在内容を必ず留めてから書き換える
     if (existing.content !== snapshot.content) await takeSnapshot(id, existing.content, "guard", null);
     const meta: SpecMeta = { ...existing.meta, updatedAt: nowIso() };
     await writeSpec(meta, snapshot.content);

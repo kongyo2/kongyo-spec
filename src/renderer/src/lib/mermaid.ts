@@ -84,15 +84,11 @@ function nextRenderId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${counter}`;
 }
 
-// 1 つの図を SVG 文字列に起こす。beautiful レンダラが対応しない図(gantt, pie など)は
-// 標準の mermaid.render へ退避する。mermaid.render は同時実行に弱いため逐次に呼ぶこと
 async function renderToSvg(source: string, renderer: MermaidRenderer, id: string): Promise<string> {
   if (renderer === "beautiful") {
     try {
       return (await renderBeautiful(source)).trim();
-    } catch {
-      // beautiful-mermaid 非対応の図は標準レンダラへ退避する
-    }
+    } catch {}
   }
   return (await mermaid.render(id, source)).svg;
 }
@@ -166,7 +162,7 @@ export async function renderMermaidIn(
 
     const id = nextRenderId("mermaid-render");
     try {
-      // eslint-disable-next-line no-await-in-loop -- 図は順に描く(mermaid.render は同時実行に弱い)
+      // eslint-disable-next-line no-await-in-loop
       const svg = await renderToSvg(source, renderer, id);
       if (gen !== generation) return;
       svgCache.set(source, svg);

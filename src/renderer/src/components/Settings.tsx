@@ -147,7 +147,6 @@ const FRAY_KIND_ITEMS: { key: keyof FrayKinds; label: string; hint: string }[] =
   { key: "pending", label: "未決定", hint: "【未決定: …】マーカー" },
 ];
 
-// 数値設定のプリセット。スキーマは範囲内の任意値を許すが、UI は実用的な選択肢に絞る
 const SNAPSHOT_INTERVAL_PRESETS: { value: number; label: string }[] = [
   { value: 1, label: "1 分" },
   { value: 5, label: "5 分" },
@@ -257,8 +256,6 @@ function Row({
   );
 }
 
-// セグメント選択。文字列の選択肢(任意でアイコン付き)と数値プリセットの両方に使う。
-// 保存済みの値が選択肢に無くてもそのまま動き、どれかを選んだ時点で揃う
 function Segmented<T extends string | number>({
   label,
   value,
@@ -614,7 +611,6 @@ export function Settings({
 
   const handleShellKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === "Escape" && profileDraft !== null) {
-      // モデル編集中の Escape はドラフトのキャンセルに留め、設定全体は閉じない
       event.stopPropagation();
       setProfileDraft(null);
       return;
@@ -648,7 +644,6 @@ export function Settings({
     <div
       className="settings-overlay"
       onMouseDown={(event) => {
-        // シェル内から外へドラッグしたときに閉じないよう、押下点がオーバーレイ自身のときだけ閉じる
         if (event.target === event.currentTarget) onClose();
       }}
     >

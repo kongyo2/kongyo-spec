@@ -186,8 +186,6 @@ export function WarpPanel({
 }: WarpPanelProps): React.ReactElement {
   const meta = FORM_META[session.form];
 
-  // 張り上がりの EARS 構文をローカル検証する。出力は挿入前に編集できるため、
-  // 編集中の内容に対しても即座に検査が追従する
   const earsLint = useMemo(
     () => (session.form === "ears" && session.phase === "done" ? lintEars(session.output) : null),
     [session.form, session.phase, session.output],

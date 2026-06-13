@@ -8,25 +8,15 @@ export const PLAN_HEADING = "実装計画";
 const SIZE_LABEL: Record<TailorTask["size"], string> = { S: "S", M: "M", L: "L" };
 
 export interface TaskLanes {
-  /** タスクごとのレーン番号(0 始まり)。-1 は循環依存で順序が決まらないタスク */
   lanes: number[];
-  /** 同じレーンに他のタスクがあり、並行して着手できるか */
   parallel: boolean[];
-  /** レーンの総数(循環タスクを除く) */
   laneCount: number;
-  /** 循環依存に巻き込まれたタスク番号(1 始まり) */
   cyclic: number[];
 }
 
-/**
- * 依存グラフからタスクの実行レーンを求める。レーン n のタスクは、レーン n-1 まで
- * のタスクが終われば着手でき、同一レーン内は依存が重ならないため並行できる。
- */
 export function computeTaskLanes(tasks: readonly { dependsOn: number[] }[]): TaskLanes {
   const count = tasks.length;
   const lanes = new Array<number>(count).fill(-1);
-  // 依存ゼロから波状に確定させる。スキーマで自己参照・範囲外の依存は除去済みの
-  // ため、進展が止まった時点で残る未確定は循環に巻き込まれたタスクだけになる
   for (let pass = 0; pass < count; pass++) {
     let progressed = false;
     for (let i = 0; i < count; i++) {
@@ -64,7 +54,6 @@ function taskLines(task: TailorTask, index: number, parallel: boolean): string[]
   return lines;
 }
 
-/** 計画を `## 実装計画` セクション(見出し込みの Markdown)へ整形する */
 export function tailorPlanToMarkdown(plan: TailorPlan, model: string): string {
   const parts: string[] = [`## ${PLAN_HEADING}`];
   if (plan.approach.length > 0) parts.push(`**方針**: ${plan.approach}`);
@@ -90,10 +79,6 @@ export function tailorPlanToMarkdown(plan: TailorPlan, model: string): string {
   return parts.join("\n\n");
 }
 
-/**
- * `## 実装計画` セクションを本文へ統合する。既存のセクションがあれば置き換え、
- * 無ければ末尾に追記する。挿入位置を返す(エディタジャンプ用)。
- */
 export function mergePlanIntoContent(
   content: string,
   section: string,
@@ -123,11 +108,9 @@ export function mergePlanIntoContent(
 export interface HandoffInput {
   title: string;
   content: string;
-  /** 本文に統合されていない計画セクション(あれば同梱する) */
   planSection: string | null;
 }
 
-/** 仕様書(+計画)を実装 AI へそのまま渡せる単一プロンプトに組み立てる */
 export function buildHandoffPrompt(input: HandoffInput): string {
   const pending = findPendingDecisions(input.content).map((range) =>
     input.content.slice(range.start, range.end).replace(/\s*\n\s*/g, " "),

@@ -133,7 +133,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const [restoreLastSpec, setRestoreLastSpec] = useState(initialSettings.restoreLastSpec);
   const [frayAutoCheck, setFrayAutoCheck] = useState(initialSettings.frayAutoCheck);
   const [frayKinds, setFrayKinds] = useState<FrayKinds>(initialSettings.frayKinds);
-  // main プロセス側で読まれる設定 (履歴・AI タイムアウト)。renderer は表示と書き込みのみ担う
   const [autoSnapshotMinutes, setAutoSnapshotMinutes] = useState(initialSettings.autoSnapshotMinutes);
   const [maxSnapshotsPerSpec, setMaxSnapshotsPerSpec] = useState(initialSettings.maxSnapshotsPerSpec);
   const [assistTimeoutSec, setAssistTimeoutSec] = useState(initialSettings.assistTimeoutSec);
@@ -203,7 +202,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const pages = useMemo(() => splitPages(doc?.content ?? ""), [doc?.content]);
   const pageHeadingIds = useMemo(() => computePageHeadingIds(pages.map((page) => page.content)), [pages]);
-  // 全ページを通しで採番しているため、平坦化すると全文レンダリング時の ID 列になる
   const fullHeadingIds = useMemo(() => pageHeadingIds.flat(), [pageHeadingIds]);
   const linkDefs = useMemo(() => collectLinkDefinitions(doc?.content ?? ""), [doc?.content]);
   const activePage = pages[pageIndex] ?? pages[0];
@@ -276,7 +274,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       while (pendingSaveRef.current) {
         const pending = pendingSaveRef.current;
         try {
-          // eslint-disable-next-line no-await-in-loop -- drains a serialized save queue in order
+          // eslint-disable-next-line no-await-in-loop
           const meta = await window.api.saveSpec(pending.id, pending.content);
           if (pendingSaveRef.current === pending) pendingSaveRef.current = null;
           if (docRef.current && docRef.current.meta.id === pending.id) {
@@ -304,9 +302,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       }
       return true;
     })();
-    // 空キューでは run の本体が await に当たらず同期完了する。async 関数内の
-    // finally で参照を消すと、直後の登録が完了済み Promise を残して以後の保存を
-    // 全て飲み込むため、解放は登録後に繋いだ .finally(非同期実行)で行う。
     const tracked = run.finally(() => {
       if (flushPromiseRef.current === tracked) flushPromiseRef.current = null;
       setSaving(false);
@@ -364,7 +359,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           const extras = prev.filter((spec) => !known.has(spec.id));
           return [...extras, ...list].sort(byUpdatedDesc);
         });
-        // 「前回の続きから」が無効なら最後に開いていた仕様書ではなく最新更新を開く
         const preferred = initialSettings.restoreLastSpec ? initialSettings.lastActiveSpecId : null;
         const target = (preferred !== null ? list.find((spec) => spec.id === preferred) : undefined) ?? list[0];
         if (target && docRef.current === null && pendingOpenIdRef.current === null) await openSpec(target.id);
@@ -443,7 +437,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     let cancelled = false;
     void (async () => {
       for (let i = 0; i < pages.length; i++) {
-        // eslint-disable-next-line no-await-in-loop -- short-circuits on the first matching page
+        // eslint-disable-next-line no-await-in-loop
         const html = await renderCached(linkDefs + (pages[i]?.content ?? ""), pageHeadingIds[i] ?? []);
         if (cancelled) return;
         const parsed = new DOMParser().parseFromString(html, "text/html");
@@ -531,8 +525,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       });
   }, [mainModelLabel]);
 
-  // 中止: 先に UI を前の状態へ戻して以後の応答を無効化し、main 側の実行を打ち切る。
-  // main からの reject はトークン不一致で捨てられるため、エラー表示にはならない
   const cancelLens = useCallback((): void => {
     lensTokenRef.current += 1;
     setLens({ status: "idle" });
@@ -563,8 +555,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.cancelAssist("warp").catch(() => undefined);
   }, []);
 
-  // AI アシストによる大規模な書き換えの直前に、適用前の本文を留める。履歴は
-  // 安全網であり本流を妨げないため、失敗は握りつぶす
   const guardBeforeAssist = useCallback((label: string): void => {
     const current = docRef.current;
     if (!current || current.content.trim().length === 0) return;
@@ -661,7 +651,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const handleEditorSelection = useCallback(
     (start: number, end: number): void => {
       selectionRef.current = { start, end };
-      // Source / Split ではカーソル位置にページ表示(パンくず・ナビ)を追従させる
       if (modeRef.current === "preview") return;
       const current = docRef.current;
       if (!current) return;
@@ -875,8 +864,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setWarpSession((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  // materialOverride は Mermaid 構文の自動修復用(セッションの素材は変えずに、
-  // 壊れたコードとエラーメッセージを差し替え素材として渡す)
   const runWarp = useCallback((materialOverride?: string): void => {
     const current = docRef.current;
     if (!current || warpRunningRef.current) return;
@@ -938,8 +925,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setWarpSession({ ...prev, material: merged, replaceTargets: [...prev.replaceTargets, text] });
   }, [grabEditorSelection]);
 
-  // Mermaid のセルフヒーリング: レンダリングエラーの内容を添えて、いまの出力を
-  // そのまま素材に張り直す(プロンプトが既存コードの構文修正を引き受ける)
   const repairWarpMermaid = useCallback(
     (renderError: string): void => {
       const session = warpSessionRef.current;
@@ -997,14 +982,11 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     );
   }, []);
 
-  // パネルを開いた時・仕様書を切り替えた時は即読み直す
   useEffect(() => {
     if (!selvageOpen || activeId === null) return;
     reloadSnapshots();
   }, [selvageOpen, activeId, reloadSnapshots]);
 
-  // 保存のたび自動スナップショットが増えている可能性がある。打鍵ごとの保存で
-  // I/O が嵩まないよう、updatedAt の変化からひと呼吸置いて読み直す
   const docUpdatedAt = doc?.meta.updatedAt;
   useEffect(() => {
     if (!selvageOpen || docUpdatedAt === undefined) return;
@@ -1043,7 +1025,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       const specId = current.meta.id;
       void (async () => {
         try {
-          // 復元前の編集も guard スナップショットに含まれるよう、先にディスクへ流す
           if (current.content !== loadedContentRef.current) {
             pendingSaveRef.current = { id: specId, content: current.content };
           }
@@ -1057,8 +1038,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           const result = await window.api.restoreSnapshot(specId, snapshotId);
           if (docRef.current?.meta.id !== specId) return;
           if (docRef.current.content !== flushedContent) {
-            // エディタは復元中 readOnly だが、万一すり抜けた編集があれば編集を優先して
-            // ディスクへ書き戻す(復元で上書きされた内容は次の保存の自動版として残る)
             pendingSaveRef.current = { id: specId, content: docRef.current.content };
             void flushSave();
             setToast("復元中に編集があったため適用を中止しました。編集内容を保持しています");
@@ -1131,7 +1110,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const pendingCount = useMemo(() => findPendingDecisions(doc?.content ?? "").length, [doc?.content]);
   const planInDoc = useMemo(() => pages.some((page) => page.depth === 2 && page.title === PLAN_HEADING), [pages]);
 
-  // タイピングを妨げないよう、ほつれ検査は低優先度の遅延値に対して走らせる
   const deferredContent = useDeferredValue(doc?.content ?? "");
   const frayEnabled = (frayAutoCheck || frayOpen) && doc !== null;
   const frayIssues = useMemo<FrayIssue[]>(() => {
@@ -1148,8 +1126,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     );
   }, [deferredContent, frayEnabled, specs, frayKinds]);
 
-  // ほつれ検査の修正を本文へ適用する。検査はひと呼吸遅れた deferredContent に
-  // 対して走るため、オフセットを信用せず置換前の文字列と照合してから書き換える
   const applyFrayFixes = useCallback((issues: FrayIssue[]): void => {
     const current = docRef.current;
     if (!current) return;
@@ -1157,7 +1133,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     const all = issues
       .flatMap((issue) => issue.fix?.replacements ?? [])
       .sort((a, b) => a.start - b.start)
-      // まとめて適用するとき、万一範囲が重なる置換は後勝ちにせず捨てる
       .filter((rep, index, sorted) => index === 0 || rep.start >= sorted[index - 1]!.end);
     if (all.length === 0) return;
     for (const rep of all) {
@@ -1180,8 +1155,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     previewSyncRef.current?.(ratio);
   }, []);
 
-  // ページ移動。Preview ではページ差し替え、Source / Split ではエディタとプレビューを
-  // 該当節へスクロールする(Split のプレビューは全文表示のため)
   const goToPage = useCallback(
     (index: number): void => {
       const bounded = Math.max(0, Math.min(index, pages.length - 1));
@@ -1523,7 +1496,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
             break;
           }
           try {
-            // eslint-disable-next-line no-await-in-loop -- sequential reads keep ordering stable and bound memory
+            // eslint-disable-next-line no-await-in-loop
             const content = await file.text();
             totalBytes += file.size;
             dropped.push({ name: file.name, path: window.api.getFilePath(file), content });
@@ -1561,10 +1534,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const dragActive = useFileDrop(importFiles);
 
-  // 設定ストアから読み直されて初めて効く設定 (main プロセスが読む履歴・AI タイムアウト、
-  // 次回起動が読む復元フラグ) は、書き込みに失敗すると「変わったように見えて効かない」
-  // 状態になる。renderer の state が真実になる他の設定と違い、結果を確かめて失敗時は
-  // 永続値へ表示を巻き戻す
   const persistStoreBacked = useCallback(
     (write: () => Promise<boolean>, revert: (settings: RendererSettings) => void): void => {
       write().then(
@@ -1706,8 +1675,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const routingQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const handleSetRouting = useCallback(
     (mainId: string, fallbackIds: string[]): void => {
-      // 連打時に直前のクリックを織り込んだ状態から次の計算ができるよう楽観更新し、
-      // IPC は直列化して最後の応答だけを正とする
       const seq = (routingSeqRef.current += 1);
       setLlm((prev) => ({ ...prev, llmMainProfileId: mainId, llmFallbackProfileIds: fallbackIds }));
       routingQueueRef.current = routingQueueRef.current.then(() =>
@@ -1718,7 +1685,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           (err: unknown) => {
             if (routingSeqRef.current !== seq) return;
             setToast(ipcErrorMessage(err));
-            // 楽観更新を残さない: 永続化済みの状態へ巻き戻す
             window.api.getSettings().then(applyLlmSettings, () => undefined);
           },
         ),
@@ -1794,9 +1760,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     void window.api.setSetting("toastDuration", DEFAULT_SETTINGS.toastDuration).catch(() => undefined);
     void window.api.setSetting("frayAutoCheck", DEFAULT_SETTINGS.frayAutoCheck).catch(() => undefined);
     void window.api.setSetting("frayKinds", DEFAULT_SETTINGS.frayKinds).catch(() => undefined);
-    // 内蔵 Gemini プロファイルを初期状態に復元してメインへ戻す。
-    // 追加登録されたプロファイルとキーは資産なので消さない。
-    // ルーティング更新と同じキューに直列化し、キュー済みの変更がリセットを上書きしないようにする
     const seq = (routingSeqRef.current += 1);
     routingQueueRef.current = routingQueueRef.current.then(() =>
       window.api.resetLlmRouting().then(

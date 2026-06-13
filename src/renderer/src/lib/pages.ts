@@ -38,7 +38,6 @@ function parseMarkdown(markdown: string): MdastRoot {
 
 const HTML_BLANK_RE = /^(?:\s|<!--[\s\S]*?-->)*$/;
 
-// 目に見える本文を生むノードか。リンク定義・脚注定義と、空白やコメントだけの生 HTML は数えない
 function isVisibleNode(node: MdastRoot["children"][number]): boolean {
   if (node.type === "definition" || node.type === "footnoteDefinition") return false;
   if (node.type === "html") return !HTML_BLANK_RE.test(node.value);
@@ -83,8 +82,6 @@ export function splitPages(markdown: string): VirtualPage[] {
     const boundary = boundaries[b];
     if (!boundary) continue;
     let endLine = boundaries[b + 1]?.line ?? lines.length;
-    // H1 が本文を持たず直下の H2 へ続く場合(典型: 題名 + 節構成)、題名だけの
-    // ほぼ空のページを作らず、最初の H2 節を H1 のページへ吸収する
     const next = boundaries[b + 1];
     if (boundary.level === 1 && next?.level === 2 && !hasBodyContent(lines.slice(boundary.line, endLine).join("\n"))) {
       endLine = boundaries[b + 2]?.line ?? lines.length;
@@ -130,7 +127,6 @@ function hasVisibleContent(markdown: string): boolean {
   return parseMarkdown(markdown).children.some(isVisibleNode);
 }
 
-/** 先頭の見出しを除いて、目に見える本文があるか */
 function hasBodyContent(section: string): boolean {
   return parseMarkdown(section).children.some(
     (node, index) => !(index === 0 && node.type === "heading") && isVisibleNode(node),

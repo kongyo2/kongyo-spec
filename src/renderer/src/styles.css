@@ -6,7 +6,6 @@
 
   color-scheme: light;
 
-  /* Vercel light — near-pure white, stark ink, hairline borders */
   --bg: #ffffff;
   --bg-elevated: #ffffff;
   --surface-1: #fbfbfb;
@@ -66,7 +65,6 @@
   --select-bg: rgba(91, 98, 214, 0.2);
   --ring: rgba(91, 98, 214, 0.5);
 
-  /* Atmosphere — faint in light, theatrical in dark */
   --glow-1: rgba(99, 102, 241, 0.09);
   --glow-2: rgba(139, 92, 246, 0.06);
   --glow-3: rgba(56, 189, 248, 0.035);
@@ -74,7 +72,6 @@
   --grid-color: rgba(8, 8, 16, 0.028);
   --grid-size: 22px;
 
-  /* Glass */
   --glass-bg: rgba(255, 255, 255, 0.72);
   --glass-border: rgba(8, 8, 16, 0.07);
   --glass-blur: 18px;
@@ -104,7 +101,6 @@
 html.dark {
   color-scheme: dark;
 
-  /* Linear graphite — deep, cool-tinted near-black */
   --bg: #08090b;
   --bg-elevated: #0f1013;
   --surface-1: #0c0d10;
@@ -234,7 +230,6 @@ button:focus-visible {
   }
 }
 
-/* ---------- Layout ---------- */
 .app {
   position: relative;
   display: grid;
@@ -245,7 +240,6 @@ button:focus-visible {
   isolation: isolate;
 }
 
-/* Aurora — Linear's atmospheric depth bleeding from the edges */
 .app::before {
   content: "";
   position: fixed;
@@ -260,7 +254,6 @@ button:focus-visible {
   animation: aurora-drift 26s var(--ease) infinite;
 }
 
-/* Film grain — premium texture over everything but the modals/toasts */
 .app::after {
   content: "";
   position: fixed;
@@ -362,7 +355,6 @@ button:focus-visible {
   color: var(--muted-2);
 }
 
-/* ---------- Specs sidebar ---------- */
 .specs-sidebar {
   padding: 16px 12px;
   border-bottom: 1px solid var(--border);
@@ -528,7 +520,6 @@ button:focus-visible {
   color: var(--fg-strong);
 }
 
-/* ---------- Pages nav ---------- */
 .pages-nav {
   flex: 1;
   min-height: 0;
@@ -616,7 +607,6 @@ button:focus-visible {
   outline-offset: 1px;
 }
 
-/* ---------- Toolbar ---------- */
 .toolbar {
   display: flex;
   align-items: center;
@@ -703,7 +693,6 @@ button:focus-visible {
   gap: 8px;
 }
 
-/* The shortcut hint is a nice-to-have; drop it before the controls crowd a narrow window. */
 @media (max-width: 1000px) {
   .icon-button kbd {
     display: none;
@@ -818,7 +807,6 @@ button:focus-visible {
   font-weight: 540;
 }
 
-/* ---------- Search bar ---------- */
 .search-bar {
   display: flex;
   align-items: center;
@@ -890,7 +878,6 @@ button:focus-visible {
   cursor: default;
 }
 
-/* ---------- Content area ---------- */
 .content-area {
   flex: 1;
   min-height: 0;
@@ -989,7 +976,6 @@ button:focus-visible {
   padding: 40px 48px 96px;
 }
 
-/* ---------- Editor overlay ---------- */
 .editor {
   position: relative;
   height: 100%;
@@ -1044,7 +1030,6 @@ button:focus-visible {
   background: var(--select-bg);
 }
 
-/* ---------- Shiki dual theme ---------- */
 .shiki {
   border-radius: var(--radius);
 }
@@ -1058,7 +1043,6 @@ html.dark .shiki span {
   text-decoration: var(--shiki-dark-text-decoration) !important;
 }
 
-/* ---------- Markdown body ---------- */
 .markdown-body {
   line-height: var(--preview-line-height, 1.72);
   font-size: var(--preview-font-size, 15px);
@@ -1317,7 +1301,6 @@ html.dark .shiki span {
   padding: 0.4em 0;
 }
 
-/* ---------- Mermaid ---------- */
 .mermaid-block {
   background: transparent !important;
   display: flex;
@@ -1343,7 +1326,6 @@ html.dark .shiki span {
   border: 1px solid var(--danger);
 }
 
-/* ---------- Search highlight ---------- */
 mark.search-hit {
   background: var(--mark-bg);
   color: var(--mark-fg);
@@ -1357,7 +1339,6 @@ mark.search-hit-current {
   box-shadow: 0 0 0 2px var(--mark-current-bg);
 }
 
-/* ---------- Outline ---------- */
 .outline ul {
   list-style: none;
   margin: 12px 0 0;
@@ -1423,7 +1404,6 @@ mark.search-hit-current {
   box-shadow: 0 0 8px var(--accent-glow);
 }
 
-/* ---------- Modal ---------- */
 .app > .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1550,7 +1530,6 @@ mark.search-hit-current {
   filter: none;
 }
 
-/* ---------- Toast ---------- */
 .app > .toast {
   position: fixed;
   bottom: 24px;
@@ -1581,7 +1560,6 @@ mark.search-hit-current {
   box-shadow: 0 0 0 3px var(--danger-soft);
 }
 
-/* ---------- Drop overlay ---------- */
 .drop-overlay {
   position: fixed;
   inset: 0;
@@ -1668,7 +1646,6 @@ mark.search-hit-current {
   }
 }
 
-/* ---------- kbd ---------- */
 kbd {
   display: inline-flex;
   align-items: center;
@@ -1695,7 +1672,6 @@ kbd {
   box-shadow: none;
 }
 
-/* ---------- Keyframes ---------- */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -1746,7 +1722,6 @@ kbd {
   }
 }
 
-/* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar {
   width: 11px;
   height: 11px;
@@ -1768,13 +1743,11 @@ kbd {
   background-clip: padding-box;
 }
 
-/* ---------- Toolbar square icon button ---------- */
 .icon-button.square {
   padding: 6px;
   gap: 0;
 }
 
-/* ---------- Settings ---------- */
 .settings-overlay {
   position: fixed;
   inset: 0;
@@ -1816,7 +1789,6 @@ kbd {
   z-index: 4;
 }
 
-/* Nav rail */
 .settings-nav {
   display: flex;
   flex-direction: column;
@@ -1922,7 +1894,6 @@ kbd {
   color: color-mix(in srgb, var(--accent-text) 62%, transparent);
 }
 
-/* Main column */
 .settings-main {
   display: flex;
   flex-direction: column;
@@ -1988,7 +1959,6 @@ kbd {
   animation: settings-rise 0.34s var(--ease-out) both;
 }
 
-/* Rows */
 .settings-row {
   display: flex;
   align-items: center;
@@ -2026,7 +1996,6 @@ kbd {
   flex-shrink: 0;
 }
 
-/* Segmented control */
 .settings-seg {
   display: inline-flex;
   gap: 2px;
@@ -2064,7 +2033,6 @@ kbd {
   box-shadow: var(--highlight), var(--shadow-sm);
 }
 
-/* Swatches */
 .settings-swatches {
   display: inline-flex;
   gap: 12px;
@@ -2115,7 +2083,6 @@ kbd {
   filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.45));
 }
 
-/* Stepper */
 .settings-stepper {
   display: inline-flex;
   align-items: center;
@@ -2174,7 +2141,6 @@ kbd {
   color: var(--muted-2);
 }
 
-/* About */
 .settings-about {
   position: relative;
   margin-top: 12px;
@@ -2357,7 +2323,6 @@ kbd {
   }
 }
 
-/* ---------- Lens panel ---------- */
 .app.lens-open {
   grid-template-columns: 284px minmax(0, 1fr) 348px;
 }
@@ -2841,7 +2806,6 @@ kbd {
   cursor: default;
 }
 
-/* ---------- Settings: AI ---------- */
 .settings-ai-philosophy {
   margin: 10px 0 4px;
   padding: 11px 13px;
@@ -2860,7 +2824,6 @@ kbd {
   gap: 12px;
 }
 
-/* Fray 検査種別のチップトグル */
 .settings-kind-chips {
   display: flex;
   flex-wrap: wrap;
@@ -3308,7 +3271,6 @@ kbd {
   color: var(--fg);
 }
 
-/* ---------- Loom panel ---------- */
 .loom-compose {
   display: flex;
   flex-direction: column;
@@ -3587,7 +3549,6 @@ kbd {
   margin-top: 2px;
 }
 
-/* ---------- Warp (定型への張り直し) ---------- */
 .warp-form-switch {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3806,7 +3767,6 @@ kbd {
   color: var(--lens-decision);
 }
 
-/* ---------- Pending decisions (未決定) ---------- */
 .pending-badge {
   display: inline-flex;
   align-items: center;
@@ -3845,8 +3805,6 @@ mark.pending-decision {
   -webkit-box-decoration-break: clone;
 }
 
-/* Source モードの backdrop は textarea と字送りを揃える必要があるため、
-   グリフ寸法に影響するプロパティをすべて打ち消して色だけ重ねる */
 .editor-backdrop mark.pending-decision {
   padding: 0;
   border: 0;
@@ -3858,7 +3816,6 @@ mark.pending-decision {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lens-decision) 38%, transparent);
 }
 
-/* ---------- Split view ---------- */
 .split-view {
   display: grid;
   grid-template-columns: var(--split-ratio, 50%) 10px minmax(0, 1fr);
@@ -3937,7 +3894,6 @@ mark.pending-decision {
   gap: 5px;
 }
 
-/* ---------- Fray (整合性検査) ---------- */
 .fray-count {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -4308,7 +4264,6 @@ mark.pending-decision {
   color: var(--fg);
 }
 
-/* ---------- Settings: toggle switch ---------- */
 .settings-toggle {
   position: relative;
   flex-shrink: 0;
@@ -4351,12 +4306,10 @@ mark.pending-decision {
   border-color: var(--accent);
 }
 
-/* ---------- Assist 共通: 実行の中止 ---------- */
 .assist-cancel {
   margin-top: 14px;
 }
 
-/* ---------- Tailor ---------- */
 .tailor-intro {
   padding-bottom: 18px;
   border-bottom: 1px solid var(--border);
@@ -4580,8 +4533,6 @@ mark.pending-decision {
 .tailor-handoff-copy {
   align-self: flex-start;
 }
-
-/* ---------- Selvage(版の履歴) ---------- */
 
 .selvage-take {
   display: flex;
@@ -4908,7 +4859,6 @@ mark.pending-decision {
   color: var(--danger-text);
 }
 
-/* Toolbar density — drop button labels before the toolbar wraps */
 @media (max-width: 1240px) {
   .toolbar-controls .toggle-text {
     display: none;

@@ -136,8 +136,6 @@ export function registerIpc(): void {
       throw new Error("この環境では OS の安全な保存領域を利用できないため、API キーを保存できません。");
     }
     const persisted = writeSetting(input.key, input.value);
-    // 保持上限の変更は既存の履歴にも適用する (次のスナップショットを待たせない)。
-    // 選び直しの連打で低い上限の間引きが走り切らないよう、予約はデバウンスされる
     if (persisted && input.key === "maxSnapshotsPerSpec") schedulePruneAllHistories();
     return persisted;
   });
