@@ -9,7 +9,7 @@ const { version } = JSON.parse(readFileSync(resolve("package.json"), "utf8")) as
 export default defineConfig({
   main: {
     resolve: { alias: { "@shared": shared } },
-    build: { externalizeDeps: { exclude: ["@google/genai"] } },
+    build: { externalizeDeps: { exclude: ["@google/genai", "fastest-levenshtein"] } },
   },
   preload: {
     resolve: { alias: { "@shared": shared } },

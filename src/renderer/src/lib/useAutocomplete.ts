@@ -105,9 +105,9 @@ export function useAutocomplete(options: UseAutocompleteOptions): AutocompleteCo
       setGhost(null);
       return;
     }
-    // End of document or a newline-leading suggestion renders in full; otherwise
-    // keep it to the current line so it cannot overlap the text on following lines.
-    const visible = ctx.atEod || match.text.startsWith("\n") ? match.text : getFirstLine(match.text);
+    // End of document or a newline-leading suggestion (LF or CRLF) renders in full;
+    // otherwise keep it to the current line so it cannot overlap following lines.
+    const visible = ctx.atEod || /^\r?\n/.test(match.text) ? match.text : getFirstLine(match.text);
     if (visible.length === 0) {
       setGhost(null);
       return;

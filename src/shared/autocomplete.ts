@@ -178,20 +178,6 @@ function removePrefixOverlap(completion: string, prefix: string): string {
   return completion;
 }
 
-function removeBackticks(completion: string, prefix: string): string {
-  // In a Markdown editor, fenced code blocks are legitimate content. Strip only a
-  // complete bare ```…``` wrapper (a chat-style response artifact) — never a
-  // language-tagged block, a half-open fence, or fences while the cursor already
-  // sits inside a code block.
-  if (isInsideCodeBlock(prefix)) return completion;
-  const lines = completion.split("\n");
-  if (lines.length < 3) return completion;
-  const opensBareFence = lines[0]!.trim() === "```";
-  const closesFence = /^`+$/.test(lines[lines.length - 1]!.trim());
-  if (opensBareFence && closesFence) return lines.slice(1, -1).join("\n");
-  return completion;
-}
-
 export function postprocessCompletion({
   completion,
   family,
@@ -230,7 +216,6 @@ export function postprocessCompletion({
 
   if (prefix.endsWith(" ") && completion.startsWith(" ")) completion = completion.slice(1);
 
-  completion = removeBackticks(completion, prefix);
   return completion;
 }
 

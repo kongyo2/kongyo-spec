@@ -25,6 +25,7 @@ const BASE_DELAY_MS = 2_000;
 const MAX_DELAY_MS = 120_000;
 const CIRCUIT_THRESHOLD = 5;
 const CIRCUIT_COOLDOWN_MS = 300_000;
+const FATAL_RECOVER_COOLDOWN_MS = 300_000;
 
 function classify(error: unknown): ErrorKind {
   const status = error instanceof FimHttpError ? error.status : null;
@@ -37,6 +38,7 @@ function classify(error: unknown): ErrorKind {
 class ErrorBackoff {
   private fatal = false;
   private fatalStatus: number | null = null;
+  private fatalAt = 0;
   private opened = 0;
   private failures = 0;
   private blockedUntil = 0;
@@ -44,6 +46,7 @@ class ErrorBackoff {
   success(): void {
     this.fatal = false;
     this.fatalStatus = null;
+    this.fatalAt = 0;
     this.failures = 0;
     this.blockedUntil = 0;
     this.opened = 0;
@@ -54,6 +57,7 @@ class ErrorBackoff {
     if (kind === "fatal") {
       this.fatal = true;
       this.fatalStatus = error instanceof FimHttpError ? error.status : null;
+      this.fatalAt = Date.now();
       return kind;
     }
     if (kind === "retriable") {
@@ -66,7 +70,12 @@ class ErrorBackoff {
   }
 
   blocked(): boolean {
-    if (this.fatal) return true;
+    if (this.fatal) {
+      // 402 (insufficient credit) clears once the user tops up at the provider —
+      // allow a probe after a cooldown instead of blocking the session forever.
+      // 401/403 (bad key) stay blocked until a settings change resets the backoff.
+      return this.fatalStatus !== 402 || Date.now() - this.fatalAt < FATAL_RECOVER_COOLDOWN_MS;
+    }
     if (this.opened > 0) {
       if (Date.now() - this.opened < CIRCUIT_COOLDOWN_MS) return true;
       this.opened = 0;
@@ -134,15 +143,25 @@ async function requestFim(
   let response: Response | null = null;
   for (let i = 0; i < ordered.length; i++) {
     const url = ordered[i]!;
-    // eslint-disable-next-line no-await-in-loop
-    const attempt = await postFim(url, key, body, signal);
+    const isLast = i === ordered.length - 1;
+    let attempt: Response;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      attempt = await postFim(url, key, body, signal);
+    } catch (err) {
+      // Transport failure (DNS/TLS/timeout/unreachable): fail over to the next
+      // endpoint, but never swallow an abort and never loop past the last URL.
+      if (signal.aborted || isLast) throw err;
+      preferredFimUrl.delete(model.providerId);
+      continue;
+    }
     if (attempt.ok) {
       preferredFimUrl.set(model.providerId, url);
       response = attempt;
       break;
     }
     const isEndpointMismatch = attempt.status === 401 || attempt.status === 403;
-    if (!isEndpointMismatch || i === ordered.length - 1) {
+    if (!isEndpointMismatch || isLast) {
       response = attempt;
       break;
     }

@@ -1153,6 +1153,7 @@ export function Settings({
                   </div>
                   {llm.autocompleteEnabled ? (
                     <AutocompleteKeyRow
+                      key={autocompleteProvider}
                       provider={autocompleteProvider}
                       keySet={autocompleteKeySet}
                       onSave={onSaveAutocompleteKey}
