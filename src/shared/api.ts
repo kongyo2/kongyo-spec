@@ -2,10 +2,12 @@ import type { AutocompleteRequest, AutocompleteResponse } from "./autocomplete";
 import type {
   AssistAudit,
   AssistKind,
+  AssistPrism,
   AssistReview,
   AssistTailor,
   AssistWarp,
   AssistWeave,
+  PrismSpecInput,
   WarpSpecInput,
   WeaveSpecInput,
 } from "./schemas/assist";
@@ -67,6 +69,7 @@ export interface KongyoApi {
   auditSpec(content: string): Promise<AssistAudit>;
   weaveSpec(input: WeaveSpecInput): Promise<AssistWeave>;
   warpSpec(input: WarpSpecInput): Promise<AssistWarp>;
+  prismSpec(input: PrismSpecInput): Promise<AssistPrism>;
   tailorSpec(content: string): Promise<AssistTailor>;
   cancelAssist(kind: AssistKind): Promise<void>;
   autocomplete(input: AutocompleteRequest): Promise<AutocompleteResponse>;

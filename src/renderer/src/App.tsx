@@ -18,10 +18,13 @@ import {
 import { type AutocompleteProviderId, getAutocompleteModelById } from "@shared/autocomplete";
 import { byUpdatedDesc, type SpecDocument, type SpecMeta } from "@shared/schemas/spec";
 import {
+  MAX_PRISM_CONTEXT_CHARS,
+  MAX_PRISM_SELECTION_CHARS,
   MAX_WARP_MATERIAL_CHARS,
   MAX_WEAVE_CONTEXT_CHARS,
   MAX_WEAVE_MATERIAL_CHARS,
   MAX_WEAVE_WOVEN_CHARS,
+  type PrismDirection,
   type WeaveQa,
 } from "@shared/schemas/assist";
 import type { SnapshotDocument } from "@shared/schemas/history";
@@ -34,6 +37,7 @@ import { INITIAL_LOOM_SESSION, LoomPanel, type LoomSession, type WeaveKind } fro
 import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
 import { Preview, type HeadingInfo, type TableEditRequest } from "./components/Preview";
+import { INITIAL_PRISM_SESSION, PrismPanel, type PrismSession } from "./components/PrismPanel";
 import { SearchBar } from "./components/SearchBar";
 import { SelvagePanel, type SelvageState } from "./components/SelvagePanel";
 import { Settings as SettingsScreen, type LlmSettings, type SettingChange } from "./components/Settings";
@@ -113,6 +117,17 @@ function spliceOut(text: string, range: { start: number; end: number }): string 
   if (before.length === 0) return after;
   if (after.length === 0) return `${before}\n`;
   return `${before}\n\n${after}`;
+}
+
+function buildPrismContext(content: string, selection: string, range: { start: number; end: number } | null): string {
+  if (content.length <= MAX_PRISM_CONTEXT_CHARS) return content;
+  const anchored =
+    range !== null && content.slice(range.start, range.end) === selection ? range.start : content.indexOf(selection);
+  if (anchored === -1) return content.slice(0, MAX_PRISM_CONTEXT_CHARS);
+  const margin = Math.floor((MAX_PRISM_CONTEXT_CHARS - Math.min(selection.length, MAX_PRISM_CONTEXT_CHARS)) / 2);
+  const start = Math.max(0, anchored - margin);
+  const end = Math.min(content.length, anchored + selection.length + margin);
+  return content.slice(start, end);
 }
 
 export function App({ initialSettings }: AppProps): React.ReactElement {
@@ -220,6 +235,13 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   warpSessionRef.current = warpSession;
   const warpTokenRef = useRef(0);
   const warpRunningRef = useRef(false);
+  const [prismOpen, setPrismOpen] = useState(false);
+  const [prismSession, setPrismSession] = useState<PrismSession>(INITIAL_PRISM_SESSION);
+  const prismSessionRef = useRef(prismSession);
+  prismSessionRef.current = prismSession;
+  const prismTokenRef = useRef(0);
+  const prismRunningRef = useRef(false);
+  const prismShownDirRef = useRef<PrismDirection>("abstract");
   const selectionRef = useRef<{ start: number; end: number } | null>(null);
   const modeRef = useRef<EditorMode>("preview");
   modeRef.current = mode;
@@ -318,6 +340,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setLoomSession(INITIAL_LOOM_SESSION);
     warpTokenRef.current += 1;
     setWarpSession(INITIAL_WARP_SESSION);
+    prismTokenRef.current += 1;
+    setPrismSession(INITIAL_PRISM_SESSION);
+    if (prismRunningRef.current) {
+      prismRunningRef.current = false;
+      void window.api.cancelAssist("prism").catch(() => undefined);
+    }
     auditTokenRef.current += 1;
     setAudit((prev) => (prev.status === "running" ? prev : { status: "idle" }));
     tailorTokenRef.current += 1;
@@ -1030,6 +1058,123 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     );
   }, [insertComposed, guardBeforeAssist]);
 
+  const updatePrismSession = useCallback((patch: Partial<PrismSession>): void => {
+    setPrismSession((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const runPrism = useCallback((directionOverride?: PrismDirection): void => {
+    const current = docRef.current;
+    if (!current || prismRunningRef.current) return;
+    const session = prismSessionRef.current;
+    const direction = directionOverride ?? session.direction;
+    const selection = session.selection;
+    if (selection.trim().length === 0) {
+      setToast("分光する一節がありません。本文を選んで取り込むか、書き入れてください");
+      return;
+    }
+    if (selection.length > MAX_PRISM_SELECTION_CHARS) {
+      setToast("一節が長すぎます(約 8000 字まで)。狭めてから分光してください");
+      return;
+    }
+    prismRunningRef.current = true;
+    const token = (prismTokenRef.current += 1);
+    setPrismSession((prev) => ({ ...prev, direction, phase: "running", error: null }));
+    window.api
+      .prismSpec({
+        direction,
+        selection,
+        title: current.meta.title.slice(0, 200),
+        context: buildPrismContext(current.content, selection, session.replaceRange),
+      })
+      .then(
+        ({ result, model }) => {
+          if (prismTokenRef.current !== token) return;
+          prismShownDirRef.current = direction;
+          setPrismSession((prev) => ({
+            ...prev,
+            phase: "done",
+            reading: result.reading,
+            variants: result.variants,
+            drafts: result.variants.map((variant) => variant.text),
+            servedBy: model,
+            error: null,
+          }));
+        },
+        (err: unknown) => {
+          if (prismTokenRef.current !== token) return;
+          const message = ipcErrorMessage(err);
+          if (prismSessionRef.current.variants.length > 0) {
+            setPrismSession((prev) => ({ ...prev, phase: "done", direction: prismShownDirRef.current, error: null }));
+            setToast(`分光に失敗しました: ${message}`);
+          } else {
+            setPrismSession((prev) => ({ ...prev, phase: "error", error: message }));
+          }
+        },
+      )
+      .finally(() => {
+        if (prismTokenRef.current === token) prismRunningRef.current = false;
+      });
+  }, []);
+
+  const pullSelectionToPrism = useCallback((): void => {
+    const text = grabEditorSelection();
+    if (text === null) return;
+    if (text.length > MAX_PRISM_SELECTION_CHARS) {
+      setToast("選択範囲が長すぎます(約 8000 字まで)。狭めてから取り込んでください");
+      return;
+    }
+    const sel = selectionRef.current;
+    const range = sel !== null && sel.start !== sel.end ? { start: sel.start, end: sel.end } : null;
+    setPrismSession((prev) => ({ ...prev, selection: text, replaceTargets: [text], replaceRange: range }));
+  }, [grabEditorSelection]);
+
+  const adoptPrismVariant = useCallback(
+    (text: string): void => {
+      if (text.trim().length === 0) return;
+      const current = docRef.current;
+      if (!current) return;
+      const session = prismSessionRef.current;
+      guardBeforeAssist(session.direction === "abstract" ? "Prism 抽象化の反映前" : "Prism 具体化の反映前");
+      const range = session.replaceRange;
+      if (range !== null && current.content.slice(range.start, range.end) === (session.replaceTargets[0] ?? "")) {
+        const next = current.content.slice(0, range.start) + text + current.content.slice(range.end);
+        setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+        if (modeRef.current === "preview") setMode("source");
+        setEditorJump({ start: range.start, end: range.start + text.length });
+        setPrismSession(INITIAL_PRISM_SESSION);
+        setToast("選択箇所を置き換えました");
+        return;
+      }
+      const result = insertComposed(text, session.replaceTargets);
+      if (result === null) return;
+      setPrismSession(INITIAL_PRISM_SESSION);
+      setToast(
+        result.kind === "replaced"
+          ? "選択箇所を置き換えました"
+          : result.fellBack
+            ? "置き換え対象を特定できないため、挿入に切り替えました"
+            : "エディタへ挿入しました",
+      );
+    },
+    [insertComposed, guardBeforeAssist],
+  );
+
+  const copyPrismVariant = useCallback((text: string): void => {
+    if (text.trim().length === 0) return;
+    void copyText(text).then((ok) => setToast(ok ? "案をコピーしました" : "コピーできませんでした"));
+  }, []);
+
+  const cancelPrism = useCallback((): void => {
+    prismTokenRef.current += 1;
+    prismRunningRef.current = false;
+    setPrismSession((prev) =>
+      prev.variants.length > 0
+        ? { ...prev, phase: "done", direction: prismShownDirRef.current, error: null }
+        : { ...prev, phase: "compose", error: null },
+    );
+    void window.api.cancelAssist("prism").catch(() => undefined);
+  }, []);
+
   const reloadSnapshots = useCallback((): void => {
     const current = docRef.current;
     if (!current) return;
@@ -1272,6 +1417,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (docRef.current === null) return;
     setLensOpen((prev) => {
       if (!prev) {
+        setPrismOpen(false);
         setLoomOpen(false);
         setFrayOpen(false);
         setWarpOpen(false);
@@ -1286,6 +1432,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (docRef.current === null) return;
     setLoomOpen((prev) => {
       if (!prev) {
+        setPrismOpen(false);
         setLensOpen(false);
         setFrayOpen(false);
         setWarpOpen(false);
@@ -1300,6 +1447,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (docRef.current === null) return;
     setFrayOpen((prev) => {
       if (!prev) {
+        setPrismOpen(false);
         setLensOpen(false);
         setLoomOpen(false);
         setWarpOpen(false);
@@ -1314,6 +1462,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (docRef.current === null) return;
     setWarpOpen((prev) => {
       if (!prev) {
+        setPrismOpen(false);
         setLensOpen(false);
         setLoomOpen(false);
         setFrayOpen(false);
@@ -1328,6 +1477,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (docRef.current === null) return;
     setTailorOpen((prev) => {
       if (!prev) {
+        setPrismOpen(false);
         setLensOpen(false);
         setLoomOpen(false);
         setFrayOpen(false);
@@ -1342,11 +1492,27 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     if (docRef.current === null) return;
     setSelvageOpen((prev) => {
       if (!prev) {
+        setPrismOpen(false);
         setLensOpen(false);
         setLoomOpen(false);
         setFrayOpen(false);
         setWarpOpen(false);
         setTailorOpen(false);
+      }
+      return !prev;
+    });
+  }, []);
+
+  const togglePrism = useCallback((): void => {
+    if (docRef.current === null) return;
+    setPrismOpen((prev) => {
+      if (!prev) {
+        setLensOpen(false);
+        setLoomOpen(false);
+        setFrayOpen(false);
+        setWarpOpen(false);
+        setTailorOpen(false);
+        setSelvageOpen(false);
       }
       return !prev;
     });
@@ -1457,6 +1623,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       } else if (mod && event.key.toLowerCase() === "h") {
         event.preventDefault();
         toggleSelvage();
+      } else if (mod && event.key.toLowerCase() === "u") {
+        event.preventDefault();
+        togglePrism();
       } else if (mod && event.key === "\\") {
         event.preventDefault();
         if (docRef.current !== null) setMode((prev) => (prev === "split" ? "preview" : "split"));
@@ -1477,6 +1646,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     toggleWarp,
     toggleTailor,
     toggleSelvage,
+    togglePrism,
   ]);
 
   const handleLinkActivate = useCallback(
@@ -1948,6 +2118,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const loomVisible = loomOpen && doc !== null;
   const frayVisible = frayOpen && doc !== null;
   const warpVisible = warpOpen && doc !== null;
+  const prismVisible = prismOpen && doc !== null;
   const tailorVisible = tailorOpen && doc !== null;
   const selvageVisible = selvageOpen && doc !== null;
   const llmSettings: LlmSettings = {
@@ -1964,7 +2135,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   return (
     <div
-      className={`app${lensVisible || loomVisible || frayVisible || warpVisible || tailorVisible || selvageVisible ? " lens-open" : ""}`}
+      className={`app${lensVisible || loomVisible || frayVisible || warpVisible || prismVisible || tailorVisible || selvageVisible ? " lens-open" : ""}`}
     >
       <aside className="left-pane">
         <div className="brand">
@@ -2007,6 +2178,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           lensAvailable={doc !== null}
           loomOpen={loomVisible}
           warpOpen={warpVisible}
+          prismOpen={prismVisible}
           frayOpen={frayVisible}
           tailorOpen={tailorVisible}
           selvageOpen={selvageVisible}
@@ -2019,6 +2191,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onToggleLens={toggleLens}
           onToggleLoom={toggleLoom}
           onToggleWarp={toggleWarp}
+          onTogglePrism={togglePrism}
           onToggleFray={toggleFray}
           onToggleTailor={toggleTailor}
           onToggleSelvage={toggleSelvage}
@@ -2213,6 +2386,20 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onPullSelection={pullSelectionToWarp}
           onRepairMermaid={repairWarpMermaid}
           onClose={() => setWarpOpen(false)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      ) : prismVisible && doc ? (
+        <PrismPanel
+          session={prismSession}
+          modelLabel={mainModelLabel}
+          apiKeySet={aiReady}
+          onUpdate={updatePrismSession}
+          onRun={runPrism}
+          onCancel={cancelPrism}
+          onAdopt={adoptPrismVariant}
+          onCopy={copyPrismVariant}
+          onPullSelection={pullSelectionToPrism}
+          onClose={() => setPrismOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : tailorVisible && doc ? (

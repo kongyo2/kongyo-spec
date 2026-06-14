@@ -5383,3 +5383,188 @@ mark.pending-decision {
 .te-preview-body > *:last-child {
   margin-bottom: 0;
 }
+
+/* Prism — 抽象度の分光 */
+.prism-dir-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.prism-dir {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--muted);
+  padding: 9px 11px;
+  text-align: left;
+  transition:
+    background-color var(--t-fast),
+    border-color var(--t-fast),
+    color var(--t-fast),
+    box-shadow var(--t-fast);
+}
+
+.prism-dir > svg {
+  color: var(--muted-2);
+  margin-bottom: 3px;
+  transition: color var(--t-fast);
+}
+
+.prism-dir:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.prism-dir.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.prism-dir.active > svg {
+  color: var(--accent);
+}
+
+.prism-dir-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.prism-dir-sub {
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  color: var(--muted-2);
+}
+
+.prism-dir.active .prism-dir-sub {
+  color: color-mix(in srgb, var(--accent-text) 78%, transparent);
+}
+
+.prism-selection {
+  min-height: 132px;
+}
+
+.prism-reading {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.prism-reading > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--accent);
+}
+
+.prism-variants {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prism-variant {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-sm);
+  animation: lens-card-in 0.3s var(--ease-out) both;
+}
+
+.prism-variant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prism-variant-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.prism-variant-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 25px;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--muted);
+  transition:
+    background-color var(--t-fast),
+    border-color var(--t-fast),
+    color var(--t-fast);
+}
+
+.prism-variant-copy:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.prism-variant-text {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--fg);
+  padding: 9px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.prism-variant-text:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.prism-variant-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.prism-adopt {
+  margin-top: 2px;
+  align-self: flex-start;
+}
+
+.prism-redo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

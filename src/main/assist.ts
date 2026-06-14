@@ -3,15 +3,18 @@ import {
   MAX_TAILOR_TASKS,
   parseAuditReport,
   parseLensReport,
+  parsePrismResult,
   parseTailorPlan,
   parseWarpResult,
   parseWeaveResult,
   type AssistAudit,
   type AssistKind,
+  type AssistPrism,
   type AssistReview,
   type AssistTailor,
   type AssistWarp,
   type AssistWeave,
+  type PrismSpecInput,
   type WarpSpecInput,
   type WeaveSpecInput,
 } from "@shared/schemas/assist";
@@ -128,6 +131,7 @@ const KIND_LABEL: Record<AssistKind, string> = {
   weave: "織り",
   warp: "整形",
   tailor: "仕立て",
+  prism: "分光",
 };
 
 function friendlyError(err: unknown): Error {
@@ -700,4 +704,97 @@ export async function warpSpec(input: WarpSpecInput): Promise<AssistWarp> {
     throw new Error("出力が得られませんでした。素材を見直して再試行してください。");
   }
   return { result: { ...value, output }, model };
+}
+
+const PRISM_ABSTRACT_SYSTEM_PROMPT = `あなたは仕様書(spec)の分光器「Prism」です。人間が選んだ一節を、意味を保ったまま抽象度を上げた複数の書き換え案に分光します。
+
+前提となる思想:
+- 仕様書の価値は「人間にしか決められないこと」だけが書かれていることにある。過剰な具体は実装側の探索を歪める。
+- 抽象化とは、書き手の意図を保ったまま、目的の達成に寄与しない具体(手段・UI 配置・操作手順・特定の実装)を削り、実装の自由を取り戻すことである。
+- あなたは内容を発明しない。元の一節が述べている意図・制約の範囲内で書き換える。新しい要求・数値・機能を足さない。
+
+「高度」の軸を意識する:
+- intent(なぜ): 目的・背景・価値
+- behavior(何が起きるべきか): 振る舞い・受け入れ条件
+- implementation(どう作るか): 手段・内部設計・手順
+抽象化は implementation → behavior → intent の向きに引き上げることである。
+
+分光(variants)の規律:
+- 切り口の異なる案を 3〜5 個返す。発想の例: 意図だけに絞る / 振る舞い・受け入れ条件として言い換える / 上位概念に一般化する / 手段の指定を満たすべき制約として書き直す。元の一節に噛み合う切り口だけを選ぶ。
+- それぞれ明確に異なる高度・切り口にする。語尾を変えただけの冗長な言い換えを案にしない。元より具体的にしない。
+- label は切り口を表す短い名詞句(12 字以内、例: 意図に絞る、制約として書く)。
+- text は選択範囲をそのまま置き換えられる Markdown 断片。元の書式(箇条書き・強調の有無)を尊重し、前後の文脈に無理なく収まる長さにする。見出し(#)から始めない。
+- note は、その案で何を削り何を残したか、どんな含意があるかを一文で。
+- 原文の固有名詞・引用を除き、元の一節の言語で書く(既定は日本語)。
+
+reading には、選択された一節がいま高度のどこにあり、なぜ抽象化の余地があるかを一文で書く(80 字以内、断定調)。`;
+
+const PRISM_CONCRETE_SYSTEM_PROMPT = `あなたは仕様書(spec)の分光器「Prism」です。人間が選んだ一節を、意味を保ったまま抽象度を下げ、検証可能な複数の書き換え案に分光します。
+
+前提となる思想:
+- 抽象的・曖昧な記述は、実装 AI に解釈を委ね、誤った実装を生む。具体化とは、検証できる形に落とし込み、解釈の幅を狭めることである。
+- ただし、文書のどこからも導出できない数値・選択を黙って発明してはならない。それは人間が決めることである。
+- 根拠なく具体値・選択を置く必要が生じたら、その箇所を 【要確認: 短い問い】 として残す。仮の値で確定させない。
+
+「高度」の軸を意識する:
+- intent(なぜ)→ behavior(何が起きるべきか)→ implementation(どう作るか)
+具体化は intent → behavior → implementation の向きに引き下ろすことである。多くの場合、behavior(検証可能な振る舞い)まで下ろすのが最も価値が高い。実装手段まで下ろすのは、元の一節がそれを求めているときだけにする。
+
+分光(variants)の規律:
+- 切り口の異なる案を 3〜5 個返す。発想の例: 受け入れ条件(Given/When/Then や WHEN…THEN…SHALL)に落とす / 具体的なシナリオ・例で固める / 曖昧な形容(高速・適切に 等)を測れる基準に置き換える / 境界・例外時の振る舞いを明示する。元の一節に噛み合う切り口だけを選ぶ。
+- それぞれ明確に異なる切り口にする。測れない形容をそのまま残さない。かといって根拠のない数値で埋めない。
+- label は切り口を表す短い名詞句(12 字以内、例: 受け入れ条件に落とす、例で固める)。
+- text は選択範囲をそのまま置き換えられる Markdown 断片。元の書式を尊重し、前後の文脈に無理なく収まる長さにする。見出し(#)から始めない。
+- note は、その案が何を検証可能にしたか、どんな前提を置いたかを一文で。【要確認】 を残した場合はそのことに一言触れる。
+- 原文の固有名詞・引用を除き、元の一節の言語で書く(既定は日本語)。
+
+reading には、選択された一節がいま高度のどこにあり、なぜ具体化の余地があるかを一文で書く(80 字以内、断定調)。`;
+
+const PRISM_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    reading: { type: Type.STRING },
+    variants: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          label: { type: Type.STRING },
+          text: { type: Type.STRING },
+          note: { type: Type.STRING },
+        },
+        required: ["label", "text", "note"],
+        propertyOrdering: ["label", "text", "note"],
+      },
+    },
+  },
+  required: ["reading", "variants"],
+  propertyOrdering: ["reading", "variants"],
+};
+
+function buildPrismContents(input: PrismSpecInput): string {
+  const parts: string[] = [];
+  if (input.title.trim().length > 0) parts.push(`# 仕様書の題名\n\n${input.title.trim()}`);
+  parts.push(`# 選択された一節(これを書き換える)\n\n${input.selection}`);
+  if (input.context.trim().length > 0) {
+    parts.push(`# 周辺の文脈(用語と意図の理解のための参考。書き換えてはならない)\n\n${input.context}`);
+  }
+  return parts.join("\n\n");
+}
+
+export async function prismSpec(input: PrismSpecInput): Promise<AssistPrism> {
+  if (input.selection.trim().length === 0) {
+    throw new Error("選択された一節がありません。本文を選んでから分光してください。");
+  }
+  const { value, model } = await runStructured("prism", {
+    system: input.direction === "abstract" ? PRISM_ABSTRACT_SYSTEM_PROMPT : PRISM_CONCRETE_SYSTEM_PROMPT,
+    contents: buildPrismContents(input),
+    schema: PRISM_RESPONSE_SCHEMA,
+    defaultTemperature: 0.5,
+    parse: parsePrismResult,
+  });
+  if (value.variants.length === 0) {
+    throw new Error("書き換え案が得られませんでした。選択範囲を変えるか、向きを切り替えて再試行してください。");
+  }
+  return { result: value, model };
 }

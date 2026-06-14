@@ -331,7 +331,7 @@ export interface AssistTailor {
   model: string;
 }
 
-export const ASSIST_KINDS = ["review", "audit", "weave", "warp", "tailor"] as const;
+export const ASSIST_KINDS = ["review", "audit", "weave", "warp", "tailor", "prism"] as const;
 export const AssistKindSchema = z.enum(ASSIST_KINDS);
 export type AssistKind = z.infer<typeof AssistKindSchema>;
 
@@ -355,4 +355,59 @@ export const WeaveSpecInputSchema = z.object({
 export type WeaveSpecInput = z.infer<typeof WeaveSpecInputSchema>;
 export function parseWeaveSpecInput(raw: unknown): WeaveSpecInput {
   return WeaveSpecInputSchema.parse(raw);
+}
+
+export const PRISM_DIRECTIONS = ["abstract", "concrete"] as const;
+export const PrismDirectionSchema = z.enum(PRISM_DIRECTIONS);
+export type PrismDirection = z.infer<typeof PrismDirectionSchema>;
+
+export const MAX_PRISM_SELECTION_CHARS = 8_000;
+export const MAX_PRISM_CONTEXT_CHARS = 16_000;
+export const MAX_PRISM_VARIANT_CHARS = 8_000;
+export const MAX_PRISM_VARIANTS = 5;
+
+const PrismTextSchema = z
+  .string()
+  .max(MAX_PRISM_VARIANT_CHARS)
+  .nullish()
+  .transform((value) => (value ?? "").replace(/^\n+/, "").replace(/\n+$/, ""));
+
+export const PrismVariantSchema = z.object({
+  label: TrimmedSchema(60),
+  text: PrismTextSchema,
+  note: TrimmedSchema(600),
+});
+export type PrismVariant = z.infer<typeof PrismVariantSchema>;
+
+function isConformingPrismVariant(variant: PrismVariant): boolean {
+  return variant.text.trim().length > 0 && variant.label.length > 0;
+}
+
+export const PrismResultSchema = z.object({
+  reading: TrimmedSchema(600),
+  variants: z
+    .array(PrismVariantSchema)
+    .max(16)
+    .transform((items) => items.filter(isConformingPrismVariant).slice(0, MAX_PRISM_VARIANTS)),
+});
+export type PrismResult = z.infer<typeof PrismResultSchema>;
+
+export function parsePrismResult(raw: unknown): PrismResult {
+  return PrismResultSchema.parse(raw);
+}
+
+export interface AssistPrism {
+  result: PrismResult;
+  model: string;
+}
+
+export const PrismSpecInputSchema = z.object({
+  direction: PrismDirectionSchema,
+  selection: z.string().min(1).max(MAX_PRISM_SELECTION_CHARS),
+  title: z.string().max(200).default(""),
+  context: z.string().max(MAX_PRISM_CONTEXT_CHARS).default(""),
+});
+export type PrismSpecInput = z.infer<typeof PrismSpecInputSchema>;
+export function parsePrismSpecInput(raw: unknown): PrismSpecInput {
+  return PrismSpecInputSchema.parse(raw);
 }
