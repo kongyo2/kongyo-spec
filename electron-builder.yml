@@ -27,4 +27,22 @@ nsis:
   createDesktopShortcut: always
 portable:
   artifactName: ${name}-${version}-portable.${ext}
+mac:
+  icon: build/icon.png
+  category: public.app-category.developer-tools
+  identity: null # CI にコード署名証明書がないため署名しない
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+linux:
+  icon: build/icon.png
+  category: Development
+  synopsis: Desktop markdown spec editor for AI-driven development
+  target:
+    - target: AppImage
+      arch: [x64]
+appImage:
+  artifactName: ${name}-${version}-${arch}.${ext}
 npmRebuild: false
