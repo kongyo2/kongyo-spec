@@ -13,6 +13,13 @@ export interface HeadingInfo {
   level: number;
 }
 
+export interface TableEditRequest {
+  pageLineStart: number;
+  pageLineEnd: number;
+  raw: string;
+  focus: { row: number; col: number } | null;
+}
+
 interface PreviewProps {
   pageContent: string;
   headingIds: string[];
@@ -27,6 +34,7 @@ interface PreviewProps {
   onHeadings: (headings: HeadingInfo[]) => void;
   onActiveHeading: (id: string | null) => void;
   onLinkActivate: (href: string) => void;
+  onTableEdit?: (request: TableEditRequest) => void;
   scrollSyncRef?: React.MutableRefObject<((ratio: number) => void) | null>;
 }
 
@@ -58,6 +66,61 @@ function decorateCodeBlocks(container: HTMLElement): void {
   });
 }
 
+function cellFocus(cell: HTMLTableCellElement): { row: number; col: number } {
+  const col = cell.cellIndex;
+  const tr = cell.parentElement;
+  const section = tr?.parentElement;
+  if (!tr || !section || section.tagName === "THEAD") return { row: -1, col };
+  const row = Array.prototype.indexOf.call(section.children, tr);
+  return { row, col };
+}
+
+interface TableLineRange {
+  pageLineStart: number;
+  pageLineEnd: number;
+  raw: string;
+}
+
+function tableLineRange(table: Element, pageContent: string, linkDefs: string): TableLineRange | null {
+  const [startStr, endStr] = (table.getAttribute("data-mdtbl") ?? "").split(":");
+  const linkDefsNewlines = (linkDefs.match(/\n/g) ?? []).length;
+  const pageLineStart = Number(startStr) - 1 - linkDefsNewlines;
+  const pageLineEnd = Number(endStr) - 1 - linkDefsNewlines;
+  if (!Number.isInteger(pageLineStart) || !Number.isInteger(pageLineEnd)) return null;
+  const lines = pageContent.replace(/\r\n?/g, "\n").split("\n");
+  if (pageLineStart < 0 || pageLineEnd < pageLineStart || pageLineEnd >= lines.length) return null;
+  return { pageLineStart, pageLineEnd, raw: lines.slice(pageLineStart, pageLineEnd + 1).join("\n") };
+}
+
+function decorateTables(
+  container: HTMLElement,
+  pageContent: string,
+  linkDefs: string,
+  activate: (table: HTMLTableElement) => void,
+): void {
+  container.querySelectorAll<HTMLTableElement>("table[data-mdtbl]").forEach((table) => {
+    if (table.dataset["teReady"] === "1") return;
+    if (tableLineRange(table, pageContent, linkDefs) === null) return;
+    table.dataset["teReady"] = "1";
+
+    const wrap = document.createElement("div");
+    wrap.className = "table-edit-wrap";
+    table.parentNode?.insertBefore(wrap, table);
+    wrap.appendChild(table);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "table-edit-button";
+    button.textContent = "編集";
+    button.setAttribute("aria-label", "テーブルをグリッドで編集");
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      activate(table);
+    });
+    wrap.appendChild(button);
+  });
+}
+
 export function Preview(props: PreviewProps): React.ReactElement {
   const {
     pageContent,
@@ -73,12 +136,28 @@ export function Preview(props: PreviewProps): React.ReactElement {
     onHeadings,
     onActiveHeading,
     onLinkActivate,
+    onTableEdit,
     scrollSyncRef,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const renderedKeyRef = useRef<string | null>(null);
   const [html, setHtml] = useState<string>("");
+
+  const pageContentRef = useRef(pageContent);
+  const linkDefsRef = useRef(linkDefs);
+  const tableEditRef = useRef(onTableEdit);
+  pageContentRef.current = pageContent;
+  linkDefsRef.current = linkDefs;
+  tableEditRef.current = onTableEdit;
+
+  const emitTableEdit = (table: HTMLTableElement, focus: { row: number; col: number } | null): void => {
+    const handler = tableEditRef.current;
+    if (!handler) return;
+    const range = tableLineRange(table, pageContentRef.current, linkDefsRef.current);
+    if (!range) return;
+    handler({ ...range, focus });
+  };
 
   const renderKey = useMemo(
     () => `${linkDefs.length}:${headingIds.length}:${headingIds.join(",")}:${linkDefs}${pageContent}`,
@@ -144,6 +223,12 @@ export function Preview(props: PreviewProps): React.ReactElement {
 
   useEffect(() => {
     const container = containerRef.current;
+    if (!container || !tableEditRef.current) return;
+    decorateTables(container, pageContentRef.current, linkDefsRef.current, (table) => emitTableEdit(table, null));
+  });
+
+  useEffect(() => {
+    const container = containerRef.current;
     if (!container || html.length === 0) return;
     let frame = 0;
     const run = (): void => {
@@ -191,6 +276,15 @@ export function Preview(props: PreviewProps): React.ReactElement {
     };
   }, [scrollSyncRef]);
 
+  const handleDoubleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (!tableEditRef.current) return;
+    const cell = (event.target as HTMLElement).closest<HTMLTableCellElement>("td, th");
+    const table = cell?.closest<HTMLTableElement>("table[data-mdtbl]");
+    if (!cell || !table) return;
+    event.preventDefault();
+    emitTableEdit(table, cellFocus(cell));
+  };
+
   const handleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     const target = event.target as HTMLElement;
     const anchor = target.closest("a");
@@ -210,6 +304,7 @@ export function Preview(props: PreviewProps): React.ReactElement {
       ref={containerRef}
       className="preview markdown-body"
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

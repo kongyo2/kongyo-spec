@@ -4929,3 +4929,291 @@ mark.pending-decision {
     display: none;
   }
 }
+
+/* ===== Table editing ===== */
+
+.table-edit-wrap {
+  position: relative;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 1em;
+}
+
+.markdown-body .table-edit-wrap > table {
+  margin: 0;
+}
+
+.table-edit-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 3px 11px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 560;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  box-shadow: var(--shadow-sm);
+  transition:
+    opacity var(--t-fast),
+    background-color var(--t-fast),
+    color var(--t-fast),
+    border-color var(--t-fast);
+}
+
+.table-edit-wrap:hover .table-edit-button,
+.table-edit-button:focus-visible {
+  opacity: 1;
+}
+
+.table-edit-button:hover {
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+
+.te-overlay {
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4vh 24px;
+  overflow-y: auto;
+}
+
+.te-modal {
+  width: min(980px, 94vw);
+  max-width: 94vw;
+  max-height: 92vh;
+  padding: 22px 24px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.te-header {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.te-header .modal-title {
+  margin: 0;
+}
+
+.te-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.te-hint kbd {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-1);
+  color: var(--fg);
+}
+
+.te-scroll {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  padding: 12px;
+}
+
+.te-grid {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.te-corner,
+.te-rowspacer {
+  min-width: 6px;
+}
+
+.te-colctrl {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding-bottom: 3px;
+}
+
+.te-rowctrl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding-right: 3px;
+}
+
+.te-rowctrl-head {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted-2);
+  text-align: center;
+}
+
+.te-cell {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--fg);
+  transition:
+    border-color var(--t-fast),
+    box-shadow var(--t-fast),
+    background-color var(--t-fast);
+}
+
+.te-cell::placeholder {
+  color: var(--muted-2);
+}
+
+.te-cell:hover {
+  border-color: var(--border-strong);
+}
+
+.te-cell:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  background: var(--bg-elevated);
+}
+
+.te-cell-head {
+  background: var(--surface-2);
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.te-align,
+.te-mini,
+.te-addcol,
+.te-addrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast),
+    border-color var(--t-fast),
+    opacity var(--t-fast);
+}
+
+.te-align {
+  width: 26px;
+  height: 24px;
+}
+
+.te-align:hover {
+  background: var(--surface-2);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.te-mini {
+  width: 22px;
+  height: 22px;
+  opacity: 0.5;
+}
+
+.te-colctrl:hover .te-mini,
+.te-rowctrl:hover .te-mini,
+.te-mini:focus-visible {
+  opacity: 1;
+}
+
+.te-insert:hover {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.te-remove:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  border-color: var(--danger);
+}
+
+.te-mini:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.te-addcol {
+  width: 26px;
+  align-self: stretch;
+  margin-left: 2px;
+}
+
+.te-addcol:hover,
+.te-addrow:hover {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.te-addrow {
+  gap: 5px;
+  margin-top: 8px;
+  padding: 7px 14px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--fg);
+}
+
+.te-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.te-preview-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-2);
+}
+
+.te-preview-body {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  padding: 12px 14px;
+  max-height: 22vh;
+  overflow: auto;
+}
+
+.te-preview-body table {
+  margin: 0;
+}
+
+.te-preview-body > *:last-child {
+  margin-bottom: 0;
+}

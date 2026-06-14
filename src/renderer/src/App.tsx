@@ -33,11 +33,12 @@ import { LensPanel, type LensState } from "./components/LensPanel";
 import { INITIAL_LOOM_SESSION, LoomPanel, type LoomSession, type WeaveKind } from "./components/LoomPanel";
 import { Outline } from "./components/Outline";
 import { PagesNav } from "./components/PagesNav";
-import { Preview, type HeadingInfo } from "./components/Preview";
+import { Preview, type HeadingInfo, type TableEditRequest } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
 import { SelvagePanel, type SelvageState } from "./components/SelvagePanel";
 import { Settings as SettingsScreen, type LlmSettings, type SettingChange } from "./components/Settings";
 import { SpecsSidebar } from "./components/SpecsSidebar";
+import { TableEditor } from "./components/TableEditor";
 import { TailorPanel, type TailorState } from "./components/TailorPanel";
 import { Toolbar, type EditorMode } from "./components/Toolbar";
 import { INITIAL_WARP_SESSION, WarpPanel, type WarpSession } from "./components/WarpPanel";
@@ -54,7 +55,8 @@ import { collectLinkDefinitions, splitPages } from "./lib/pages";
 import { findPendingDecisions, nextPendingDecision } from "./lib/pending";
 import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
 import { buildHandoffPrompt, mergePlanIntoContent, PLAN_HEADING, tailorPlanToMarkdown } from "./lib/tailor";
-import { lineStartOffset } from "./lib/text";
+import { parseTable, serializeTable, type TableModel } from "./lib/table";
+import { lineRangeOffsets, lineStartOffset } from "./lib/text";
 import {
   applyTheme,
   clearLegacyTheme,
@@ -78,6 +80,14 @@ interface PendingAnchor {
 
 interface AppProps {
   initialSettings: RendererSettings;
+}
+
+interface TableEditState {
+  specId: string;
+  absStartLine: number;
+  absEndLineExclusive: number;
+  model: TableModel;
+  focus: { row: number; col: number } | null;
 }
 
 const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl ";
@@ -110,6 +120,9 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const [pendingAnchor, setPendingAnchor] = useState<PendingAnchor | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [tableEdit, setTableEdit] = useState<TableEditState | null>(null);
+  const tableEditRef = useRef<TableEditState | null>(null);
+  tableEditRef.current = tableEdit;
   const [toast, setToast] = useState<string | null>(null);
 
   const [themePreference, setThemePreference] = useState<ThemePreference>(initialSettings.theme);
@@ -210,6 +223,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const fullHeadingIds = useMemo(() => pageHeadingIds.flat(), [pageHeadingIds]);
   const linkDefs = useMemo(() => collectLinkDefinitions(doc?.content ?? ""), [doc?.content]);
   const activePage = pages[pageIndex] ?? pages[0];
+  const activePageRef = useRef(activePage);
+  activePageRef.current = activePage;
 
   const llmRouting = useMemo(() => rendererLlmRouting(llm), [llm]);
   const mainModelLabel = llmProfileDisplayName(llmRouting.main);
@@ -598,6 +613,33 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     const planSection = state.status === "done" ? tailorPlanToMarkdown(state.plan, state.model) : null;
     const prompt = buildHandoffPrompt({ title: current.meta.title, content: current.content, planSection });
     void copyText(prompt).then((ok) => setToast(ok ? "実装プロンプトをコピーしました" : "コピーできませんでした"));
+  }, []);
+
+  const handleTableEdit = useCallback((request: TableEditRequest): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const base = modeRef.current === "split" ? 0 : (activePageRef.current?.startLine ?? 0);
+    setTableEdit({
+      specId: current.meta.id,
+      absStartLine: base + request.pageLineStart,
+      absEndLineExclusive: base + request.pageLineEnd + 1,
+      model: parseTable(request.raw),
+      focus: request.focus,
+    });
+  }, []);
+
+  const applyTableEdit = useCallback((model: TableModel): void => {
+    const edit = tableEditRef.current;
+    const current = docRef.current;
+    if (!edit || !current || current.meta.id !== edit.specId) {
+      setTableEdit(null);
+      return;
+    }
+    const [start, end] = lineRangeOffsets(current.content, edit.absStartLine, edit.absEndLineExclusive);
+    const next = current.content.slice(0, start) + serializeTable(model) + current.content.slice(end);
+    setDoc((prev) => (prev && prev.meta.id === edit.specId ? { ...prev, content: next } : prev));
+    setTableEdit(null);
+    setToast("テーブルを更新しました");
   }, []);
 
   const applyLensRewrite = useCallback((excerpt: string, rewrite: string): boolean => {
@@ -1961,6 +2003,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               onHeadings={setHeadings}
               onActiveHeading={setActiveHeadingId}
               onLinkActivate={handleLinkActivate}
+              onTableEdit={handleTableEdit}
             />
           ) : mode === "split" ? (
             <div className="split-view" style={{ "--split-ratio": `${splitRatio * 100}%` } as React.CSSProperties}>
@@ -2006,6 +2049,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
                   onHeadings={setHeadings}
                   onActiveHeading={setActiveHeadingId}
                   onLinkActivate={handleLinkActivate}
+                  onTableEdit={handleTableEdit}
                   scrollSyncRef={previewSyncRef}
                 />
               </div>
@@ -2158,6 +2202,16 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onSetRouting={handleSetRouting}
           onReset={handleResetSettings}
           onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+
+      {tableEdit ? (
+        <TableEditor
+          key={`${tableEdit.specId}:${tableEdit.absStartLine}`}
+          model={tableEdit.model}
+          initialFocus={tableEdit.focus}
+          onApply={applyTableEdit}
+          onCancel={() => setTableEdit(null)}
         />
       ) : null}
 

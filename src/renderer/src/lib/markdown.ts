@@ -7,6 +7,7 @@ import rehypeStringify from "rehype-stringify";
 import { unified } from "unified";
 import { SKIP, visit } from "unist-util-visit";
 import type { Element, ElementContent, Root } from "hast";
+import type { Root as MdastRoot, Table as MdastTable } from "mdast";
 import { mdastToHast, remarkBase } from "./remark";
 import { PENDING_DECISION_RE } from "./pending";
 import { getShikiHighlighter, SHIKI_THEMES } from "./shiki";
@@ -32,6 +33,19 @@ function rehypeMermaid() {
         children: [{ type: "text", value: source }],
       };
       parent.children[index] = replacement;
+    });
+  };
+}
+
+function remarkTableOffsets() {
+  return (tree: MdastRoot): void => {
+    visit(tree, "table", (node: MdastTable) => {
+      const start = node.position?.start.line;
+      const end = node.position?.end.line;
+      if (start === undefined || end === undefined) return;
+      const data = (node.data ??= {}) as { hProperties?: Record<string, unknown> };
+      const props = (data.hProperties ??= {});
+      props["data-mdtbl"] = `${start}:${end}`;
     });
   };
 }
@@ -174,6 +188,7 @@ export async function renderMarkdownToHtml(markdown: string, headingIds: string[
   };
   const file = await unified()
     .use(remarkBase)
+    .use(remarkTableOffsets)
     .use(mdastToHast)
     .use(rehypeSanitizeScripts)
     .use(rehypeSpecAssets)
