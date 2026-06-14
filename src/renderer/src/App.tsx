@@ -119,13 +119,14 @@ function spliceOut(text: string, range: { start: number; end: number }): string 
   return `${before}\n\n${after}`;
 }
 
-function buildPrismContext(content: string, selection: string): string {
+function buildPrismContext(content: string, selection: string, range: { start: number; end: number } | null): string {
   if (content.length <= MAX_PRISM_CONTEXT_CHARS) return content;
-  const index = content.indexOf(selection);
-  if (index === -1) return content.slice(0, MAX_PRISM_CONTEXT_CHARS);
+  const anchored =
+    range !== null && content.slice(range.start, range.end) === selection ? range.start : content.indexOf(selection);
+  if (anchored === -1) return content.slice(0, MAX_PRISM_CONTEXT_CHARS);
   const margin = Math.floor((MAX_PRISM_CONTEXT_CHARS - Math.min(selection.length, MAX_PRISM_CONTEXT_CHARS)) / 2);
-  const start = Math.max(0, index - margin);
-  const end = Math.min(content.length, index + selection.length + margin);
+  const start = Math.max(0, anchored - margin);
+  const end = Math.min(content.length, anchored + selection.length + margin);
   return content.slice(start, end);
 }
 
@@ -240,6 +241,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   prismSessionRef.current = prismSession;
   const prismTokenRef = useRef(0);
   const prismRunningRef = useRef(false);
+  const prismShownDirRef = useRef<PrismDirection>("abstract");
   const selectionRef = useRef<{ start: number; end: number } | null>(null);
   const modeRef = useRef<EditorMode>("preview");
   modeRef.current = mode;
@@ -340,6 +342,10 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     setWarpSession(INITIAL_WARP_SESSION);
     prismTokenRef.current += 1;
     setPrismSession(INITIAL_PRISM_SESSION);
+    if (prismRunningRef.current) {
+      prismRunningRef.current = false;
+      void window.api.cancelAssist("prism").catch(() => undefined);
+    }
     auditTokenRef.current += 1;
     setAudit((prev) => (prev.status === "running" ? prev : { status: "idle" }));
     tailorTokenRef.current += 1;
@@ -1078,11 +1084,12 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         direction,
         selection,
         title: current.meta.title.slice(0, 200),
-        context: buildPrismContext(current.content, selection),
+        context: buildPrismContext(current.content, selection, session.replaceRange),
       })
       .then(
         ({ result, model }) => {
           if (prismTokenRef.current !== token) return;
+          prismShownDirRef.current = direction;
           setPrismSession((prev) => ({
             ...prev,
             phase: "done",
@@ -1110,16 +1117,29 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
       setToast("選択範囲が長すぎます(約 8000 字まで)。狭めてから取り込んでください");
       return;
     }
-    setPrismSession((prev) => ({ ...prev, selection: text, replaceTargets: [text] }));
+    const sel = selectionRef.current;
+    const range = sel !== null && sel.start !== sel.end ? { start: sel.start, end: sel.end } : null;
+    setPrismSession((prev) => ({ ...prev, selection: text, replaceTargets: [text], replaceRange: range }));
   }, [grabEditorSelection]);
 
   const adoptPrismVariant = useCallback(
     (text: string): void => {
-      const body = text.trim();
-      if (body.length === 0) return;
+      if (text.trim().length === 0) return;
+      const current = docRef.current;
+      if (!current) return;
       const session = prismSessionRef.current;
       guardBeforeAssist(session.direction === "abstract" ? "Prism 抽象化の反映前" : "Prism 具体化の反映前");
-      const result = insertComposed(body, session.replaceTargets);
+      const range = session.replaceRange;
+      if (range !== null && current.content.slice(range.start, range.end) === (session.replaceTargets[0] ?? "")) {
+        const next = current.content.slice(0, range.start) + text + current.content.slice(range.end);
+        setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+        if (modeRef.current === "preview") setMode("source");
+        setEditorJump({ start: range.start, end: range.start + text.length });
+        setPrismSession(INITIAL_PRISM_SESSION);
+        setToast("選択箇所を置き換えました");
+        return;
+      }
+      const result = insertComposed(text, session.replaceTargets);
       if (result === null) return;
       setPrismSession(INITIAL_PRISM_SESSION);
       setToast(
@@ -1140,7 +1160,11 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const cancelPrism = useCallback((): void => {
     prismTokenRef.current += 1;
-    setPrismSession((prev) => ({ ...prev, phase: prev.variants.length > 0 ? "done" : "compose", error: null }));
+    setPrismSession((prev) =>
+      prev.variants.length > 0
+        ? { ...prev, phase: "done", direction: prismShownDirRef.current, error: null }
+        : { ...prev, phase: "compose", error: null },
+    );
     void window.api.cancelAssist("prism").catch(() => undefined);
   }, []);
 

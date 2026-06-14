@@ -26,6 +26,7 @@ export interface PrismSession {
   variants: PrismVariant[];
   drafts: string[];
   replaceTargets: string[];
+  replaceRange: { start: number; end: number } | null;
   servedBy: string | null;
   error: string | null;
 }
@@ -38,6 +39,7 @@ export const INITIAL_PRISM_SESSION: PrismSession = {
   variants: [],
   drafts: [],
   replaceTargets: [],
+  replaceRange: null,
   servedBy: null,
   error: null,
 };
@@ -296,7 +298,7 @@ export function PrismPanel({
           placeholder={SELECTION_PLACEHOLDER}
           spellCheck={false}
           aria-label="分光する一節"
-          onChange={(event) => onUpdate({ selection: event.target.value })}
+          onChange={(event) => onUpdate({ selection: event.target.value, replaceTargets: [], replaceRange: null })}
           onKeyDown={(event) => {
             if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
               event.preventDefault();
@@ -319,7 +321,7 @@ export function PrismPanel({
               type="button"
               className="loom-target-chip"
               title="採用時にこの箇所を置き換えます。クリックで解除"
-              onClick={() => onUpdate({ replaceTargets: [] })}
+              onClick={() => onUpdate({ replaceTargets: [], replaceRange: null })}
             >
               置き換え対象 {session.replaceTargets[0]!.length} 字
               <X size={11} aria-hidden="true" />
