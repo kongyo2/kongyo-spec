@@ -1,7 +1,6 @@
 import { ipcMain, shell } from "electron";
 import { parseAutocompleteRequest } from "@shared/autocomplete";
 import {
-  parseAuditSpecInput,
   parseCancelAssistInput,
   parsePrismSpecInput,
   parseReviewSpecInput,
@@ -30,7 +29,7 @@ import {
   parseUpsertLlmProfileInput,
   toRendererSettings,
 } from "@shared/schemas/settings";
-import { auditSpec, cancelAssist, prismSpec, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
+import { cancelAssist, prismSpec, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
 import { autocomplete, cancelAutocomplete, resetAutocompleteBackoff } from "./autocomplete";
 import {
   deleteSnapshot,
@@ -104,8 +103,6 @@ export function registerIpc(): void {
   ipcMain.handle("settings:get", () => toRendererSettings(readSettings()));
 
   ipcMain.handle("assist:review", (_event, raw: unknown) => reviewSpec(parseReviewSpecInput(raw).content));
-
-  ipcMain.handle("assist:audit", (_event, raw: unknown) => auditSpec(parseAuditSpecInput(raw).content));
 
   ipcMain.handle("assist:weave", (_event, raw: unknown) => weaveSpec(parseWeaveSpecInput(raw)));
 

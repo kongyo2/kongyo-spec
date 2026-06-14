@@ -116,45 +116,6 @@ export interface AssistReview {
   model: string;
 }
 
-export const AUDIT_FINDING_KINDS = ["value", "behavior", "term"] as const;
-export const AuditFindingKindSchema = z.enum(AUDIT_FINDING_KINDS);
-export type AuditFindingKind = z.infer<typeof AuditFindingKindSchema>;
-
-export const AuditFindingSchema = z.object({
-  kind: AuditFindingKindSchema,
-  excerptA: ExcerptSchema,
-  excerptB: ExcerptSchema,
-  reason: ReasonSchema,
-});
-export type AuditFinding = z.infer<typeof AuditFindingSchema>;
-
-function isConformingAuditFinding(finding: AuditFinding): boolean {
-  return finding.reason.length > 0 && finding.excerptA.length > 0 && finding.excerptB.length > 0;
-}
-
-export const AuditReportSchema = z.object({
-  verdict: VerdictSchema,
-  findings: z
-    .array(AuditFindingSchema)
-    .max(32)
-    .transform((items) => items.filter(isConformingAuditFinding).slice(0, 10)),
-});
-export type AuditReport = z.infer<typeof AuditReportSchema>;
-
-export function parseAuditReport(raw: unknown): AuditReport {
-  return AuditReportSchema.parse(raw);
-}
-
-export const AuditSpecInputSchema = ReviewSpecInputSchema;
-export function parseAuditSpecInput(raw: unknown): ReviewSpecInput {
-  return AuditSpecInputSchema.parse(raw);
-}
-
-export interface AssistAudit {
-  report: AuditReport;
-  model: string;
-}
-
 const TrimmedSchema = (max: number) =>
   z
     .string()
@@ -331,7 +292,7 @@ export interface AssistTailor {
   model: string;
 }
 
-export const ASSIST_KINDS = ["review", "audit", "weave", "warp", "tailor", "prism"] as const;
+export const ASSIST_KINDS = ["review", "weave", "warp", "tailor", "prism"] as const;
 export const AssistKindSchema = z.enum(ASSIST_KINDS);
 export type AssistKind = z.infer<typeof AssistKindSchema>;
 

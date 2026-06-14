@@ -1,7 +1,7 @@
 import { type RefObject, useCallback, useState } from "react";
 import type { SpecDocument } from "@shared/schemas/spec";
 
-export type PanelId = "lens" | "loom" | "fray" | "warp" | "prism" | "tailor" | "selvage";
+export type PanelId = "lens" | "loom" | "warp" | "prism" | "tailor" | "selvage";
 
 export interface PanelsController {
   active: PanelId | null;

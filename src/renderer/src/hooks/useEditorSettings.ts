@@ -3,7 +3,6 @@ import {
   type AutosaveDelay,
   DEFAULT_SETTINGS,
   type EditorViewMode,
-  type FrayKinds,
   type MermaidRenderer,
   type RendererSettings,
   type ToastDuration,
@@ -22,8 +21,6 @@ export interface EditorSettings {
   autosaveDelay: AutosaveDelay;
   toastDuration: ToastDuration;
   restoreLastSpec: boolean;
-  frayAutoCheck: boolean;
-  frayKinds: FrayKinds;
   autoSnapshotMinutes: number;
   maxSnapshotsPerSpec: number;
   assistTimeoutSec: number;
@@ -54,8 +51,6 @@ export function useEditorSettings(
   const [autosaveDelay, setAutosaveDelay] = useState<AutosaveDelay>(initial.autosaveDelay);
   const [toastDuration, setToastDuration] = useState<ToastDuration>(initial.toastDuration);
   const [restoreLastSpec, setRestoreLastSpec] = useState(initial.restoreLastSpec);
-  const [frayAutoCheck, setFrayAutoCheck] = useState(initial.frayAutoCheck);
-  const [frayKinds, setFrayKinds] = useState<FrayKinds>(initial.frayKinds);
   const [autoSnapshotMinutes, setAutoSnapshotMinutes] = useState(initial.autoSnapshotMinutes);
   const [maxSnapshotsPerSpec, setMaxSnapshotsPerSpec] = useState(initial.maxSnapshotsPerSpec);
   const [assistTimeoutSec, setAssistTimeoutSec] = useState(initial.assistTimeoutSec);
@@ -132,14 +127,6 @@ export function useEditorSettings(
           );
           return;
         }
-        case "frayAutoCheck":
-          setFrayAutoCheck(change.value);
-          void window.api.setSetting("frayAutoCheck", change.value).catch(() => undefined);
-          return;
-        case "frayKinds":
-          setFrayKinds(change.value);
-          void window.api.setSetting("frayKinds", change.value).catch(() => undefined);
-          return;
         case "autoSnapshotMinutes": {
           const value = change.value;
           setAutoSnapshotMinutes(value);
@@ -205,8 +192,6 @@ export function useEditorSettings(
     setSplitRatio(DEFAULT_SETTINGS.splitRatio);
     setAutosaveDelay(DEFAULT_SETTINGS.autosaveDelay);
     setToastDuration(DEFAULT_SETTINGS.toastDuration);
-    setFrayAutoCheck(DEFAULT_SETTINGS.frayAutoCheck);
-    setFrayKinds(DEFAULT_SETTINGS.frayKinds);
     setRestoreLastSpec(DEFAULT_SETTINGS.restoreLastSpec);
     setAutoSnapshotMinutes(DEFAULT_SETTINGS.autoSnapshotMinutes);
     setMaxSnapshotsPerSpec(DEFAULT_SETTINGS.maxSnapshotsPerSpec);
@@ -240,8 +225,6 @@ export function useEditorSettings(
     void window.api.setSetting("splitRatio", DEFAULT_SETTINGS.splitRatio).catch(() => undefined);
     void window.api.setSetting("autosaveDelay", DEFAULT_SETTINGS.autosaveDelay).catch(() => undefined);
     void window.api.setSetting("toastDuration", DEFAULT_SETTINGS.toastDuration).catch(() => undefined);
-    void window.api.setSetting("frayAutoCheck", DEFAULT_SETTINGS.frayAutoCheck).catch(() => undefined);
-    void window.api.setSetting("frayKinds", DEFAULT_SETTINGS.frayKinds).catch(() => undefined);
     persistStoreBacked(
       () => window.api.setSetting("autocompleteEnabled", DEFAULT_SETTINGS.autocompleteEnabled),
       (settings) => setAutocompleteEnabled(settings.autocompleteEnabled),
@@ -262,8 +245,6 @@ export function useEditorSettings(
     autosaveDelay,
     toastDuration,
     restoreLastSpec,
-    frayAutoCheck,
-    frayKinds,
     autoSnapshotMinutes,
     maxSnapshotsPerSpec,
     assistTimeoutSec,

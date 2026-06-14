@@ -366,8 +366,8 @@ export function SelvagePanel({
         </div>
       </div>
       <div className="lens-body">
-        <section className="fray-section">
-          <h3 className="fray-section-title">
+        <section className="panel-section">
+          <h3 className="panel-section-title">
             <Pin size={13} aria-hidden="true" />
             いまを留める
           </h3>
@@ -392,11 +392,11 @@ export function SelvagePanel({
             編集を進めると約 5 分おきに自動で留まります。AI アシストの反映前と復元の直前も自動で残ります。
           </p>
         </section>
-        <section className="fray-section">
-          <h3 className="fray-section-title">
+        <section className="panel-section">
+          <h3 className="panel-section-title">
             <History size={13} aria-hidden="true" />
             留めた版
-            {state.snapshots !== null ? <span className="fray-section-count">{state.snapshots.length}</span> : null}
+            {state.snapshots !== null ? <span className="panel-section-count">{state.snapshots.length}</span> : null}
           </h3>
           {state.error !== null ? <p className="lens-error-text">{state.error}</p> : null}
           {listBody}
