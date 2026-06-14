@@ -52,8 +52,15 @@ import { isMarkdownFile, MAX_IMPORT_BYTES, MAX_IMPORT_FILES, MAX_TOTAL_IMPORT_BY
 import { buildImportPlan, type DroppedFile } from "./lib/importPlan";
 import { renderCached } from "./lib/markdown";
 import { collectLinkDefinitions, splitPages } from "./lib/pages";
+import {
+  buildSearchRegExp,
+  findMatches,
+  type FindMatch,
+  type FindOptions,
+  replaceAll as replaceAllMatches,
+  replaceOne,
+} from "./lib/findReplace";
 import { findPendingDecisions, nextPendingDecision } from "./lib/pending";
-import { buildGlobalMatches, type GlobalMatch } from "./lib/search";
 import { buildHandoffPrompt, mergePlanIntoContent, PLAN_HEADING, tailorPlanToMarkdown } from "./lib/tailor";
 import { parseTable, serializeTable, type TableModel } from "./lib/table";
 import { lineRangeOffsets, lineStartOffset } from "./lib/text";
@@ -71,6 +78,11 @@ import { useFileDrop } from "./lib/useFileDrop";
 interface SearchUiState {
   open: boolean;
   query: string;
+  replace: string;
+  showReplace: boolean;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  regex: boolean;
 }
 
 interface PendingAnchor {
@@ -114,9 +126,20 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const [headings, setHeadings] = useState<HeadingInfo[]>([]);
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
 
-  const [search, setSearch] = useState<SearchUiState>({ open: false, query: "" });
-  const [matches, setMatches] = useState<GlobalMatch[]>([]);
+  const [search, setSearch] = useState<SearchUiState>({
+    open: false,
+    query: "",
+    replace: "",
+    showReplace: false,
+    caseSensitive: false,
+    wholeWord: false,
+    regex: false,
+  });
   const [matchCursor, setMatchCursor] = useState(0);
+  const searchStateRef = useRef(search);
+  searchStateRef.current = search;
+  const matchCursorRef = useRef(matchCursor);
+  matchCursorRef.current = matchCursor;
 
   const [pendingAnchor, setPendingAnchor] = useState<PendingAnchor | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -225,6 +248,18 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const activePage = pages[pageIndex] ?? pages[0];
   const activePageRef = useRef(activePage);
   activePageRef.current = activePage;
+
+  const searchOptions = useMemo<FindOptions>(
+    () => ({ caseSensitive: search.caseSensitive, wholeWord: search.wholeWord, regex: search.regex }),
+    [search.caseSensitive, search.wholeWord, search.regex],
+  );
+  const searchMatches = useMemo<FindMatch[]>(
+    () => (search.open && search.query.length > 0 ? findMatches(doc?.content ?? "", search.query, searchOptions) : []),
+    [search.open, search.query, searchOptions, doc?.content],
+  );
+  const regexInvalid =
+    search.regex && search.query.length > 0 && buildSearchRegExp(search.query, searchOptions) === null;
+  const safeMatchCursor = searchMatches.length > 0 ? Math.min(matchCursor, searchMatches.length - 1) : 0;
 
   const llmRouting = useMemo(() => rendererLlmRouting(llm), [llm]);
   const mainModelLabel = llmProfileDisplayName(llmRouting.main);
@@ -431,30 +466,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   }, [flushSave]);
 
   useEffect(() => {
-    if (!search.open || search.query.length === 0) {
-      setMatches([]);
-      setMatchCursor(0);
-      return;
-    }
-    let cancelled = false;
-    const handle = window.setTimeout(() => {
-      void (async () => {
-        const htmls = await Promise.all(
-          pages.map((page, index) => renderCached(linkDefs + page.content, pageHeadingIds[index] ?? [])),
-        );
-        if (cancelled) return;
-        const found = buildGlobalMatches(htmls, search.query);
-        setMatches(found);
-        setMatchCursor(0);
-        const first = found[0];
-        if (first) setPageIndex(first.pageIndex);
-      })();
-    }, 150);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(handle);
-    };
-  }, [search.open, search.query, pages, pageHeadingIds, linkDefs]);
+    setMatchCursor(0);
+  }, [search.query, search.caseSensitive, search.wholeWord, search.regex]);
 
   useEffect(() => {
     if (!pendingAnchor || !doc || doc.meta.id !== pendingAnchor.docId) return;
@@ -1340,19 +1353,73 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   }, []);
 
   const openSearch = useCallback(() => {
-    setMode("preview");
-    setSearch((prev) => ({ open: true, query: prev.query }));
-    requestAnimationFrame(() => searchInputRef.current?.focus());
+    if (docRef.current === null) return;
+    if (modeRef.current === "preview") setMode("source");
+    setSearch((prev) => ({ ...prev, open: true }));
+    requestAnimationFrame(() => searchInputRef.current?.select());
   }, []);
 
   const closeSearch = useCallback(() => {
-    setSearch({ open: false, query: "" });
-    setMatches([]);
+    setSearch((prev) => ({ ...prev, open: false }));
     setMatchCursor(0);
   }, []);
 
+  const gotoMatch = useCallback((index: number, total: number): void => {
+    if (total === 0) return;
+    if (modeRef.current === "preview") setMode("source");
+    setMatchCursor(((index % total) + total) % total);
+  }, []);
+
+  const replaceCurrent = useCallback((): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const opts: FindOptions = {
+      caseSensitive: searchStateRef.current.caseSensitive,
+      wholeWord: searchStateRef.current.wholeWord,
+      regex: searchStateRef.current.regex,
+    };
+    const query = searchStateRef.current.query;
+    const list = findMatches(current.content, query, opts);
+    if (list.length === 0) return;
+    const cursor = Math.min(matchCursorRef.current, list.length - 1);
+    const target = list[cursor]!;
+    const { content: next, caret } = replaceOne(current.content, target, query, searchStateRef.current.replace, opts);
+    const after = findMatches(next, query, opts);
+    let nextCursor = after.findIndex((match) => match.start >= caret);
+    if (nextCursor === -1) nextCursor = 0;
+    if (modeRef.current === "preview") setMode("source");
+    setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+    setMatchCursor(nextCursor);
+  }, []);
+
+  const replaceAllInDoc = useCallback((): void => {
+    const current = docRef.current;
+    if (!current) return;
+    const opts: FindOptions = {
+      caseSensitive: searchStateRef.current.caseSensitive,
+      wholeWord: searchStateRef.current.wholeWord,
+      regex: searchStateRef.current.regex,
+    };
+    const { content: next, count } = replaceAllMatches(
+      current.content,
+      searchStateRef.current.query,
+      searchStateRef.current.replace,
+      opts,
+    );
+    if (count === 0) {
+      setToast("置換対象が見つかりません");
+      return;
+    }
+    guardBeforeAssist("一括置換の前");
+    if (modeRef.current === "preview") setMode("source");
+    setDoc((prev) => (prev && prev.meta.id === current.meta.id ? { ...prev, content: next } : prev));
+    setMatchCursor(0);
+    setToast(`${count} 件を置換しました`);
+  }, [guardBeforeAssist]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return;
       const mod = event.ctrlKey || event.metaKey;
       if (mod && event.key === ",") {
         event.preventDefault();
@@ -1411,14 +1478,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     toggleTailor,
     toggleSelvage,
   ]);
-
-  const stepMatch = (delta: number): void => {
-    if (matches.length === 0) return;
-    const nextCursor = (matchCursor + delta + matches.length) % matches.length;
-    setMatchCursor(nextCursor);
-    const target = matches[nextCursor];
-    if (target && target.pageIndex !== pageIndex) setPageIndex(target.pageIndex);
-  };
 
   const handleLinkActivate = useCallback(
     (href: string): void => {
@@ -1873,9 +1932,18 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
     );
   }, [applyLlmSettings, persistStoreBacked]);
 
-  const currentMatch = matches[matchCursor];
-  const searchCurrentInPage = currentMatch && currentMatch.pageIndex === pageIndex ? currentMatch.indexInPage : -1;
   const previewAnchor = pendingAnchor && doc && pendingAnchor.docId === doc.meta.id ? pendingAnchor.id : null;
+  const editorSearchHighlight =
+    search.open && search.query.length > 0
+      ? {
+          query: search.query,
+          caseSensitive: search.caseSensitive,
+          wholeWord: search.wholeWord,
+          regex: search.regex,
+          activeIndex: searchMatches.length > 0 ? safeMatchCursor : -1,
+        }
+      : null;
+  const previewSearchQuery = search.open && !search.regex ? search.query : "";
   const lensVisible = lensOpen && doc !== null;
   const loomVisible = loomOpen && doc !== null;
   const frayVisible = frayOpen && doc !== null;
@@ -1962,12 +2030,25 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         {search.open ? (
           <SearchBar
             query={search.query}
-            matchCount={matches.length}
-            currentIndex={matches.length > 0 ? matchCursor : -1}
+            replace={search.replace}
+            showReplace={search.showReplace}
+            caseSensitive={search.caseSensitive}
+            wholeWord={search.wholeWord}
+            regex={search.regex}
+            regexInvalid={regexInvalid}
+            matchCount={searchMatches.length}
+            currentIndex={searchMatches.length > 0 ? safeMatchCursor : -1}
             inputRef={searchInputRef}
             onQuery={(value) => setSearch((prev) => ({ ...prev, query: value }))}
-            onNext={() => stepMatch(1)}
-            onPrev={() => stepMatch(-1)}
+            onReplaceChange={(value) => setSearch((prev) => ({ ...prev, replace: value }))}
+            onToggleReplace={() => setSearch((prev) => ({ ...prev, showReplace: !prev.showReplace }))}
+            onToggleCase={() => setSearch((prev) => ({ ...prev, caseSensitive: !prev.caseSensitive }))}
+            onToggleWord={() => setSearch((prev) => ({ ...prev, wholeWord: !prev.wholeWord }))}
+            onToggleRegex={() => setSearch((prev) => ({ ...prev, regex: !prev.regex }))}
+            onNext={() => gotoMatch(safeMatchCursor + 1, searchMatches.length)}
+            onPrev={() => gotoMatch(safeMatchCursor - 1, searchMatches.length)}
+            onReplaceOne={replaceCurrent}
+            onReplaceAll={replaceAllInDoc}
             onClose={closeSearch}
           />
         ) : null}
@@ -1996,8 +2077,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               scrollResetKey={`${doc.meta.id}:${pageIndex}`}
               theme={resolvedTheme}
               mermaidRenderer={mermaidRenderer}
-              searchQuery={search.open ? search.query : ""}
-              searchCurrentInPage={searchCurrentInPage}
+              searchQuery={previewSearchQuery}
+              searchCurrentInPage={-1}
               pendingAnchor={previewAnchor}
               onAnchorHandled={() => setPendingAnchor(null)}
               onHeadings={setHeadings}
@@ -2013,6 +2094,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
                   theme={resolvedTheme}
                   jump={editorJump}
                   readOnly={selvageBusy}
+                  searchHighlight={editorSearchHighlight}
+                  onNotice={setToast}
                   onJumpHandled={() => setEditorJump(null)}
                   onSelectionChange={handleEditorSelection}
                   onScrollRatio={handleEditorScrollRatio}
@@ -2042,8 +2125,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
                   scrollResetKey={doc.meta.id}
                   theme={resolvedTheme}
                   mermaidRenderer={mermaidRenderer}
-                  searchQuery={search.open ? search.query : ""}
-                  searchCurrentInPage={searchCurrentInPage}
+                  searchQuery={previewSearchQuery}
+                  searchCurrentInPage={-1}
                   pendingAnchor={previewAnchor}
                   onAnchorHandled={() => setPendingAnchor(null)}
                   onHeadings={setHeadings}
@@ -2060,6 +2143,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
               theme={resolvedTheme}
               jump={editorJump}
               readOnly={selvageBusy}
+              searchHighlight={editorSearchHighlight}
+              onNotice={setToast}
               onJumpHandled={() => setEditorJump(null)}
               onSelectionChange={handleEditorSelection}
               onChange={(next) => setDoc((prev) => (prev ? { ...prev, content: next } : prev))}

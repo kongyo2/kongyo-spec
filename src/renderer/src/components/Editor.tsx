@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Highlighter } from "shiki";
-import { findPendingDecisions, type PendingRange } from "../lib/pending";
+import { applyFormat, type FormatAction } from "../lib/format";
+import { findMatches } from "../lib/findReplace";
+import { findPendingDecisions } from "../lib/pending";
 import { getShikiHighlighter, SHIKI_THEMES } from "../lib/shiki";
 import type { ResolvedTheme } from "../lib/theme";
+import { buildToc } from "../lib/toc";
 import { useAutocomplete } from "../lib/useAutocomplete";
+import { EditorToolbar } from "./EditorToolbar";
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -13,8 +17,14 @@ function plainCodeHtml(value: string): string {
   return `<pre class="shiki"><code>${escapeHtml(value)}</code></pre>`;
 }
 
-function markPendingDecisions(html: string, ranges: PendingRange[]): string {
-  if (ranges.length === 0) return html;
+interface RangeMark {
+  start: number;
+  end: number;
+  className: string;
+}
+
+function decorateRanges(html: string, marks: RangeMark[]): string {
+  if (marks.length === 0) return html;
   const doc = new DOMParser().parseFromString(html, "text/html");
   const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
   const nodes: { node: Text; start: number }[] = [];
@@ -26,21 +36,32 @@ function markPendingDecisions(html: string, ranges: PendingRange[]): string {
   }
   for (const { node, start } of nodes) {
     const end = start + node.data.length;
-    const overlapping = ranges.filter((range) => range.start < end && range.end > start);
+    const overlapping = marks.filter((mark) => mark.start < end && mark.end > start);
     if (overlapping.length === 0) continue;
-    const fragment = doc.createDocumentFragment();
-    let cursor = 0;
-    for (const range of overlapping) {
-      const localStart = Math.max(0, range.start - start);
-      const localEnd = Math.min(node.data.length, range.end - start);
-      if (localStart > cursor) fragment.appendChild(doc.createTextNode(node.data.slice(cursor, localStart)));
-      const mark = doc.createElement("mark");
-      mark.className = "pending-decision";
-      mark.textContent = node.data.slice(localStart, localEnd);
-      fragment.appendChild(mark);
-      cursor = localEnd;
+    const points = new Set<number>([0, node.data.length]);
+    for (const mark of overlapping) {
+      points.add(Math.max(0, mark.start - start));
+      points.add(Math.min(node.data.length, mark.end - start));
     }
-    if (cursor < node.data.length) fragment.appendChild(doc.createTextNode(node.data.slice(cursor)));
+    const sorted = [...points].sort((a, b) => a - b);
+    const fragment = doc.createDocumentFragment();
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const from = sorted[i]!;
+      const to = sorted[i + 1]!;
+      if (to <= from) continue;
+      const slice = node.data.slice(from, to);
+      const classes = overlapping
+        .filter((mark) => mark.start - start <= from && mark.end - start >= to)
+        .flatMap((mark) => mark.className.split(" "));
+      if (classes.length === 0) {
+        fragment.appendChild(doc.createTextNode(slice));
+      } else {
+        const mark = doc.createElement("mark");
+        mark.className = [...new Set(classes)].join(" ");
+        mark.textContent = slice;
+        fragment.appendChild(mark);
+      }
+    }
     node.parentNode?.replaceChild(fragment, node);
   }
   return doc.body.innerHTML;
@@ -53,6 +74,14 @@ function setSelectionSoon(textarea: HTMLTextAreaElement, start: number, end: num
   });
 }
 
+export interface EditorSearchHighlight {
+  query: string;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  regex: boolean;
+  activeIndex: number;
+}
+
 interface EditorProps {
   value: string;
   onChange: (next: string) => void;
@@ -62,6 +91,8 @@ interface EditorProps {
   onSelectionChange?: (start: number, end: number) => void;
   onScrollRatio?: (ratio: number) => void;
   readOnly?: boolean;
+  searchHighlight?: EditorSearchHighlight | null;
+  onNotice?: (message: string) => void;
   autocompleteEnabled?: boolean;
   autocompleteModelId?: string;
   autocompleteDocId?: string;
@@ -77,6 +108,8 @@ export function Editor({
   onSelectionChange,
   onScrollRatio,
   readOnly,
+  searchHighlight,
+  onNotice,
   autocompleteEnabled,
   autocompleteModelId,
   autocompleteDocId,
@@ -108,6 +141,12 @@ export function Editor({
     onNotice: onAutocompleteNotice,
   });
 
+  const searchQuery = searchHighlight?.query ?? "";
+  const searchCase = searchHighlight?.caseSensitive ?? false;
+  const searchWord = searchHighlight?.wholeWord ?? false;
+  const searchRegex = searchHighlight?.regex ?? false;
+  const searchActive = searchHighlight?.activeIndex ?? -1;
+
   useEffect(() => {
     let active = true;
     void getShikiHighlighter().then((instance) => {
@@ -125,7 +164,25 @@ export function Editor({
 
   useEffect(() => {
     const source = value.replace(/\r\n?/g, "\n");
-    const pendingRanges = findPendingDecisions(source);
+    const marks: RangeMark[] = findPendingDecisions(source).map((range) => ({
+      start: range.start,
+      end: range.end,
+      className: "pending-decision",
+    }));
+    if (searchQuery.length > 0) {
+      const ranges = findMatches(source, searchQuery, {
+        caseSensitive: searchCase,
+        wholeWord: searchWord,
+        regex: searchRegex,
+      });
+      ranges.forEach((range, index) => {
+        marks.push({
+          start: range.start,
+          end: range.end,
+          className: index === searchActive ? "editor-search-hit editor-search-hit-current" : "editor-search-hit",
+        });
+      });
+    }
     let raw: string;
     if (!highlighter) {
       raw = plainCodeHtml(source);
@@ -136,8 +193,8 @@ export function Editor({
         raw = plainCodeHtml(source);
       }
     }
-    setHtml(markPendingDecisions(raw, pendingRanges));
-  }, [highlighter, value]);
+    setHtml(decorateRanges(raw, marks));
+  }, [highlighter, value, searchQuery, searchCase, searchWord, searchRegex, searchActive]);
 
   const syncScroll = (): void => {
     const textarea = textareaRef.current;
@@ -189,6 +246,24 @@ export function Editor({
   }, [jump, onJumpHandled, dismissAutocomplete]);
 
   useEffect(() => {
+    if (searchActive < 0) return;
+    const textarea = textareaRef.current;
+    const backdrop = backdropRef.current;
+    if (!textarea || !backdrop) return;
+    const current = backdrop.querySelector<HTMLElement>(".editor-search-hit-current");
+    if (!current) return;
+    const top = current.offsetTop;
+    const bottom = top + current.offsetHeight;
+    const viewTop = textarea.scrollTop;
+    const viewBottom = viewTop + textarea.clientHeight;
+    if (top >= viewTop && bottom <= viewBottom) return;
+    const max = textarea.scrollHeight - textarea.clientHeight;
+    const next = Math.max(0, Math.min(top - textarea.clientHeight / 2, max));
+    textarea.scrollTop = next;
+    backdrop.scrollTop = next;
+  }, [html, searchActive]);
+
+  useEffect(() => {
     const textarea = textareaRef.current;
     const ghostLayer = ghostRef.current;
     if (ghost && textarea && ghostLayer) {
@@ -197,9 +272,39 @@ export function Editor({
     }
   }, [ghost]);
 
+  const applyFormatAction = (action: FormatAction): void => {
+    const textarea = textareaRef.current;
+    if (!textarea || readOnly === true) return;
+    const context = action === "toc" ? { toc: buildToc(value) } : undefined;
+    const result = applyFormat(
+      action,
+      { value, selectionStart: textarea.selectionStart, selectionEnd: textarea.selectionEnd },
+      context,
+    );
+    if (!result) {
+      if (action === "toc") onNotice?.("見出しがないため目次を作成できません");
+      return;
+    }
+    dismissAutocomplete();
+    onChange(result.value);
+    setSelectionSoon(textarea, result.selectionStart, result.selectionEnd);
+    requestAnimationFrame(() => textarea.focus());
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (readOnly === true) return;
     if (autocompleteKeyDown(event)) return;
+
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
+      const key = event.key.toLowerCase();
+      const action: FormatAction | null = key === "b" ? "bold" : key === "i" ? "italic" : key === "k" ? "link" : null;
+      if (action) {
+        event.preventDefault();
+        applyFormatAction(action);
+        return;
+      }
+    }
+
     if (event.key !== "Tab") return;
     event.preventDefault();
     const textarea = event.currentTarget;
@@ -236,38 +341,43 @@ export function Editor({
 
   return (
     <div className={`editor${ghost?.reflow ? " reflow" : ""}`} data-theme={theme}>
-      <div
-        className="editor-backdrop"
-        ref={backdropRef}
-        aria-hidden="true"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-      {ghost ? (
-        <div className={`editor-ghost${ghost.reflow ? " reflow" : ""}`} ref={ghostRef} aria-hidden="true">
-          {value.slice(0, ghost.anchor)}
-          <span className="editor-ghost-text">{ghost.text}</span>
-          {ghost.reflow ? <span className="editor-ghost-suffix">{value.slice(ghost.anchor)}</span> : null}
-        </div>
-      ) : null}
-      <textarea
-        ref={textareaRef}
-        className="editor-input"
-        value={value}
-        spellCheck={false}
-        readOnly={readOnly === true}
-        onChange={(event) => {
-          onChange(event.target.value);
-          handleInput();
-        }}
-        onScroll={syncScroll}
-        onKeyDown={handleKeyDown}
-        onSelect={(event) => onSelectionChange?.(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
-        onBlur={dismissAutocomplete}
-        onMouseDown={handlePointerDown}
-        onCompositionStart={handleCompositionStart}
-        onCompositionEnd={handleCompositionEnd}
-        aria-label="Markdown ソースエディタ"
-      />
+      {readOnly === true ? null : <EditorToolbar onAction={applyFormatAction} />}
+      <div className="editor-surface">
+        <div
+          className="editor-backdrop"
+          ref={backdropRef}
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+        {ghost ? (
+          <div className={`editor-ghost${ghost.reflow ? " reflow" : ""}`} ref={ghostRef} aria-hidden="true">
+            {value.slice(0, ghost.anchor)}
+            <span className="editor-ghost-text">{ghost.text}</span>
+            {ghost.reflow ? <span className="editor-ghost-suffix">{value.slice(ghost.anchor)}</span> : null}
+          </div>
+        ) : null}
+        <textarea
+          ref={textareaRef}
+          className="editor-input"
+          value={value}
+          spellCheck={false}
+          readOnly={readOnly === true}
+          onChange={(event) => {
+            onChange(event.target.value);
+            handleInput();
+          }}
+          onScroll={syncScroll}
+          onKeyDown={handleKeyDown}
+          onSelect={(event) =>
+            onSelectionChange?.(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)
+          }
+          onBlur={dismissAutocomplete}
+          onMouseDown={handlePointerDown}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
+          aria-label="Markdown ソースエディタ"
+        />
+      </div>
     </div>
   );
 }
