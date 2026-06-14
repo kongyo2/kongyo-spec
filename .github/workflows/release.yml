@@ -1,0 +1,149 @@
+name: Release
+
+# 本番リリース用ワークフロー。
+# semver タグ (例: v0.1.0) を push すると起動し、品質ゲート → Windows ビルド →
+# 安定版 GitHub Release の発行までを自動化する。
+# プレリリースのタグ (例: v0.1.0-rc.1) は GitHub 上でも pre-release として公開される。
+# 検証用のアドホックなビルドが欲しいときは windows-build.yml を使うこと。
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+" # 安定版: v1.2.3
+      - "v[0-9]+.[0-9]+.[0-9]+-*" # プレリリース: v1.2.3-rc.1 など
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "GitHub Release を pre-release として公開する"
+        required: false
+        type: boolean
+        default: false
+
+# 既定は読み取りのみ。リリース発行を行う release ジョブだけが書き込み権限を持つ。
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── 品質ゲート ────────────────────────────────────────────────
+  # タグが指す commit が lint / format / typecheck を満たすことを保証する。
+  # ここが失敗するとビルド・公開へは進まない。
+  verify:
+    name: ${{ matrix.task }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - task: Lint
+            script: lint:ci
+          - task: Format
+            script: format:check
+          - task: Typecheck
+            script: typecheck
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run ${{ matrix.script }}
+
+  # ── ビルド & 公開 ─────────────────────────────────────────────
+  release:
+    name: Build & publish Windows release
+    needs: verify
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          pkgver="$(node -p "require('./package.json').version")"
+
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
+            # タグ起動: タグの version が package.json と一致することを必須とする。
+            tag="$REF_NAME"
+            tagver="${tag#v}"
+            if [ "$tagver" != "$pkgver" ]; then
+              echo "::error::Tag '$tag' (version '$tagver') does not match package.json version '$pkgver'. Bump package.json and re-tag so the release stays consistent."
+              exit 1
+            fi
+            # semver のプレリリース接尾辞 (例: -rc.1) があれば pre-release 扱い。
+            case "$tagver" in
+              *-*) prerelease=true ;;
+              *) prerelease=false ;;
+            esac
+          else
+            # 手動起動: package.json の version からタグを導出し、新規作成する。
+            tag="v${pkgver}"
+            prerelease="${INPUT_PRERELEASE:-false}"
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "::error::A release for tag '$tag' already exists. Bump the version in package.json before cutting a new release."
+              exit 1
+            fi
+            if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
+              echo "::error::Tag '$tag' already exists on the remote. Bump the version or delete the existing tag first."
+              exit 1
+            fi
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "version=$pkgver"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved release: tag=$tag version=$pkgver prerelease=$prerelease"
+
+      - run: npm ci
+
+      - name: Build Windows installer + portable exe
+        run: npm run build:win
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kongyo-spec-windows-x64
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          # タグ起動時はタグが既存なので --target は無視される。
+          # 手動起動時は --target で現在の commit にタグを新規作成する。
+          flags=(--generate-notes --target "$GITHUB_SHA" --title "$TAG")
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" dist/*.exe "${flags[@]}"
+          {
+            echo "### 🚀 Release published"
+            echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"
+          } >> "$GITHUB_STEP_SUMMARY"
