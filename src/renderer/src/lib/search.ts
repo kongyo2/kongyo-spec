@@ -1,8 +1,3 @@
-export interface GlobalMatch {
-  pageIndex: number;
-  indexInPage: number;
-}
-
 const EXCLUDED_FROM_SEARCH = ".mermaid-block, .copy-button, .code-lang, .heading-anchor, .katex-mathml, [hidden]";
 
 interface Segment {
@@ -116,18 +111,6 @@ function findMatchRanges(text: string, query: string): Array<[number, number]> {
     match = regex.exec(text);
   }
   return ranges;
-}
-
-export function buildGlobalMatches(pageHtmls: string[], query: string): GlobalMatch[] {
-  const matches: GlobalMatch[] = [];
-  if (query.length === 0) return matches;
-  for (let pageIndex = 0; pageIndex < pageHtmls.length; pageIndex++) {
-    const parsed = new DOMParser().parseFromString(pageHtmls[pageIndex] ?? "", "text/html");
-    const { text } = collectText(parsed.body);
-    const count = findMatchRanges(text, query).length;
-    for (let i = 0; i < count; i++) matches.push({ pageIndex, indexInPage: i });
-  }
-  return matches;
 }
 
 export function clearHighlights(container: HTMLElement): void {
