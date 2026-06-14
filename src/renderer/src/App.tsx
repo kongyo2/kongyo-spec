@@ -1102,7 +1102,13 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         },
         (err: unknown) => {
           if (prismTokenRef.current !== token) return;
-          setPrismSession((prev) => ({ ...prev, phase: "error", error: ipcErrorMessage(err) }));
+          const message = ipcErrorMessage(err);
+          if (prismSessionRef.current.variants.length > 0) {
+            setPrismSession((prev) => ({ ...prev, phase: "done", direction: prismShownDirRef.current, error: null }));
+            setToast(`分光に失敗しました: ${message}`);
+          } else {
+            setPrismSession((prev) => ({ ...prev, phase: "error", error: message }));
+          }
         },
       )
       .finally(() => {

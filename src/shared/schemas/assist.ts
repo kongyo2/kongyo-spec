@@ -366,15 +366,21 @@ export const MAX_PRISM_CONTEXT_CHARS = 16_000;
 export const MAX_PRISM_VARIANT_CHARS = 8_000;
 export const MAX_PRISM_VARIANTS = 5;
 
+const PrismTextSchema = z
+  .string()
+  .max(MAX_PRISM_VARIANT_CHARS)
+  .nullish()
+  .transform((value) => (value ?? "").replace(/^\n+/, "").replace(/\n+$/, ""));
+
 export const PrismVariantSchema = z.object({
   label: TrimmedSchema(60),
-  text: TrimmedBodySchema(MAX_PRISM_VARIANT_CHARS),
+  text: PrismTextSchema,
   note: TrimmedSchema(600),
 });
 export type PrismVariant = z.infer<typeof PrismVariantSchema>;
 
 function isConformingPrismVariant(variant: PrismVariant): boolean {
-  return variant.text.length > 0 && variant.label.length > 0;
+  return variant.text.trim().length > 0 && variant.label.length > 0;
 }
 
 export const PrismResultSchema = z.object({
