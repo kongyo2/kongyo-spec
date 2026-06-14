@@ -8,6 +8,16 @@ export function lineStartOffset(content: string, line: number): number {
   return offset;
 }
 
+export function lineRangeOffsets(content: string, startLine: number, endLineExclusive: number): [number, number] {
+  const start = lineStartOffset(content, startLine);
+  let end = lineStartOffset(content, endLineExclusive);
+  if (end > start && content[end - 1] === "\n") {
+    end -= 1;
+    if (end > start && content[end - 1] === "\r") end -= 1;
+  }
+  return [start, end];
+}
+
 export interface Line {
   text: string;
   start: number;
