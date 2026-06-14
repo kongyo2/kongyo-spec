@@ -5,7 +5,6 @@ import { DEFAULT_SETTINGS, type RendererSettings, SPLIT_RATIO } from "@shared/sc
 import { Dialog, type DialogState } from "./components/Dialog";
 import { DropOverlay } from "./components/DropOverlay";
 import { Editor } from "./components/Editor";
-import { FrayPanel } from "./components/FrayPanel";
 import { LensPanel } from "./components/LensPanel";
 import { LoomPanel } from "./components/LoomPanel";
 import { Outline } from "./components/Outline";
@@ -23,7 +22,6 @@ import { WarpPanel } from "./components/WarpPanel";
 import { useFileDrop } from "./lib/useFileDrop";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useEditorSettings } from "./hooks/useEditorSettings";
-import { useFray } from "./hooks/useFray";
 import { useLens } from "./hooks/useLens";
 import { useLlmSettings } from "./hooks/useLlmSettings";
 import { useLoom } from "./hooks/useLoom";
@@ -108,16 +106,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const panels = usePanels(editing.docRef);
   const lens = useLens(editing, llm.mainModelLabel, activeId);
-  const fray = useFray({
-    editing,
-    modelLabel: llm.mainModelLabel,
-    activeId,
-    doc,
-    specs,
-    frayOpen: panels.active === "fray",
-    frayAutoCheck: editorSettings.frayAutoCheck,
-    frayKinds: editorSettings.frayKinds,
-  });
   const tailor = useTailor(editing, llm.mainModelLabel, activeId);
   const loom = useLoom(editing, activeId);
   const warp = useWarp(editing, activeId);
@@ -196,7 +184,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
   const active = panels.active;
   const lensVisible = active === "lens" && doc !== null;
   const loomVisible = active === "loom" && doc !== null;
-  const frayVisible = active === "fray" && doc !== null;
   const warpVisible = active === "warp" && doc !== null;
   const prismVisible = active === "prism" && doc !== null;
   const tailorVisible = active === "tailor" && doc !== null;
@@ -261,10 +248,8 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           loomOpen={loomVisible}
           warpOpen={warpVisible}
           prismOpen={prismVisible}
-          frayOpen={frayVisible}
           tailorOpen={tailorVisible}
           selvageOpen={selvageVisible}
-          frayCount={editorSettings.frayAutoCheck ? fray.issues.length : 0}
           pendingCount={pendingCount}
           onMode={setMode}
           onPrev={() => goToPage(pageIndex - 1)}
@@ -274,7 +259,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onToggleLoom={() => panels.toggle("loom")}
           onToggleWarp={() => panels.toggle("warp")}
           onTogglePrism={() => panels.toggle("prism")}
-          onToggleFray={() => panels.toggle("fray")}
           onToggleTailor={() => panels.toggle("tailor")}
           onToggleSelvage={() => panels.toggle("selvage")}
           onJumpPending={jumpToPending}
@@ -442,21 +426,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           onClose={() => panels.close("loom")}
           onOpenSettings={() => setSettingsOpen(true)}
         />
-      ) : frayVisible && doc ? (
-        <FrayPanel
-          issues={fray.issues}
-          audit={fray.audit}
-          modelLabel={llm.mainModelLabel}
-          apiKeySet={llm.aiReady}
-          docContent={doc.content}
-          onRunAudit={fray.runAudit}
-          onCancelAudit={fray.cancelAudit}
-          onClose={() => panels.close("fray")}
-          onJumpOffset={editing.revealOffset}
-          onJumpExcerpt={editing.revealExcerpt}
-          onApplyFix={fray.applyFixes}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
       ) : warpVisible && doc ? (
         <WarpPanel
           session={warp.session}
@@ -550,8 +519,6 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
           autosaveDelay={editorSettings.autosaveDelay}
           toastDuration={editorSettings.toastDuration}
           restoreLastSpec={editorSettings.restoreLastSpec}
-          frayAutoCheck={editorSettings.frayAutoCheck}
-          frayKinds={editorSettings.frayKinds}
           autoSnapshotMinutes={editorSettings.autoSnapshotMinutes}
           maxSnapshotsPerSpec={editorSettings.maxSnapshotsPerSpec}
           assistTimeoutSec={editorSettings.assistTimeoutSec}

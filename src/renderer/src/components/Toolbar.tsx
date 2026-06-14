@@ -8,7 +8,6 @@ import {
   type LucideIcon,
   Monitor,
   Moon,
-  Radar,
   Scissors,
   Search,
   Settings,
@@ -37,10 +36,8 @@ interface ToolbarProps {
   loomOpen: boolean;
   warpOpen: boolean;
   prismOpen: boolean;
-  frayOpen: boolean;
   tailorOpen: boolean;
   selvageOpen: boolean;
-  frayCount: number;
   pendingCount: number;
   onMode: (mode: EditorMode) => void;
   onPrev: () => void;
@@ -50,7 +47,6 @@ interface ToolbarProps {
   onToggleLoom: () => void;
   onToggleWarp: () => void;
   onTogglePrism: () => void;
-  onToggleFray: () => void;
   onToggleTailor: () => void;
   onToggleSelvage: () => void;
   onJumpPending: () => void;
@@ -88,10 +84,8 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     loomOpen,
     warpOpen,
     prismOpen,
-    frayOpen,
     tailorOpen,
     selvageOpen,
-    frayCount,
     pendingCount,
     onMode,
     onPrev,
@@ -101,7 +95,6 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     onToggleLoom,
     onToggleWarp,
     onTogglePrism,
-    onToggleFray,
     onToggleTailor,
     onToggleSelvage,
     onJumpPending,
@@ -238,19 +231,6 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         >
           <Telescope size={14} aria-hidden="true" />
           <span className="toggle-text">Lens</span>
-        </button>
-        <button
-          type="button"
-          className={`icon-button lens-toggle${frayOpen ? " active" : ""}`}
-          onClick={onToggleFray}
-          disabled={!lensAvailable}
-          aria-pressed={frayOpen}
-          aria-label={`Fray — ほつれを検出 (Ctrl/Cmd+G)${frayCount > 0 ? ` — ${frayCount} 件` : ""}`}
-          title="ほつれを検出 — 矛盾・リンク切れ・表記ゆれを検査"
-        >
-          <Radar size={14} aria-hidden="true" />
-          <span className="toggle-text">Fray</span>
-          {frayCount > 0 ? <span className="fray-count">{frayCount > 99 ? "99+" : frayCount}</span> : null}
         </button>
         <button
           type="button"

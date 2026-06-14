@@ -28,7 +28,6 @@ import {
   type AutosaveDelay,
   EDITOR_FONT_SIZE,
   type EditorViewMode,
-  type FrayKinds,
   type LineHeight,
   LLM_TEMPERATURE,
   llmProfileDisplayName,
@@ -64,8 +63,6 @@ export type SettingChange =
   | { key: "autosaveDelay"; value: AutosaveDelay }
   | { key: "toastDuration"; value: ToastDuration }
   | { key: "restoreLastSpec"; value: boolean }
-  | { key: "frayAutoCheck"; value: boolean }
-  | { key: "frayKinds"; value: FrayKinds }
   | { key: "autoSnapshotMinutes"; value: number }
   | { key: "maxSnapshotsPerSpec"; value: number }
   | { key: "assistTimeoutSec"; value: number }
@@ -93,8 +90,6 @@ interface SettingsProps {
   autosaveDelay: AutosaveDelay;
   toastDuration: ToastDuration;
   restoreLastSpec: boolean;
-  frayAutoCheck: boolean;
-  frayKinds: FrayKinds;
   autoSnapshotMinutes: number;
   maxSnapshotsPerSpec: number;
   assistTimeoutSec: number;
@@ -114,7 +109,7 @@ type Section = "appearance" | "typography" | "editing" | "history" | "ai" | "abo
 const SECTIONS: { id: Section; label: string; hint: string; icon: LucideIcon }[] = [
   { id: "appearance", label: "外観", hint: "テーマとアクセント", icon: Palette },
   { id: "typography", label: "タイポグラフィ", hint: "文字サイズと行間", icon: Type },
-  { id: "editing", label: "編集", hint: "保存・表示・検査", icon: PenLine },
+  { id: "editing", label: "編集", hint: "保存と表示", icon: PenLine },
   { id: "history", label: "履歴", hint: "Selvage · スナップショット", icon: History },
   { id: "ai", label: "AI アシスト", hint: "モデル · Loom · Lens", icon: Telescope },
   { id: "about", label: "情報", hint: "バージョンと構成", icon: Sparkles },
@@ -149,15 +144,6 @@ const TOAST_OPTIONS: { value: ToastDuration; label: string }[] = [
   { value: "short", label: "短い (2.5 秒)" },
   { value: "normal", label: "標準 (4 秒)" },
   { value: "long", label: "長い (7 秒)" },
-];
-
-const FRAY_KIND_ITEMS: { key: keyof FrayKinds; label: string; hint: string }[] = [
-  { key: "syntax", label: "構文", hint: "閉じられていないコードフェンス" },
-  { key: "link", label: "リンク", hint: "仕様書間リンク・アンカーの切れ" },
-  { key: "structure", label: "構造", hint: "見出しレベルの飛び・重複・空セクション" },
-  { key: "term", label: "用語", hint: "カタカナ長音・全角半角の表記ゆれ" },
-  { key: "vague", label: "曖昧", hint: "要求文の検証できない表現" },
-  { key: "pending", label: "未決定", hint: "【未決定: …】マーカー" },
 ];
 
 const SNAPSHOT_INTERVAL_PRESETS: { value: number; label: string }[] = [
@@ -321,35 +307,6 @@ function Toggle({
     >
       <span className="settings-toggle-knob" aria-hidden="true" />
     </button>
-  );
-}
-
-function FrayKindChips({
-  kinds,
-  onChange,
-}: {
-  kinds: FrayKinds;
-  onChange: (next: FrayKinds) => void;
-}): React.ReactElement {
-  return (
-    <div className="settings-kind-chips" role="group" aria-label="検査する種類">
-      {FRAY_KIND_ITEMS.map((item) => {
-        const on = kinds[item.key];
-        return (
-          <button
-            key={item.key}
-            type="button"
-            className={`settings-kind-chip${on ? " on" : ""}`}
-            aria-pressed={on}
-            title={item.hint}
-            onClick={() => onChange({ ...kinds, [item.key]: !on })}
-          >
-            <Check size={12} aria-hidden="true" />
-            {item.label}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -601,8 +558,6 @@ export function Settings({
   autosaveDelay,
   toastDuration,
   restoreLastSpec,
-  frayAutoCheck,
-  frayKinds,
   autoSnapshotMinutes,
   maxSnapshotsPerSpec,
   assistTimeoutSec,
@@ -904,26 +859,6 @@ export function Settings({
                     onToggle={(value) => onChange({ key: "restoreLastSpec", value })}
                   />
                 </Row>
-                <Row
-                  title="ほつれの自動検査"
-                  desc="入力中にリンク切れ・見出し構造・表記ゆれを検査し、ツールバーの Fray に件数を表示します"
-                >
-                  <Toggle
-                    label="ほつれの自動検査"
-                    checked={frayAutoCheck}
-                    onToggle={(value) => onChange({ key: "frayAutoCheck", value })}
-                  />
-                </Row>
-                <div className="settings-row stack">
-                  <div className="settings-row-label">
-                    <span className="settings-row-title">検査する種類</span>
-                    <span className="settings-row-desc">
-                      外した種類は Fray の一覧にも件数にも現れません。書きかけの段階では「曖昧」や「未決定」を外すと
-                      指摘が静かになります
-                    </span>
-                  </div>
-                  <FrayKindChips kinds={frayKinds} onChange={(value) => onChange({ key: "frayKinds", value })} />
-                </div>
               </div>
             ) : section === "history" ? (
               <div className="settings-panel" key="history">

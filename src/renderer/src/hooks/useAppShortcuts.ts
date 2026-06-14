@@ -57,9 +57,6 @@ export function useAppShortcuts({
       } else if (mod && event.key.toLowerCase() === "e") {
         event.preventDefault();
         togglePanel("warp");
-      } else if (mod && event.key.toLowerCase() === "g") {
-        event.preventDefault();
-        togglePanel("fray");
       } else if (mod && event.key.toLowerCase() === "i") {
         event.preventDefault();
         togglePanel("tailor");

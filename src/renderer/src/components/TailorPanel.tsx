@@ -201,7 +201,7 @@ export function TailorPanel({
             <h3 className="tailor-blockers-title">
               <TriangleAlert size={13} aria-hidden="true" />
               着手前に人間が決めること
-              <span className="fray-section-count">{plan.blockers.length}</span>
+              <span className="panel-section-count">{plan.blockers.length}</span>
             </h3>
             <ul>
               {plan.blockers.map((blocker, index) => (

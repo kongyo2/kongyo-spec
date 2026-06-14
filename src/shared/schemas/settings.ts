@@ -27,24 +27,6 @@ export const ToastDurationSchema = z.enum(["short", "normal", "long"]);
 export type ToastDuration = z.infer<typeof ToastDurationSchema>;
 export const TOAST_DURATION_MS: Record<ToastDuration, number> = { short: 2500, normal: 4000, long: 7000 };
 
-export const FrayKindsSchema = z.object({
-  syntax: z.boolean(),
-  link: z.boolean(),
-  structure: z.boolean(),
-  term: z.boolean(),
-  vague: z.boolean(),
-  pending: z.boolean(),
-});
-export type FrayKinds = z.infer<typeof FrayKindsSchema>;
-export const DEFAULT_FRAY_KINDS: FrayKinds = {
-  syntax: true,
-  link: true,
-  structure: true,
-  term: true,
-  vague: true,
-  pending: true,
-};
-
 export const AUTO_SNAPSHOT_MINUTES = { min: 1, max: 120, default: 5 } as const;
 export const MAX_SNAPSHOTS = { min: 10, max: 1000, default: 80 } as const;
 export const ASSIST_TIMEOUT_SEC = { min: 10, max: 600, default: 120 } as const;
@@ -125,8 +107,6 @@ export const SettingsSchema = z.object({
   autosaveDelay: AutosaveDelaySchema.default("normal"),
   toastDuration: ToastDurationSchema.default("normal"),
   restoreLastSpec: z.boolean().default(true),
-  frayAutoCheck: z.boolean().default(true),
-  frayKinds: FrayKindsSchema.default(DEFAULT_FRAY_KINDS),
   autoSnapshotMinutes: AutoSnapshotMinutesSchema.default(AUTO_SNAPSHOT_MINUTES.default),
   maxSnapshotsPerSpec: MaxSnapshotsSchema.default(MAX_SNAPSHOTS.default),
   assistTimeoutSec: AssistTimeoutSecSchema.default(ASSIST_TIMEOUT_SEC.default),
@@ -274,8 +254,6 @@ export const SetSettingInputSchema = z.discriminatedUnion("key", [
   z.object({ key: z.literal("autosaveDelay"), value: AutosaveDelaySchema }),
   z.object({ key: z.literal("toastDuration"), value: ToastDurationSchema }),
   z.object({ key: z.literal("restoreLastSpec"), value: z.boolean() }),
-  z.object({ key: z.literal("frayAutoCheck"), value: z.boolean() }),
-  z.object({ key: z.literal("frayKinds"), value: FrayKindsSchema }),
   z.object({ key: z.literal("autoSnapshotMinutes"), value: AutoSnapshotMinutesSchema }),
   z.object({ key: z.literal("maxSnapshotsPerSpec"), value: MaxSnapshotsSchema }),
   z.object({ key: z.literal("assistTimeoutSec"), value: AssistTimeoutSecSchema }),

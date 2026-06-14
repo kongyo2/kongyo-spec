@@ -25,7 +25,6 @@ const api: KongyoApi = {
   setLlmRouting: (mainId, fallbackIds) => ipcRenderer.invoke("llm:set-routing", { mainId, fallbackIds }),
   resetLlmRouting: () => ipcRenderer.invoke("llm:reset-routing"),
   reviewSpec: (content) => ipcRenderer.invoke("assist:review", { content }),
-  auditSpec: (content) => ipcRenderer.invoke("assist:audit", { content }),
   weaveSpec: (input) => ipcRenderer.invoke("assist:weave", input),
   warpSpec: (input) => ipcRenderer.invoke("assist:warp", input),
   prismSpec: (input) => ipcRenderer.invoke("assist:prism", input),

@@ -1,6 +1,5 @@
 import type { AutocompleteRequest, AutocompleteResponse } from "./autocomplete";
 import type {
-  AssistAudit,
   AssistKind,
   AssistPrism,
   AssistReview,
@@ -66,7 +65,6 @@ export interface KongyoApi {
   setLlmRouting(mainId: string | null, fallbackIds: string[]): Promise<RendererSettings>;
   resetLlmRouting(): Promise<RendererSettings>;
   reviewSpec(content: string): Promise<AssistReview>;
-  auditSpec(content: string): Promise<AssistAudit>;
   weaveSpec(input: WeaveSpecInput): Promise<AssistWeave>;
   warpSpec(input: WarpSpecInput): Promise<AssistWarp>;
   prismSpec(input: PrismSpecInput): Promise<AssistPrism>;
