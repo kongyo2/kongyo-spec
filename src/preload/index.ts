@@ -28,6 +28,7 @@ const api: KongyoApi = {
   auditSpec: (content) => ipcRenderer.invoke("assist:audit", { content }),
   weaveSpec: (input) => ipcRenderer.invoke("assist:weave", input),
   warpSpec: (input) => ipcRenderer.invoke("assist:warp", input),
+  prismSpec: (input) => ipcRenderer.invoke("assist:prism", input),
   tailorSpec: (content) => ipcRenderer.invoke("assist:tailor", { content }),
   cancelAssist: (kind) => ipcRenderer.invoke("assist:cancel", { kind }),
   autocomplete: (input) => ipcRenderer.invoke("assist:autocomplete", input),

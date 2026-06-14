@@ -15,6 +15,7 @@ import {
   Spool,
   Sun,
   Telescope,
+  Triangle,
 } from "lucide-react";
 import type { EditorViewMode } from "@shared/schemas/settings";
 import type { ThemePreference } from "../lib/theme";
@@ -35,6 +36,7 @@ interface ToolbarProps {
   lensAvailable: boolean;
   loomOpen: boolean;
   warpOpen: boolean;
+  prismOpen: boolean;
   frayOpen: boolean;
   tailorOpen: boolean;
   selvageOpen: boolean;
@@ -47,6 +49,7 @@ interface ToolbarProps {
   onToggleLens: () => void;
   onToggleLoom: () => void;
   onToggleWarp: () => void;
+  onTogglePrism: () => void;
   onToggleFray: () => void;
   onToggleTailor: () => void;
   onToggleSelvage: () => void;
@@ -84,6 +87,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     lensAvailable,
     loomOpen,
     warpOpen,
+    prismOpen,
     frayOpen,
     tailorOpen,
     selvageOpen,
@@ -96,6 +100,7 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
     onToggleLens,
     onToggleLoom,
     onToggleWarp,
+    onTogglePrism,
     onToggleFray,
     onToggleTailor,
     onToggleSelvage,
@@ -209,6 +214,18 @@ export function Toolbar(props: ToolbarProps): React.ReactElement {
         >
           <DraftingCompass size={14} aria-hidden="true" />
           <span className="toggle-text">Warp</span>
+        </button>
+        <button
+          type="button"
+          className={`icon-button lens-toggle${prismOpen ? " active" : ""}`}
+          onClick={onTogglePrism}
+          disabled={!lensAvailable}
+          aria-pressed={prismOpen}
+          aria-label="Prism — 抽象度を分光する (Ctrl/Cmd+U)"
+          title="抽象度を分光する — 選んだ一節を抽象化・具体化の複数案へ"
+        >
+          <Triangle size={14} aria-hidden="true" />
+          <span className="toggle-text">Prism</span>
         </button>
         <button
           type="button"

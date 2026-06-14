@@ -3,6 +3,7 @@ import { parseAutocompleteRequest } from "@shared/autocomplete";
 import {
   parseAuditSpecInput,
   parseCancelAssistInput,
+  parsePrismSpecInput,
   parseReviewSpecInput,
   parseTailorSpecInput,
   parseWarpSpecInput,
@@ -29,7 +30,7 @@ import {
   parseUpsertLlmProfileInput,
   toRendererSettings,
 } from "@shared/schemas/settings";
-import { auditSpec, cancelAssist, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
+import { auditSpec, cancelAssist, prismSpec, reviewSpec, tailorSpec, warpSpec, weaveSpec } from "./assist";
 import { autocomplete, cancelAutocomplete, resetAutocompleteBackoff } from "./autocomplete";
 import {
   deleteSnapshot,
@@ -109,6 +110,8 @@ export function registerIpc(): void {
   ipcMain.handle("assist:weave", (_event, raw: unknown) => weaveSpec(parseWeaveSpecInput(raw)));
 
   ipcMain.handle("assist:warp", (_event, raw: unknown) => warpSpec(parseWarpSpecInput(raw)));
+
+  ipcMain.handle("assist:prism", (_event, raw: unknown) => prismSpec(parsePrismSpecInput(raw)));
 
   ipcMain.handle("assist:tailor", (_event, raw: unknown) => tailorSpec(parseTailorSpecInput(raw).content));
 
