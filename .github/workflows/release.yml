@@ -1,8 +1,8 @@
 name: Release
 
 # 本番リリース用ワークフロー。
-# semver タグ (例: v0.1.0) を push すると起動し、品質ゲート → Windows ビルド →
-# 安定版 GitHub Release の発行までを自動化する。
+# semver タグ (例: v0.1.0) を push すると起動し、品質ゲート → Windows / macOS / Linux の
+# 各ビルド → 安定版 GitHub Release の発行までを自動化する。
 # プレリリースのタグ (例: v0.1.0-rc.1) は GitHub 上でも pre-release として公開される。
 # 検証用のアドホックなビルドが欲しいときは windows-build.yml を使うこと。
 
@@ -30,7 +30,6 @@ concurrency:
 jobs:
   # ── 品質ゲート ────────────────────────────────────────────────
   # タグが指す commit が lint / format / typecheck を満たすことを保証する。
-  # ここが失敗するとビルド・公開へは進まない。
   verify:
     name: ${{ matrix.task }}
     runs-on: ubuntu-latest
@@ -56,22 +55,24 @@ jobs:
 
       - run: npm run ${{ matrix.script }}
 
-  # ── ビルド & 公開 ─────────────────────────────────────────────
-  release:
-    name: Build & publish Windows release
-    needs: verify
-    runs-on: windows-latest
-    permissions:
-      contents: write
+  # ── リリースメタデータの解決 ──────────────────────────────────
+  # タグ／バージョンの整合性をビルド前に検証し、tag・version・prerelease を出力する。
+  # ここで失敗すれば、高コストな各プラットフォームのビルドは走らない。
+  prepare:
+    name: Resolve release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Resolve release metadata
+      - name: Resolve metadata
         id: meta
         shell: bash
         env:
@@ -118,32 +119,92 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Resolved release: tag=$tag version=$pkgver prerelease=$prerelease"
 
+  # ── ビルド (Windows / macOS / Linux) ─────────────────────────
+  build:
+    name: Build ${{ matrix.name }}
+    needs: [verify, prepare]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            script: build:win
+            artifacts: dist/*.exe
+          - name: macOS (arm64 + x64)
+            os: macos-latest
+            script: build:mac
+            artifacts: dist/*.dmg
+          - name: Linux x64
+            os: ubuntu-latest
+            script: build:linux
+            artifacts: dist/*.AppImage
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
       - run: npm ci
 
-      - name: Build Windows installer + portable exe
-        run: npm run build:win
+      - name: Build distributables
+        run: npm run ${{ matrix.script }}
+        env:
+          # 証明書のない CI では macOS のコード署名を試みない。
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Upload build artifacts
+      - name: Upload distributables
         uses: actions/upload-artifact@v4
         with:
-          name: kongyo-spec-windows-x64
-          path: dist/*.exe
+          name: dist-${{ matrix.os }}
+          path: ${{ matrix.artifacts }}
           if-no-files-found: error
+
+  # ── 公開 ──────────────────────────────────────────────────────
+  # 全プラットフォームの成果物を集約し、GitHub Release を 1 度だけ発行する。
+  release:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all distributables
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: dist-*
+          merge-multiple: true
 
       - name: Publish GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          files=(artifacts/*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::No build artifacts were found to publish."
+            exit 1
+          fi
           # タグ起動時はタグが既存なので --target は無視される。
           # 手動起動時は --target で現在の commit にタグを新規作成する。
           flags=(--generate-notes --target "$GITHUB_SHA" --title "$TAG")
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
-          gh release create "$TAG" dist/*.exe "${flags[@]}"
+          gh release create "$TAG" "${files[@]}" "${flags[@]}"
           {
             echo "### 🚀 Release published"
             echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"
+            echo ""
+            echo "| Asset |"
+            echo "| --- |"
+            for f in "${files[@]}"; do echo "| \`$(basename "$f")\` |"; done
           } >> "$GITHUB_STEP_SUMMARY"
