@@ -1112,7 +1112,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
         },
       )
       .finally(() => {
-        prismRunningRef.current = false;
+        if (prismTokenRef.current === token) prismRunningRef.current = false;
       });
   }, []);
 
@@ -1166,6 +1166,7 @@ export function App({ initialSettings }: AppProps): React.ReactElement {
 
   const cancelPrism = useCallback((): void => {
     prismTokenRef.current += 1;
+    prismRunningRef.current = false;
     setPrismSession((prev) =>
       prev.variants.length > 0
         ? { ...prev, phase: "done", direction: prismShownDirRef.current, error: null }
