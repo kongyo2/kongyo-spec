@@ -2,6 +2,12 @@
 
 AI 駆動開発のためのデスクトップ Markdown 仕様エディタ。1 つの仕様書を見出し単位の「ページ」に分割して扱い、GFM・コードハイライト・数式・図をその場でプレビューしながら、LLM で執筆・レビュー・計画づくりを支援します。
 
+<p align="center">
+  <img src="./docs/screenshot.png" alt="Kongyo Spec の分割ビュー。左でソースを編集し、右で Mermaid 図・Shiki コードハイライト・KaTeX 数式をライブプレビュー。左サイドバーに見出し単位の仮想ページ、右に On this page アウトライン。" width="900">
+</p>
+
+<p align="center"><sub>分割ビュー — 左でソースを編集し、右で GFM・Mermaid 図・コードハイライト・数式をライブプレビュー</sub></p>
+
 ## 特徴
 
 - **リッチプレビュー** — GFM、Shiki（コードハイライト）、KaTeX（数式）、Mermaid（図）に対応。ソース / プレビュー / 分割の 3 モード。
